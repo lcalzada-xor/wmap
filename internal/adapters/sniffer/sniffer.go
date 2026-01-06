@@ -1,0 +1,311 @@
+package sniffer
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"runtime"
+	"sync"
+	"time"
+
+	"github.com/google/gopacket"
+	"github.com/google/gopacket/pcap"
+	"github.com/google/gopacket/pcapgo"
+	"github.com/lcalzada-xor/wmap/geo"
+	"github.com/lcalzada-xor/wmap/internal/core/domain"
+)
+
+// SnifferConfig holds configuration for the Sniffer.
+type SnifferConfig struct {
+	Interface string
+	PcapPath  string
+	Debug     bool
+	// Channels is the list of channels to hop on. If empty, hopper is disabled or default is used?
+	// Plan says we pass specific channels.
+	Channels  []int
+	DwellTime int // milliseconds
+}
+
+// Sniffer handles packet capture and parsing.
+type Sniffer struct {
+	Config     SnifferConfig
+	Output     chan<- domain.Device
+	Alerts     chan<- domain.Alert
+	handler    *PacketHandler
+	Injector   *Injector
+	Hopper     *ChannelHopper
+	pcapWriter *pcapgo.Writer
+	pcapFile   *os.File
+	// Capability caching
+	capabilitiesCache *domain.InterfaceCapabilities
+	capsCacheMu       sync.RWMutex
+}
+
+// New creates a new Sniffer instance.
+func New(config SnifferConfig, out chan<- domain.Device, alerts chan<- domain.Alert, loc geo.Provider) *Sniffer {
+	inj, err := NewInjector(config.Interface)
+	if err != nil {
+		log.Printf("Warning: Failed to initialize injector: %v", err)
+	}
+
+	s := &Sniffer{
+		Config:   config,
+		Output:   out,
+		Alerts:   alerts,
+		handler:  NewPacketHandler(loc, config.Debug),
+		Injector: inj,
+	}
+
+	// Initialize Hopper if channels are provided
+	if len(config.Channels) > 0 {
+		dwell := time.Duration(config.DwellTime) * time.Millisecond
+		if dwell == 0 {
+			dwell = 300 * time.Millisecond
+		}
+		s.Hopper = NewHopper(config.Interface, config.Channels, dwell)
+	}
+
+	return s
+}
+
+// Scan performs an active scan by broadcasting probe requests.
+func (s *Sniffer) Scan(target string) error {
+	if s.Injector == nil {
+		return fmt.Errorf("active injection not available (check permissions/interface)")
+	}
+	log.Printf("Broadcasting Probe Request for target: '%s'", target)
+	return s.Injector.BroadcastProbe(target)
+}
+
+// Start begins capturing packets using a worker pool.
+func (s *Sniffer) Start(ctx context.Context) error {
+	// Open device
+	handle, err := pcap.OpenLive(s.Config.Interface, 2500, true, pcap.BlockForever)
+	if err != nil {
+		return err
+	}
+	defer handle.Close()
+
+	// Set filter
+	if err := handle.SetBPFFilter("type mgt subtype probe-req or type mgt subtype beacon or type data"); err != nil {
+		return err
+	}
+
+	// Initialize PCAP Writer if path is set
+	if s.Config.PcapPath != "" {
+		f, err := os.Create(s.Config.PcapPath)
+		if err != nil {
+			log.Printf("Failed to create PCAP file: %v", err)
+		} else {
+			s.pcapFile = f
+			s.pcapWriter = pcapgo.NewWriter(f)
+			// Write file header with correct LinkType
+			if err := s.pcapWriter.WriteFileHeader(65536, handle.LinkType()); err != nil {
+				log.Printf("Failed to write PCAP header: %v", err)
+			}
+			log.Printf("Packet capture enabled. Saving to %s", s.Config.PcapPath)
+		}
+	}
+
+	defer func() {
+		if s.pcapFile != nil {
+			s.pcapFile.Close()
+		}
+	}()
+
+	log.Printf("Starting Enterprise Sniffer on %s...", s.Config.Interface)
+
+	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
+	// Use a buffer for the packet channel to absorb bursts
+	packets := packetSource.Packets()
+
+	// Worker Pool setup
+	numWorkers := runtime.NumCPU()
+	if numWorkers < 2 {
+		numWorkers = 2
+	}
+	packetChan := make(chan gopacket.Packet, 1000)
+	var wg sync.WaitGroup
+
+	log.Printf("Starting %d packet processing workers", numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go s.worker(ctx, &wg, packetChan)
+	}
+
+	// Packet dispatcher loop
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("Sniffer stopping...")
+			close(packetChan)
+			wg.Wait()
+			return nil
+		case packet, ok := <-packets:
+			if !ok {
+				close(packetChan)
+				wg.Wait()
+				return nil
+			}
+
+			// Save to PCAP synchronously to preserve order in file (optional, could be async too but simpler here)
+			if s.pcapWriter != nil {
+				// We ignore errors here to keep flow going
+				_ = s.pcapWriter.WritePacket(packet.Metadata().CaptureInfo, packet.Data())
+			}
+
+			// Non-blocking send or drop if full?
+			// Blocking is safer for memory, dropping is better for real-time.
+			// Let's block for now as we want to capture everything if possible,
+			// but we check context to avoid deadlocks on exit.
+			select {
+			case packetChan <- packet:
+			case <-ctx.Done():
+				close(packetChan)
+				wg.Wait()
+				return nil
+			}
+		}
+	}
+}
+
+// worker processes packets from the channel.
+func (s *Sniffer) worker(ctx context.Context, wg *sync.WaitGroup, packets <-chan gopacket.Packet) {
+	defer wg.Done()
+	for p := range packets {
+		// Recover inside worker to prevent one bad packet from crashing the whole sniffer
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("Recovered from panic in packet worker: %v", r)
+				}
+			}()
+
+			device, alert := s.handler.HandlePacket(p)
+			if device != nil {
+				select {
+				case s.Output <- *device:
+				case <-ctx.Done():
+					return
+				}
+			}
+			if alert != nil {
+				select {
+				case s.Alerts <- *alert:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+	}
+}
+
+// SetChannels updates the hopper's channel list.
+func (s *Sniffer) SetChannels(channels []int) {
+	if s.Hopper != nil {
+		s.Hopper.SetChannels(channels)
+	}
+}
+
+// GetChannels returns the current hopper channel list.
+func (s *Sniffer) GetChannels() []int {
+	if s.Hopper != nil {
+		return s.Hopper.GetChannels()
+	}
+	return []int{}
+}
+
+// GetInterfaces returns the list of managed interfaces.
+func (s *Sniffer) GetInterfaces() []string {
+	return []string{s.Config.Interface}
+}
+
+// GetInterfaceChannels returns the channel list for a specific interface.
+func (s *Sniffer) GetInterfaceChannels(iface string) []int {
+	if s.Config.Interface == iface && s.Hopper != nil {
+		return s.Hopper.GetChannels()
+	}
+	return []int{}
+}
+
+// SetInterfaceChannels updates the channels for a specific interface.
+func (s *Sniffer) SetInterfaceChannels(iface string, channels []int) {
+	if s.Config.Interface != iface {
+		return
+	}
+
+	// Case 1: Empty channels provided -> Stop Hopper if active
+	if len(channels) == 0 {
+		if s.Hopper != nil {
+			log.Printf("Stopping hopper on %s (no channels selected)", iface)
+			s.Hopper.Stop()
+			s.Hopper = nil
+		}
+		return
+	}
+
+	// Case 2: Hopper exists -> Update channels
+	if s.Hopper != nil {
+		s.Hopper.SetChannels(channels)
+		return
+	}
+
+	// Case 3: Hopper doesn't exist but channels provided -> Start new Hopper
+	log.Printf("Starting new hopper on %s with channels: %v", iface, channels)
+	dwell := time.Duration(s.Config.DwellTime) * time.Millisecond
+	if dwell == 0 {
+		dwell = 300 * time.Millisecond
+	}
+	s.Hopper = NewHopper(iface, channels, dwell)
+	// Start in goroutine
+	go s.Hopper.Start()
+}
+
+// GetInterfaceDetails returns detailed info for this sniffer's interface.
+func (s *Sniffer) GetInterfaceDetails() []domain.InterfaceInfo {
+	// Check cache first
+	s.capsCacheMu.RLock()
+	if s.capabilitiesCache != nil {
+		caps := *s.capabilitiesCache
+		s.capsCacheMu.RUnlock()
+		return []domain.InterfaceInfo{{
+			Name:            s.Config.Interface,
+			Capabilities:    caps,
+			CurrentChannels: s.GetChannels(),
+		}}
+	}
+	s.capsCacheMu.RUnlock()
+
+	// Fetch capabilities from hardware
+	bandsMap, supportedChans, err := GetInterfaceCapabilities(s.Config.Interface)
+	if err != nil {
+		log.Printf("Error getting capabilities for %s: %v", s.Config.Interface, err)
+		// Return basic info without capabilities
+		return []domain.InterfaceInfo{{
+			Name:            s.Config.Interface,
+			CurrentChannels: s.GetChannels(),
+		}}
+	}
+
+	var bands []string
+	for b := range bandsMap {
+		bands = append(bands, b)
+	}
+
+	caps := domain.InterfaceCapabilities{
+		SupportedBands:    bands,
+		SupportedChannels: supportedChans,
+	}
+
+	// Cache the result
+	s.capsCacheMu.Lock()
+	s.capabilitiesCache = &caps
+	s.capsCacheMu.Unlock()
+
+	return []domain.InterfaceInfo{{
+		Name:            s.Config.Interface,
+		Capabilities:    caps,
+		CurrentChannels: s.GetChannels(),
+	}}
+}

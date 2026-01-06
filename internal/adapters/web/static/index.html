@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WMAP // Enterprise WiFi Intel</title>
+
+    <!-- Fonts (iOS 19 Style) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@400;600;700&display=swap"
+        rel="stylesheet">
+
+    <!-- Icons & Libs -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css"
+        integrity="sha512-z3gLpd7yknf1YoNbCzqRKc4qyor8gaKU1qmn+CShxbuBusANI9QpRohGBreCFkKxLhei6S9CQXFEbbKuqLg0DA=="
+        crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+
+    <!-- App Styles -->
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <!-- Visualization Layers -->
+    <canvas id="heatmap-layer"></canvas>
+    <div id="mynetwork"></div>
+    <canvas id="radar-layer"></canvas>
+
+    <!-- Dynamic Island (iOS Status Bar) -->
+    <div id="dynamic-island-container">
+        <div id="dynamic-island" class="glass">
+            <div id="island-content">
+                <i class="fas fa-wifi"></i>
+                <span id="status">INITIALIZING...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main HUD Panel -->
+    <div class="hud-panel info-panel glass">
+        <h3>WMAP Intel</h3>
+
+        <!-- Advanced Search Module -->
+        <div class="search-module">
+            <!-- Search Bar with Autocomplete -->
+            <div class="search-bar-advanced">
+                <i class="fas fa-search"></i>
+                <input type="text" id="node-search" placeholder="Search MAC, SSID, Vendor, Alias..." autocomplete="off">
+                <button id="btn-clear-search" class="icon-btn" title="Clear">
+                    <i class="fas fa-times"></i>
+                </button>
+                <button id="btn-toggle-filters" class="icon-btn" title="Advanced Filters">
+                    <i class="fas fa-sliders-h"></i>
+                    <span class="badge" id="active-filters-count">0</span>
+                </button>
+            </div>
+
+            <!-- Autocomplete Dropdown -->
+            <div id="search-suggestions" class="suggestions-dropdown">
+                <!-- Populated by JS -->
+            </div>
+
+            <!-- Active Filter Tags -->
+            <div id="filter-tags" class="filter-tags">
+                <!-- Chips dinámicos: "WPA2 ×", "5GHz ×", etc. -->
+            </div>
+        </div>
+
+        <!-- Advanced Filters Panel (Collapsible) -->
+        <div id="advanced-filters-panel" class="advanced-filters glass" style="display:none;">
+
+            <!-- Quick Presets -->
+            <div class="filter-section">
+                <h4><i class="fas fa-bolt"></i> Quick Filters</h4>
+                <div class="preset-buttons">
+                    <!-- Populated by FilterUI -->
+                </div>
+            </div>
+
+            <!-- Security Filter -->
+            <div class="filter-section">
+                <h4><i class="fas fa-shield-alt"></i> Security</h4>
+                <div class="checkbox-group">
+                    <label><input type="checkbox" class="filter-security" value="WPA3"> WPA3</label>
+                    <label><input type="checkbox" class="filter-security" value="WPA2"> WPA2</label>
+                    <label><input type="checkbox" class="filter-security" value="WEP"> WEP</label>
+                    <label><input type="checkbox" class="filter-security" value="OPEN"> Open</label>
+                </div>
+            </div>
+
+            <!-- Frequency Filter -->
+            <div class="filter-section">
+                <h4><i class="fas fa-broadcast-tower"></i> Frequency</h4>
+                <div class="checkbox-group">
+                    <label><input type="checkbox" class="filter-frequency" value="2.4"> 2.4 GHz</label>
+                    <label><input type="checkbox" class="filter-frequency" value="5"> 5 GHz</label>
+                </div>
+            </div>
+
+            <!-- Vendor Filter -->
+            <div class="filter-section">
+                <h4><i class="fas fa-industry"></i> Vendor</h4>
+                <select id="filter-vendor" multiple class="multi-select">
+                    <!-- Populated dynamically from detected vendors -->
+                </select>
+            </div>
+
+            <!-- Signal Range -->
+            <div class="filter-section">
+                <h4><i class="fas fa-signal"></i> Signal Range</h4>
+                <div class="range-inputs">
+                    <input type="number" id="rssi-min" value="-100" min="-100" max="0" placeholder="Min">
+                    <span>to</span>
+                    <input type="number" id="rssi-max" value="0" min="-100" max="0" placeholder="Max">
+                    <span>dBm</span>
+                </div>
+            </div>
+
+            <!-- Time Range -->
+            <div class="filter-section">
+                <h4><i class="fas fa-clock"></i> Activity Time</h4>
+                <div class="time-filter">
+                    <label>Last Seen:</label>
+                    <select id="time-range-preset">
+                        <option value="">Any time</option>
+                        <option value="5m">Last 5 minutes</option>
+                        <option value="15m">Last 15 minutes</option>
+                        <option value="1h">Last hour</option>
+                        <option value="24h">Last 24 hours</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Traffic Filter -->
+            <div class="filter-section">
+                <h4><i class="fas fa-exchange-alt"></i> Traffic</h4>
+                <div class="traffic-inputs">
+                    <label>Min TX: <input type="number" id="traffic-min-tx" placeholder="0 bytes"></label>
+                    <label>Min RX: <input type="number" id="traffic-min-rx" placeholder="0 bytes"></label>
+                    <label>Min Packets: <input type="number" id="traffic-min-packets" placeholder="0"></label>
+                </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="filter-actions">
+                <button id="btn-reset-filters" class="action-btn-secondary">
+                    <i class="fas fa-undo"></i> Reset All
+                </button>
+                <button id="btn-save-preset" class="action-btn-secondary">
+                    <i class="fas fa-save"></i> Save Preset
+                </button>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label><input type="checkbox" id="filter-ap" checked> Show Access Points</label>
+            <label><input type="checkbox" id="filter-sta" checked> Show Stations</label>
+
+            <!-- RSSI Filter (Legacy) -->
+            <div style="margin-top: 15px; margin-bottom:15px;">
+                <label for="rssi-slider"
+                    style="font-size:0.9em; color:var(--accent-color); display:flex; justify-content:space-between; margin-bottom:5px;">
+                    <span>Min Signal:</span> <span id="rssi-val" style="font-weight:bold">-100</span> dBm
+                </label>
+                <input type="range" id="rssi-slider" min="-100" max="-30" value="-100" step="5" style="width:100%">
+            </div>
+
+            <div style="margin-top: 10px; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 10px;">
+                <label><input type="checkbox" id="toggle-grid" checked> <i class="fas fa-border-all"
+                        style="margin-right:8px"></i> Tactical Grid</label>
+                <label><input type="checkbox" id="toggle-trails" checked> <i class="fas fa-wind"
+                        style="margin-right:8px"></i> Motion Trails</label>
+                <label><input type="checkbox" id="toggle-heatmap"> <i class="fas fa-fire-alt"
+                        style="margin-right:8px"></i> Signal Heatmap</label>
+                <label><input type="checkbox" id="toggle-clustering"> <i class="fas fa-project-diagram"
+                        style="margin-right:8px"></i> Group Stations</label>
+                <label><input type="checkbox" id="toggle-physics" checked> <i class="fas fa-atom"
+                        style="margin-right:8px"></i> Physics Engine</label>
+                <label><input type="checkbox" id="toggle-persist" checked> <i class="fas fa-history"
+                        style="margin-right:8px"></i> Persist Findings</label>
+            </div>
+
+            <!-- Session Management -->
+            <div style="margin-top: 20px; border-top: 1px solid var(--panel-border); padding-top: 15px;">
+                <h4
+                    style="font-size: 0.75em; color:var(--text-secondary); margin-bottom: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
+                    SESSION MGMT</h4>
+                <button id="btn-clear-session" class="action-btn-secondary"
+                    style="width:100%; padding:10px; cursor:pointer; font-size:0.9em;">
+                    <i class="fas fa-trash-alt"></i> Clear Map / Flush
+                </button>
+            </div>
+
+            <!-- Channel Selection Button -->
+            <div style="margin-top: 20px; border-top: 1px solid var(--panel-border); padding-top: 15px;">
+                <button id="btn-channel-config" class="action-btn-secondary"
+                    style="width:100%; padding:10px; cursor:pointer; font-size:0.9em;">
+                    <i class="fas fa-broadcast-tower"></i> Channel Configuration
+                </button>
+            </div>
+
+            <button id="btn-active-scan" class="action-btn"
+                style="width:100%; margin-top:15px; background:var(--danger-color); color:white; border:none; padding:12px; cursor:pointer; font-family:var(--font-head);">
+                <i class="fas fa-radar"></i> ACTIVE SCAN
+            </button>
+        </div>
+
+        <div style="border-top: 1px solid var(--panel-border); padding-top: 20px; margin-top: 20px;">
+            <div class="legend-item">
+                <span class="legend-icon" style="color:var(--accent-color)"><i class="fas fa-server"></i></span> Network
+            </div>
+            <div class="legend-item">
+                <span class="legend-icon" style="color:var(--success-color)"><i class="fas fa-wifi"></i></span>
+                Access Point (<span id="stat-ap">0</span>)
+            </div>
+            <div class="legend-item">
+                <span class="legend-icon" style="color:var(--danger-color)"><i
+                        class="fas fa-mobile-screen-button"></i></span>
+                Station (<span id="stat-sta">0</span>)
+            </div>
+        </div>
+    </div>
+
+    <!-- Node Details Side Panel -->
+
+
+    <!-- Zoom/Nav Controls -->
+    <div class="zoom-controls">
+        <button id="zoom-in" class="zoom-btn" title="Zoom In"><i class="fas fa-plus"></i></button>
+        <button id="zoom-fit" class="zoom-btn" title="Fit All"><i class="fas fa-compress-arrows-alt"></i></button>
+        <button id="zoom-out" class="zoom-btn" title="Zoom Out"><i class="fas fa-minus"></i></button>
+    </div>
+
+    <!-- Custom Modal (for Alias) -->
+    <div id="custom-modal" class="custom-modal">
+        <div class="modal-content">
+            <h3 id="modal-title">TITLE</h3>
+            <input type="text" id="modal-input" placeholder="Enter value...">
+            <div class="modal-buttons">
+                <button id="btn-modal-cancel">Cancel</button>
+                <button id="btn-modal-confirm">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Session Selection Modal -->
+    <div id="session-modal" class="custom-modal" style="background: rgba(0,0,0,0.85); backdrop-filter: blur(10px);">
+        <div class="modal-content"
+            style="border: 1px solid var(--accent-color); box-shadow: 0 0 20px rgba(0, 240, 255, 0.2);">
+            <h3
+                style="margin-bottom: 20px; color: var(--accent-color); font-family: var(--font-head); letter-spacing: 1px;">
+                <i class="fas fa-database"></i> SELECT SESSION
+            </h3>
+
+            <div style="margin-bottom: 25px;">
+                <label style="display:block; margin-bottom:10px; font-size:0.9em; color:var(--text-secondary);">Load
+                    Existing Session</label>
+                <div style="display: flex; gap: 10px;">
+                    <select id="session-select"
+                        style="flex: 1; padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid var(--panel-border); color: white; border-radius: 6px;">
+                        <option value="">-- Select Session --</option>
+                    </select>
+                    <button id="btn-session-load" class="action-btn" style="padding: 10px 20px;">LOAD</button>
+                </div>
+            </div>
+
+            <div style="position: relative; margin: 20px 0; border-top: 1px dashed rgba(255,255,255,0.2);">
+                <span
+                    style="position: absolute; top: -10px; left: 50%; transform: translateX(-50%); background: #000; padding: 0 10px; color: var(--text-secondary); font-size: 0.8em;">OR</span>
+            </div>
+
+            <div>
+                <label style="display:block; margin-bottom:10px; font-size:0.9em; color:var(--text-secondary);">Create
+                    New Session</label>
+                <div style="display: flex; gap: 10px;">
+                    <input type="text" id="session-new-name" placeholder="Enter session name..."
+                        style="flex: 1; padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid var(--panel-border); color: white; border-radius: 6px;">
+                    <button id="btn-session-create" class="action-btn-secondary"
+                        style="padding: 10px 20px; background: var(--success-color); color: black; border: none;">CREATE</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Area -->
+    <div id="notification-area"></div>
+
+    <!-- Channel Configuration Modal -->
+    <div id="channel-modal" class="custom-modal">
+        <div class="modal-content" style="max-width: 600px; max-height: 80vh; overflow-y: auto;">
+            <h3 style="margin-bottom: 20px;">
+                <i class="fas fa-broadcast-tower"></i> Channel Configuration
+            </h3>
+
+            <div style="margin-bottom: 20px; display: flex; gap: 10px;">
+                <button id="btn-select-all-channels" class="action-btn-secondary" style="flex: 1; padding: 10px;">
+                    <i class="fas fa-check-double"></i> Select All
+                </button>
+                <button id="btn-select-none-channels" class="action-btn-secondary" style="flex: 1; padding: 10px;">
+                    <i class="fas fa-times"></i> Clear All
+                </button>
+            </div>
+
+            <!-- 2.4 GHz Channels -->
+            <div style="margin-bottom: 25px;">
+                <h4 style="font-size: 0.9em; color: var(--accent-color); margin-bottom: 12px; font-weight: 600;">
+                    <i class="fas fa-wifi"></i> 2.4 GHz Channels (1-13)
+                </h4>
+                <div id="channels-24ghz" style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px;">
+                    <!-- Channels 1-13 will be populated by JS -->
+                </div>
+            </div>
+
+            <!-- 5 GHz Channels -->
+            <div style="margin-bottom: 25px;">
+                <h4 style="font-size: 0.9em; color: var(--accent-color); margin-bottom: 12px; font-weight: 600;">
+                    <i class="fas fa-signal"></i> 5 GHz Channels
+                </h4>
+
+                <div style="margin-bottom: 15px;">
+                    <div style="font-size: 0.75em; color: var(--text-secondary); margin-bottom: 6px;">UNII-1 (36-48)
+                    </div>
+                    <div id="channels-5ghz-unii1"
+                        style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px;">
+                        <!-- 36, 40, 44, 48 -->
+                    </div>
+                </div>
+
+                <div style="margin-bottom: 15px;">
+                    <div style="font-size: 0.75em; color: var(--text-secondary); margin-bottom: 6px;">UNII-2 (52-64)
+                    </div>
+                    <div id="channels-5ghz-unii2"
+                        style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px;">
+                        <!-- 52, 56, 60, 64 -->
+                    </div>
+                </div>
+
+                <div style="margin-bottom: 15px;">
+                    <div style="font-size: 0.75em; color: var(--text-secondary); margin-bottom: 6px;">UNII-2 Extended
+                        (100-140)</div>
+                    <div id="channels-5ghz-unii2ext"
+                        style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 12px;">
+                        <!-- 100-140 -->
+                    </div>
+                </div>
+
+                <div>
+                    <div style="font-size: 0.75em; color: var(--text-secondary); margin-bottom: 6px;">UNII-3 (149-165)
+                    </div>
+                    <div id="channels-5ghz-unii3"
+                        style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px;">
+                        <!-- 149, 153, 157, 161, 165 -->
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-buttons">
+                <button id="btn-channel-modal-close">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Context Menu -->
+    <div id="context-menu" class="context-menu">
+        <div class="menu-item" data-action="focus"><i class="fas fa-crosshairs"></i> Focus Node</div>
+        <div class="menu-item" data-action="alias"><i class="fas fa-tag"></i> Rename / Alias</div>
+        <div class="menu-item" data-action="copy"><i class="fas fa-copy"></i> Copy MAC</div>
+        <div class="menu-item" data-action="details"><i class="fas fa-info-circle"></i> Details</div>
+        <div class="menu-item" data-action="deauth"><i class="fas fa-bolt"></i> Deauth Attack</div>
+    </div>
+
+    <!-- App Logic -->
+    <script type="module" src="js/main.js"></script>
+
+    <!-- Deauth Attack Panel -->
+    <div id="deauth-panel" class="hud-panel deauth-panel glass">
+        <h3>⚡ Deauth Attack Control <i class="fas fa-times" id="btn-close-deauth"
+                style="float:right; cursor:pointer; opacity:0.6; font-size:0.8em"></i></h3>
+
+        <!-- Legal Warning -->
+        <div class="legal-warning"
+            style="background: rgba(255, 59, 48, 0.15); border: 1px solid rgba(255, 59, 48, 0.5); padding: 12px; margin: 10px 0; border-radius: 8px;">
+            <strong style="color: var(--danger-color);">⚠️ LEGAL WARNING</strong>
+            <p style="font-size: 0.85em; margin: 8px 0 0 0; color: var(--text-secondary);">
+                Unauthorized use of deauthentication attacks is illegal. Ensure proper authorization before proceeding.
+            </p>
+        </div>
+
+        <!-- Attack Configuration -->
+        <div class="attack-config" style="margin-top: 20px;">
+            <h4 style="font-size: 0.85em; color: var(--accent-color); margin-bottom: 15px; font-weight: 600;">
+                <i class="fas fa-cog"></i> Attack Configuration
+            </h4>
+
+            <label style="display: block; margin-top: 12px; color: #fff; font-size: 0.85em;">Target Device (AP):</label>
+            <select id="deauth-target"
+                style="width: 100%; padding: 8px; margin-top: 4px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: #fff;">
+                <option value="">-- Select Target --</option>
+            </select>
+
+            <label style="display: block; margin-top: 12px; color: #fff; font-size: 0.85em;">Attack Type:</label>
+            <select id="deauth-type"
+                style="width: 100%; padding: 8px; margin-top: 4px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: #fff;">
+                <option value="broadcast">Broadcast (All Clients)</option>
+                <option value="unicast">Unicast (Single Client)</option>
+                <option value="targeted">Targeted (Bidirectional)</option>
+            </select>
+
+            <label style="display: block; margin-top: 12px; color: #fff; font-size: 0.85em;">Client MAC (for
+                unicast/targeted):</label>
+            <input type="text" id="deauth-client-mac" placeholder="00:11:22:33:44:55"
+                style="width: 100%; padding: 8px; margin-top: 4px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: #fff;">
+
+            <label style="display: block; margin-top: 12px; color: #fff; font-size: 0.85em;">Packet Count (0 =
+                continuous):</label>
+            <input type="number" id="deauth-count" value="10" min="0"
+                style="width: 100%; padding: 8px; margin-top: 4px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: #fff;">
+
+            <label style="display: block; margin-top: 12px; color: #fff; font-size: 0.85em;">Interval (ms):</label>
+            <input type="number" id="deauth-interval" value="100" min="10"
+                style="width: 100%; padding: 8px; margin-top: 4px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: #fff;">
+
+            <label style="display: block; margin-top: 12px; color: #fff; font-size: 0.85em;">Reason Code:</label>
+            <select id="deauth-reason"
+                style="width: 100%; padding: 8px; margin-top: 4px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: #fff;">
+                <option value="1">Unspecified</option>
+                <option value="3">Deauthenticated (leaving)</option>
+                <option value="6">Class 2 frame from non-auth STA</option>
+                <option value="7">Class 3 frame from non-assoc STA</option>
+            </select>
+
+            <label style="display: block; margin-top: 15px; color: #fff; font-size: 0.85em; cursor: pointer;">
+                <input type="checkbox" id="deauth-legal-ack" style="margin-right: 8px;">
+                I have legal authorization for this attack
+            </label>
+
+            <button id="start-deauth-btn" class="action-btn"
+                style="width: 100%; margin-top: 16px; background: linear-gradient(135deg, #ff3b30, #ff6b6b); color: white; padding: 12px 24px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">
+                <i class="fas fa-bolt"></i> Start Attack
+            </button>
+        </div>
+
+        <!-- Active Attacks -->
+        <div class="active-attacks"
+            style="margin-top: 25px; border-top: 1px solid var(--panel-border); padding-top: 20px;">
+            <h4 style="font-size: 0.85em; color: var(--accent-color); margin-bottom: 15px; font-weight: 600;">
+                <i class="fas fa-list"></i> Active Attacks
+            </h4>
+            <div id="attack-list" style="max-height: 300px; overflow-y: auto;">
+                <div style="text-align: center; opacity: 0.6; padding: 20px; font-size: 0.85em;">
+                    No active attacks
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Details Panel (Right Side) -->
+    <div id="details-panel" class="hud-panel details-panel glass">
+        <h3>Node Details <i class="fas fa-times" id="btn-close-details"
+                style="float:right; cursor:pointer; opacity:0.6; font-size:0.8em"></i></h3>
+        <div id="details-content">
+            <!-- Content Injected via JS -->
+            <div style="text-align:center; opacity:0.6; padding:20px;">
+                Select a node to view details
+            </div>
+        </div>
+    </div>
+
+</body>
+
+</html>

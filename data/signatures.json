@@ -1,0 +1,33 @@
+[
+  {
+    "id": "sig_iphone_ios16",
+    "vendor": "Apple",
+    "device_type": "Smartphone",
+    "model": "iPhone (iOS 16+)",
+    "os": "iOS",
+    "ie_pattern": [0, 1, 50, 45, 127, 221, 221],
+    "vendor_ie_ouis": ["0017f2"],
+    "confidence": 0.9,
+    "sources": ["IE_Pattern", "Vendor_IE"]
+  },
+  {
+    "id": "sig_samsung_s23",
+    "vendor": "Samsung",
+    "device_type": "Smartphone",
+    "model": "Samsung Galaxy S23",
+    "os": "Android",
+    "ie_pattern": [0, 1, 50, 45, 191, 127, 255, 221],
+    "confidence": 0.85,
+    "sources": ["IE_Pattern", "Ext_Tags"]
+  },
+  {
+    "id": "sig_amazon_echo",
+    "vendor": "Amazon",
+    "device_type": "IoT",
+    "model": "Amazon Echo",
+    "ie_pattern": [0, 1, 50, 221],
+    "wps_model_regex": "Echo.*",
+    "confidence": 0.95,
+    "sources": ["WPS", "IE_Pattern"]
+  }
+]

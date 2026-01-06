@@ -1,0 +1,320 @@
+package services
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/lcalzada-xor/wmap/internal/core/domain"
+)
+
+// mockStorage implements ports.Storage for testing
+type mockStorage struct {
+	devices map[string]domain.Device
+}
+
+func newMockStorage() *mockStorage {
+	return &mockStorage{
+		devices: make(map[string]domain.Device),
+	}
+}
+
+func (m *mockStorage) SaveDevice(device domain.Device) error {
+	m.devices[device.MAC] = device
+	return nil
+}
+
+func (m *mockStorage) SaveDevicesBatch(devices []domain.Device) error {
+	for _, d := range devices {
+		m.devices[d.MAC] = d
+	}
+	return nil
+}
+
+func (m *mockStorage) GetDevice(mac string) (*domain.Device, error) {
+	if d, ok := m.devices[mac]; ok {
+		return &d, nil
+	}
+	return nil, nil // Return nil if not found for now
+}
+
+func (m *mockStorage) GetAllDevices() ([]domain.Device, error) {
+	var list []domain.Device
+	for _, d := range m.devices {
+		list = append(list, d)
+	}
+	return list, nil
+}
+
+func (m *mockStorage) SaveProbe(mac string, ssid string) error {
+	return nil
+}
+
+func (m *mockStorage) Close() error {
+	return nil
+}
+
+// mockSniffer implements ports.Sniffer for testing
+type mockSniffer struct{}
+
+func (m *mockSniffer) Start(ctx context.Context) error { return nil }
+func (m *mockSniffer) Scan(target string) error        { return nil }
+
+func setupTestService() *NetworkService {
+	registry := NewDeviceRegistry(nil)
+	security := NewSecurityEngine(registry)
+	// Passing nil storage to persistence for simple tests that check in-memory state
+	persistence := NewPersistenceManager(nil, 100)
+	return NewNetworkService(registry, security, persistence, nil)
+}
+
+func TestProcessDevice_NewDevice(t *testing.T) {
+	svc := setupTestService()
+
+	dev := domain.Device{
+		MAC:            "00:11:22:33:44:55",
+		RSSI:           -50,
+		LastPacketTime: time.Now(),
+		Vendor:         "TestVendor",
+	}
+
+	svc.ProcessDevice(dev)
+
+	graph := svc.GetGraph()
+	found := false
+	for _, node := range graph.Nodes {
+		if node.MAC == dev.MAC {
+			found = true
+			if node.RSSI != dev.RSSI {
+				t.Errorf("Expected RSSI %d, got %d", dev.RSSI, node.RSSI)
+			}
+			if node.Vendor != "TestVendor" {
+				t.Errorf("Expected Vendor TestVendor, got %s", node.Vendor)
+			}
+		}
+	}
+	if !found {
+		t.Error("Device not found in graph after processing")
+	}
+}
+
+func TestProcessDevice_UpdateDevice(t *testing.T) {
+	svc := setupTestService()
+
+	mac := "AA:BB:CC:DD:EE:FF"
+
+	// 1st Packet
+	svc.ProcessDevice(domain.Device{
+		MAC:            mac,
+		RSSI:           -80,
+		PacketsCount:   1,
+		LastPacketTime: time.Now(),
+	})
+
+	// 2nd Packet (Better RSSI, more packets)
+	svc.ProcessDevice(domain.Device{
+		MAC:            mac,
+		RSSI:           -70,
+		PacketsCount:   5,
+		LastPacketTime: time.Now(),
+	})
+
+	graph := svc.GetGraph()
+	var targetNode *domain.GraphNode
+	for _, node := range graph.Nodes {
+		if node.MAC == mac {
+			val := node
+			targetNode = &val
+			break
+		}
+	}
+
+	if targetNode == nil {
+		t.Fatal("Node not found")
+	}
+
+	if targetNode.RSSI != -70 {
+		t.Errorf("Expected latet RSSI -70, got %d", targetNode.RSSI)
+	}
+}
+
+func TestProcessDevice_ConnectedAPPlaceholder(t *testing.T) {
+	svc := setupTestService()
+
+	stationMAC := "11:11:11:11:11:11"
+	apMAC := "FF:FF:FF:FF:FF:FF"
+
+	// Station connected to AP
+	svc.ProcessDevice(domain.Device{
+		MAC:            stationMAC,
+		ConnectedSSID:  apMAC, // BSSID
+		LastPacketTime: time.Now(),
+	})
+
+	graph := svc.GetGraph()
+
+	// Should have 2 nodes: Station and Placeholder AP
+	nodeCount := 0
+	for _, node := range graph.Nodes {
+		if node.MAC == stationMAC || node.MAC == apMAC {
+			nodeCount++
+		}
+	}
+
+	if nodeCount != 2 {
+		t.Errorf("Expected 2 nodes (Station + AP), found %d interesting nodes", nodeCount)
+	}
+
+	// Check for Edge
+	edgeFound := false
+	for _, edge := range graph.Edges {
+		if edge.From == "dev_"+stationMAC && edge.To == "dev_"+apMAC {
+			edgeFound = true
+			break
+		}
+	}
+	if !edgeFound {
+		t.Error("Edge between Station and AP not found")
+	}
+}
+
+func TestProcessDevice_ProbedSSIDs(t *testing.T) {
+	svc := setupTestService()
+
+	mac := "CC:CC:CC:CC:CC:CC"
+	probes := map[string]time.Time{
+		"HomeWiFi": time.Now(),
+		"FreeWiFi": time.Now(),
+	}
+
+	svc.ProcessDevice(domain.Device{
+		MAC:            mac,
+		ProbedSSIDs:    probes,
+		LastPacketTime: time.Now(),
+	})
+
+	graph := svc.GetGraph()
+
+	// Check if SSIDs exist as nodes
+	ssidCount := 0
+	for _, node := range graph.Nodes {
+		if node.ID == "ssid_HomeWiFi" || node.ID == "ssid_FreeWiFi" {
+			ssidCount++
+		}
+	}
+	if ssidCount != 2 {
+		t.Errorf("Expected 2 SSID nodes, found %d", ssidCount)
+	}
+
+	// Check edges
+	edgeCount := 0
+	for _, edge := range graph.Edges {
+		if edge.From == "dev_"+mac && (edge.To == "ssid_HomeWiFi" || edge.To == "ssid_FreeWiFi") {
+			if !edge.Dashed {
+				t.Error("Probe edges should be dashed")
+			}
+			edgeCount++
+		}
+	}
+	if edgeCount != 2 {
+		t.Errorf("Expected 2 probe edges, found %d", edgeCount)
+	}
+}
+
+func TestPruneOldDevices(t *testing.T) {
+	svc := setupTestService()
+
+	// Add Old Device
+	oldMAC := "11:11:11:11:11:11"
+	svc.ProcessDevice(domain.Device{
+		MAC:            oldMAC,
+		LastPacketTime: time.Now().Add(-20 * time.Minute),
+	})
+
+	// Add Active Device
+	activeMAC := "22:22:22:22:22:22"
+	svc.ProcessDevice(domain.Device{
+		MAC:            activeMAC,
+		LastPacketTime: time.Now().Add(-1 * time.Minute),
+	})
+
+	// Run Prune (TTL 10 mins) via registry
+	svc.registry.PruneOldDevices(10 * time.Minute)
+
+	graph := svc.GetGraph()
+	foundOld := false
+	foundActive := false
+
+	for _, node := range graph.Nodes {
+		if node.MAC == oldMAC {
+			foundOld = true
+		}
+		if node.MAC == activeMAC {
+			foundActive = true
+		}
+	}
+
+	if foundOld {
+		t.Error("Old device should have been pruned")
+	}
+	if !foundActive {
+		t.Error("Active device should remain")
+	}
+}
+
+func TestBehavioralProfiling(t *testing.T) {
+	svc := setupTestService()
+
+	mac := "BB:BB:BB:BB:BB:BB"
+	now := time.Now()
+
+	// 1. First Probe
+	svc.ProcessDevice(domain.Device{
+		MAC:            mac,
+		Type:           "station",
+		Capabilities:   []string{"Probe"},
+		LastPacketTime: now,
+	})
+
+	// 2. Second Probe (10 seconds later)
+	svc.ProcessDevice(domain.Device{
+		MAC:            mac,
+		Type:           "station",
+		Capabilities:   []string{"Probe"},
+		LastPacketTime: now.Add(10 * time.Second),
+	})
+
+	// 3. Third Probe (20 seconds after 2nd)
+	svc.ProcessDevice(domain.Device{
+		MAC:            mac,
+		Type:           "station",
+		Capabilities:   []string{"Probe"},
+		LastPacketTime: now.Add(30 * time.Second),
+	})
+
+	output := svc.GetGraph()
+	var node *domain.GraphNode
+	for _, n := range output.Nodes {
+		if n.MAC == mac {
+			node = &n
+			break
+		}
+	}
+
+	if node == nil {
+		t.Fatal("Node not found")
+	}
+
+	// Frequency should be roughly 15s (EMA of 10s and 20s)
+	// Calculated as: (10 * 0.7 + 20 * 0.3) = 7 + 6 = 13s
+	// Rounding to seconds: 13s
+	if node.ProbeFrequency == "" {
+		t.Error("Probe frequency should be populated")
+	} else if node.ProbeFrequency != "13s" && node.ProbeFrequency != "14s" {
+		t.Errorf("Expected ProbeFrequency around 13s, got %s", node.ProbeFrequency)
+	}
+
+	if len(node.ActiveHours) == 0 {
+		t.Error("Active hours should be populated")
+	}
+}

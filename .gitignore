@@ -30,3 +30,26 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# WMAP specific
+# Compiled binaries (root level only)
+/wmap
+/wmap-agent
+/wmap_test
+bin/wmap
+bin/wmap-agent
+bin/import-oui-csv
+bin/oui-updater
+
+# Logs
+*.log
+
+# Databases and sessions
+*.db
+*.db-shm
+*.db-wal
+data/sessions/
+
+# PCAP captures
+*.pcap
+*.pcapng

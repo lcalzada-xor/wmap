@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package wmap;
+
+option go_package = "github.com/lcalzada-xor/wmap/api/grpc;wmap_grpc";
+
+// WMapService defines the distributed sensor reporting service.
+service WMapService {
+  // ReportTraffic streams captured device data from agent to server.
+  rpc ReportTraffic (stream DeviceReport) returns (ReportSummary);
+}
+
+// DeviceReport represents a simplified version of domain.Device for transport.
+message DeviceReport {
+  string mac = 1;
+  string vendor = 2;
+  int32 rssi = 3;
+  string ssid = 4;        // Beacon or Probed SSID
+  string connected_ssid = 5;
+  double latitude = 6;
+  double longitude = 7;
+  bool is_randomized = 8;
+  repeated string capabilities = 9;
+  repeated int32 ie_tags = 10;
+  
+  // Enhanced Fields
+  string security = 13;
+  string standard = 14;
+  string model = 15;
+  int32 frequency = 16;
+  
+  // Analytics
+  int64 data_transmitted = 17;
+  int64 data_received = 18;
+  int32 packets_count = 19;
+  int32 retry_count = 20;
+  int32 channel_width = 21;
+  
+  // Type: "station" or "ap"
+  string type = 11;
+  
+  int64 timestamp = 12; // Unix timestamp
+}
+
+message ReportSummary {
+  int32 devices_processed = 1;
+}

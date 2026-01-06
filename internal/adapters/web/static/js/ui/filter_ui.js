@@ -1,0 +1,610 @@
+/**
+ * Filter UI Controller
+ * Manages the advanced filter panel UI and interactions.
+ */
+
+import { State } from '../core/state.js';
+import { FilterManager } from '../core/filter_manager.js';
+
+export const FilterUI = {
+    refreshCallback: null,
+    nodesDataSet: null,
+
+    init(refreshCallback, nodesDataSet) {
+        this.refreshCallback = refreshCallback;
+        this.nodesDataSet = nodesDataSet;
+
+        this.bindSearchBar();
+        this.bindAdvancedFilters();
+        this.bindPresets();
+        this.bindFilterTags();
+        this.loadSearchHistory();
+    },
+
+    /**
+     * Bind search bar with autocomplete
+     */
+    bindSearchBar() {
+        const input = document.getElementById('node-search');
+        const btnClear = document.getElementById('btn-clear-search');
+        const btnToggle = document.getElementById('btn-toggle-filters');
+        const suggestions = document.getElementById('search-suggestions');
+
+        if (!input) return;
+
+        // Debounced search
+        let timeout;
+        input.addEventListener('input', (e) => {
+            clearTimeout(timeout);
+            const query = e.target.value;
+
+            timeout = setTimeout(() => {
+                State.filters.searchQuery = query;
+                this.handleSearch(query);
+                this.showSuggestions(query);
+                this.updateFilterTags();
+                if (this.refreshCallback) this.refreshCallback('search', query);
+            }, 300);
+        });
+
+        // Clear button
+        if (btnClear) {
+            btnClear.addEventListener('click', () => {
+                input.value = '';
+                State.filters.searchQuery = '';
+                this.hideSuggestions();
+                this.updateFilterTags();
+                if (this.refreshCallback) this.refreshCallback('search', '');
+            });
+        }
+
+        // Toggle advanced filters
+        if (btnToggle) {
+            btnToggle.addEventListener('click', () => {
+                this.toggleAdvancedPanel();
+            });
+        }
+
+        // Hide suggestions when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!input.contains(e.target) && !suggestions.contains(e.target)) {
+                this.hideSuggestions();
+            }
+        });
+    },
+
+    /**
+     * Handle search query
+     */
+    handleSearch(query) {
+        if (query && query.length > 0) {
+            FilterManager.addToSearchHistory(query);
+        }
+    },
+
+    /**
+     * Show autocomplete suggestions
+     */
+    showSuggestions(query) {
+        if (!query || query.length < 2) {
+            this.hideSuggestions();
+            return;
+        }
+
+        const suggestions = FilterManager.getSuggestions(query, 'all', this.nodesDataSet);
+        const container = document.getElementById('search-suggestions');
+
+        if (!container || suggestions.length === 0) {
+            this.hideSuggestions();
+            return;
+        }
+
+        container.innerHTML = '';
+        suggestions.forEach(item => {
+            const div = document.createElement('div');
+            div.className = 'suggestion-item';
+
+            if (typeof item === 'object') {
+                div.innerHTML = `
+                    <i class="fas ${item.icon} suggestion-icon"></i>
+                    <span>${item.value}</span>
+                `;
+                div.addEventListener('click', () => {
+                    document.getElementById('node-search').value = item.value;
+                    State.filters.searchQuery = item.value;
+                    this.hideSuggestions();
+                    this.updateFilterTags();
+                    if (this.refreshCallback) this.refreshCallback('search', item.value);
+                });
+            } else {
+                div.innerHTML = `<span>${item}</span>`;
+                div.addEventListener('click', () => {
+                    document.getElementById('node-search').value = item;
+                    State.filters.searchQuery = item;
+                    this.hideSuggestions();
+                    this.updateFilterTags();
+                    if (this.refreshCallback) this.refreshCallback('search', item);
+                });
+            }
+
+            container.appendChild(div);
+        });
+
+        container.classList.add('active');
+    },
+
+    /**
+     * Hide suggestions dropdown
+     */
+    hideSuggestions() {
+        const container = document.getElementById('search-suggestions');
+        if (container) {
+            container.classList.remove('active');
+        }
+    },
+
+    /**
+     * Toggle advanced filters panel
+     */
+    toggleAdvancedPanel() {
+        const panel = document.getElementById('advanced-filters-panel');
+        if (!panel) return;
+
+        if (panel.style.display === 'none' || !panel.style.display) {
+            panel.style.display = 'block';
+            setTimeout(() => panel.classList.add('active'), 10);
+        } else {
+            panel.classList.remove('active');
+            setTimeout(() => panel.style.display = 'none', 300);
+        }
+    },
+
+    /**
+     * Bind advanced filter controls
+     */
+    bindAdvancedFilters() {
+        // Security checkboxes
+        document.querySelectorAll('.filter-security').forEach(cb => {
+            cb.addEventListener('change', () => {
+                this.updateArrayFilter('security', cb.value, cb.checked);
+            });
+        });
+
+        // Frequency checkboxes
+        document.querySelectorAll('.filter-frequency').forEach(cb => {
+            cb.addEventListener('change', () => {
+                this.updateArrayFilter('frequency', cb.value, cb.checked);
+            });
+        });
+
+        // Channel multi-select
+        const channelSelect = document.getElementById('filter-channels');
+        if (channelSelect) {
+            channelSelect.addEventListener('change', () => {
+                const selected = Array.from(channelSelect.selectedOptions).map(opt => parseInt(opt.value));
+                State.filters.channels = selected;
+                this.updateFilterTags();
+                if (this.refreshCallback) this.refreshCallback('channels', selected);
+            });
+        }
+
+        // Quick select common 2.4GHz channels (1, 6, 11)
+        const btnCommon24 = document.getElementById('btn-select-common-24');
+        if (btnCommon24 && channelSelect) {
+            btnCommon24.addEventListener('click', () => {
+                const commonChannels = [1, 6, 11];
+                Array.from(channelSelect.options).forEach(opt => {
+                    opt.selected = commonChannels.includes(parseInt(opt.value));
+                });
+                State.filters.channels = commonChannels;
+                this.updateFilterTags();
+                if (this.refreshCallback) this.refreshCallback('channels', commonChannels);
+            });
+        }
+
+        // Clear channels button
+        const btnClearChannels = document.getElementById('btn-clear-channels');
+        if (btnClearChannels && channelSelect) {
+            btnClearChannels.addEventListener('click', () => {
+                Array.from(channelSelect.options).forEach(opt => opt.selected = false);
+                State.filters.channels = [];
+                this.updateFilterTags();
+                if (this.refreshCallback) this.refreshCallback('channels', []);
+            });
+        }
+
+        // Vendor multi-select
+        const vendorSelect = document.getElementById('filter-vendor');
+        if (vendorSelect) {
+            vendorSelect.addEventListener('change', () => {
+                const selected = Array.from(vendorSelect.selectedOptions).map(opt => opt.value);
+                State.filters.vendors = selected;
+                this.updateFilterTags();
+                if (this.refreshCallback) this.refreshCallback('vendor', selected);
+            });
+        }
+
+        // Signal range inputs
+        const rssiMin = document.getElementById('rssi-min');
+        const rssiMax = document.getElementById('rssi-max');
+        if (rssiMin && rssiMax) {
+            const updateRange = () => {
+                State.filters.signalRange = {
+                    min: parseInt(rssiMin.value) || -100,
+                    max: parseInt(rssiMax.value) || 0
+                };
+                this.updateFilterTags();
+                if (this.refreshCallback) this.refreshCallback('signalRange', State.filters.signalRange);
+            };
+            rssiMin.addEventListener('change', updateRange);
+            rssiMax.addEventListener('change', updateRange);
+        }
+
+        // Time range preset
+        const timeRange = document.getElementById('time-range-preset');
+        if (timeRange) {
+            timeRange.addEventListener('change', (e) => {
+                const value = e.target.value;
+                let ms = null;
+
+                switch (value) {
+                    case '5m': ms = 5 * 60 * 1000; break;
+                    case '15m': ms = 15 * 60 * 1000; break;
+                    case '1h': ms = 60 * 60 * 1000; break;
+                    case '24h': ms = 24 * 60 * 60 * 1000; break;
+                    case 'custom':
+                        // TODO: Show custom date picker
+                        break;
+                    default: ms = null;
+                }
+
+                State.filters.timeRange.lastSeen = ms;
+                this.updateFilterTags();
+                if (this.refreshCallback) this.refreshCallback('timeRange', ms);
+            });
+        }
+
+        // Traffic inputs
+        const trafficTx = document.getElementById('traffic-min-tx');
+        const trafficRx = document.getElementById('traffic-min-rx');
+        const trafficPackets = document.getElementById('traffic-min-packets');
+
+        const updateTraffic = () => {
+            State.filters.traffic = {
+                minTx: parseInt(trafficTx?.value) || 0,
+                minRx: parseInt(trafficRx?.value) || 0,
+                minPackets: parseInt(trafficPackets?.value) || 0
+            };
+            this.updateFilterTags();
+            if (this.refreshCallback) this.refreshCallback('traffic', State.filters.traffic);
+        };
+
+        if (trafficTx) trafficTx.addEventListener('change', updateTraffic);
+        if (trafficRx) trafficRx.addEventListener('change', updateTraffic);
+        if (trafficPackets) trafficPackets.addEventListener('change', updateTraffic);
+
+        // Reset button
+        const btnReset = document.getElementById('btn-reset-filters');
+        if (btnReset) {
+            btnReset.addEventListener('click', () => {
+                this.resetAllFilters();
+            });
+        }
+
+        // Save preset button
+        const btnSave = document.getElementById('btn-save-preset');
+        if (btnSave) {
+            btnSave.addEventListener('click', () => {
+                const name = prompt('Enter preset name:');
+                if (name) {
+                    FilterManager.saveCustomPreset(name);
+                    alert(`Preset "${name}" saved!`);
+                    this.renderPresets(); // Refresh preset buttons
+                }
+            });
+        }
+    },
+
+    /**
+     * Update array-based filter
+     */
+    updateArrayFilter(filterName, value, checked) {
+        if (checked) {
+            if (!State.filters[filterName].includes(value)) {
+                State.filters[filterName].push(value);
+            }
+        } else {
+            State.filters[filterName] = State.filters[filterName].filter(v => v !== value);
+        }
+
+        this.updateFilterTags();
+        if (this.refreshCallback) this.refreshCallback(filterName, State.filters[filterName]);
+    },
+
+    /**
+     * Bind preset buttons
+     */
+    bindPresets() {
+        this.renderPresets();
+    },
+
+    /**
+     * Render preset buttons
+     */
+    renderPresets() {
+        const container = document.querySelector('.preset-buttons');
+        if (!container) return;
+
+        container.innerHTML = '';
+        const presets = FilterManager.getAllPresets();
+
+        Object.keys(presets).forEach(id => {
+            const preset = presets[id];
+            const btn = document.createElement('button');
+            btn.className = 'preset-btn';
+            btn.dataset.preset = id;
+            btn.innerHTML = `<i class="fas ${preset.icon}"></i> ${preset.name}`;
+
+            if (State.filters.activePreset === id) {
+                btn.classList.add('active');
+            }
+
+            btn.addEventListener('click', () => {
+                FilterManager.applyPreset(id);
+                this.syncUIWithState();
+                this.updateFilterTags();
+                this.updateActiveFiltersCount();
+
+                // Update active state
+                container.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+
+                if (this.refreshCallback) this.refreshCallback('preset', id);
+            });
+
+            container.appendChild(btn);
+        });
+    },
+
+    /**
+     * Sync UI controls with State
+     */
+    syncUIWithState() {
+        // Update checkboxes
+        document.querySelectorAll('.filter-security').forEach(cb => {
+            cb.checked = State.filters.security.includes(cb.value);
+        });
+
+        document.querySelectorAll('.filter-frequency').forEach(cb => {
+            cb.checked = State.filters.frequency.includes(cb.value);
+        });
+
+        // Update search input
+        const searchInput = document.getElementById('node-search');
+        if (searchInput) {
+            searchInput.value = State.filters.searchQuery || '';
+        }
+
+        // Update signal range
+        const rssiMin = document.getElementById('rssi-min');
+        const rssiMax = document.getElementById('rssi-max');
+        if (rssiMin) rssiMin.value = State.filters.signalRange.min;
+        if (rssiMax) rssiMax.value = State.filters.signalRange.max;
+    },
+
+    /**
+     * Render filter tags/chips
+     */
+    bindFilterTags() {
+        this.updateFilterTags();
+    },
+
+    /**
+     * Update filter tags display
+     */
+    updateFilterTags() {
+        const container = document.getElementById('filter-tags');
+        if (!container) return;
+
+        container.innerHTML = '';
+
+        // Search query tag
+        if (State.filters.searchQuery && State.filters.searchQuery.length > 0) {
+            this.addFilterTag(container, 'Search', State.filters.searchQuery, () => {
+                document.getElementById('node-search').value = '';
+                State.filters.searchQuery = '';
+                this.updateFilterTags();
+                if (this.refreshCallback) this.refreshCallback('search', '');
+            });
+        }
+
+        // Security tags
+        State.filters.security.forEach(sec => {
+            this.addFilterTag(container, 'Security', sec, () => {
+                State.filters.security = State.filters.security.filter(s => s !== sec);
+                this.syncUIWithState();
+                this.updateFilterTags();
+                if (this.refreshCallback) this.refreshCallback('security', State.filters.security);
+            });
+        });
+
+        // Frequency tags
+        State.filters.frequency.forEach(freq => {
+            this.addFilterTag(container, 'Frequency', `${freq} GHz`, () => {
+                State.filters.frequency = State.filters.frequency.filter(f => f !== freq);
+                this.syncUIWithState();
+                this.updateFilterTags();
+                if (this.refreshCallback) this.refreshCallback('frequency', State.filters.frequency);
+            });
+        });
+
+        // Vendor tags
+        State.filters.vendors.forEach(vendor => {
+            this.addFilterTag(container, 'Vendor', vendor, () => {
+                State.filters.vendors = State.filters.vendors.filter(v => v !== vendor);
+                this.syncUIWithState();
+                this.updateFilterTags();
+                if (this.refreshCallback) this.refreshCallback('vendor', State.filters.vendors);
+            });
+        });
+
+        // Channel tags
+        State.filters.channels.forEach(channel => {
+            this.addFilterTag(container, 'Channel', channel.toString(), () => {
+                State.filters.channels = State.filters.channels.filter(c => c !== channel);
+                const channelSelect = document.getElementById('filter-channels');
+                if (channelSelect) {
+                    Array.from(channelSelect.options).forEach(opt => {
+                        if (parseInt(opt.value) === channel) opt.selected = false;
+                    });
+                }
+                this.updateFilterTags();
+                if (this.refreshCallback) this.refreshCallback('channels', State.filters.channels);
+            });
+        });
+
+        // Signal range tag
+        if (State.filters.signalRange.min !== -100 || State.filters.signalRange.max !== 0) {
+            this.addFilterTag(container, 'Signal',
+                `${State.filters.signalRange.min} to ${State.filters.signalRange.max} dBm`,
+                () => {
+                    State.filters.signalRange = { min: -100, max: 0 };
+                    this.syncUIWithState();
+                    this.updateFilterTags();
+                    if (this.refreshCallback) this.refreshCallback('signalRange', State.filters.signalRange);
+                }
+            );
+        }
+
+        // Time range tag
+        if (State.filters.timeRange.lastSeen) {
+            const minutes = State.filters.timeRange.lastSeen / (60 * 1000);
+            let label = `${minutes}m`;
+            if (minutes >= 60) label = `${minutes / 60}h`;
+
+            this.addFilterTag(container, 'Time', `Last ${label}`, () => {
+                State.filters.timeRange.lastSeen = null;
+                this.syncUIWithState();
+                this.updateFilterTags();
+                if (this.refreshCallback) this.refreshCallback('timeRange', null);
+            });
+        }
+
+        this.updateActiveFiltersCount();
+    },
+
+    /**
+     * Add a filter tag chip
+     */
+    addFilterTag(container, type, value, onRemove) {
+        const tag = document.createElement('div');
+        tag.className = 'filter-tag';
+        tag.innerHTML = `
+            <span><strong>${type}:</strong> ${value}</span>
+            <i class="fas fa-times remove"></i>
+        `;
+
+        tag.querySelector('.remove').addEventListener('click', onRemove);
+        container.appendChild(tag);
+    },
+
+    /**
+     * Update active filters count badge
+     */
+    updateActiveFiltersCount() {
+        const badge = document.getElementById('active-filters-count');
+        if (!badge) return;
+
+        const count = FilterManager.getActiveFiltersCount();
+        badge.textContent = count;
+        badge.style.display = count > 0 ? 'block' : 'none';
+    },
+
+    /**
+     * Reset all filters
+     */
+    resetAllFilters() {
+        FilterManager.resetFilters();
+        this.syncUIWithState();
+        this.updateFilterTags();
+
+        // Clear vendor select
+        const vendorSelect = document.getElementById('filter-vendor');
+        if (vendorSelect) {
+            Array.from(vendorSelect.options).forEach(opt => opt.selected = false);
+        }
+
+        // Clear time range
+        const timeRange = document.getElementById('time-range-preset');
+        if (timeRange) timeRange.value = '';
+
+        // Clear traffic inputs
+        const trafficInputs = ['traffic-min-tx', 'traffic-min-rx', 'traffic-min-packets'];
+        trafficInputs.forEach(id => {
+            const input = document.getElementById(id);
+            if (input) input.value = '';
+        });
+
+        // Clear preset selection
+        document.querySelectorAll('.preset-btn').forEach(btn => btn.classList.remove('active'));
+
+        if (this.refreshCallback) this.refreshCallback('reset', null);
+    },
+
+    /**
+     * Load search history
+     */
+    loadSearchHistory() {
+        FilterManager.loadSearchHistory();
+    },
+
+    /**
+     * Populate vendor dropdown with unique vendors
+     */
+    populateVendorDropdown() {
+        const select = document.getElementById('filter-vendor');
+        if (!select || !this.nodesDataSet) return;
+
+        const vendors = FilterManager.getUniqueVendors(this.nodesDataSet);
+        select.innerHTML = '';
+
+        vendors.forEach(vendor => {
+            const option = document.createElement('option');
+            option.value = vendor;
+            option.textContent = vendor;
+            select.appendChild(option);
+        });
+    },
+
+    /**
+     * Populate channel dropdown with unique channels
+     */
+    populateChannelDropdown() {
+        const select = document.getElementById('filter-channels');
+        if (!select || !this.nodesDataSet) return;
+
+        const channels = new Set();
+        const nodes = this.nodesDataSet.get();
+
+        nodes.forEach(node => {
+            if (node.channel) {
+                channels.add(node.channel);
+            }
+        });
+
+        const sortedChannels = Array.from(channels).sort((a, b) => a - b);
+
+        // Keep current selection
+        const currentSelection = State.filters.channels || [];
+
+        select.innerHTML = '';
+
+        sortedChannels.forEach(channel => {
+            const option = document.createElement('option');
+            option.value = channel;
+            option.textContent = `Channel ${channel}`;
+            option.selected = currentSelection.includes(channel);
+            select.appendChild(option);
+        });
+    }
+};
