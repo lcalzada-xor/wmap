@@ -299,3 +299,33 @@ func (m *SnifferManager) GetInterfaceDetails() []domain.InterfaceInfo {
 	}
 	return infos
 }
+
+// Lock delegates to the appropriate sniffer.
+func (m *SnifferManager) Lock(iface string, channel int) error {
+	for _, s := range m.Sniffers {
+		if s.Config.Interface == iface {
+			return s.Lock(iface, channel)
+		}
+	}
+	return fmt.Errorf("interface %s not found in manager", iface)
+}
+
+// Unlock delegates to the appropriate sniffer.
+func (m *SnifferManager) Unlock(iface string) error {
+	for _, s := range m.Sniffers {
+		if s.Config.Interface == iface {
+			return s.Unlock(iface)
+		}
+	}
+	return nil
+}
+
+// GetInjector returns the injector for a specific interface if managed.
+func (m *SnifferManager) GetInjector(iface string) *Injector {
+	for _, s := range m.Sniffers {
+		if s.Config.Interface == iface {
+			return s.Injector
+		}
+	}
+	return nil
+}

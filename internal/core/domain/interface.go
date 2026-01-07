@@ -9,6 +9,7 @@ type InterfaceCapabilities struct {
 // InterfaceInfo represents a network interface and its state.
 type InterfaceInfo struct {
 	Name            string                `json:"name"`
+	MAC             string                `json:"mac"`
 	Capabilities    InterfaceCapabilities `json:"capabilities"`
 	CurrentChannels []int                 `json:"current_channels"`
 }

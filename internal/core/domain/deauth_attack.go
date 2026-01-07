@@ -55,6 +55,9 @@ type DeauthAttackConfig struct {
 
 	// Interface is the network interface to use for the attack
 	Interface string `json:"interface,omitempty"`
+
+	// UseReasonFuzzing enables cycling through effective reason codes
+	UseReasonFuzzing bool `json:"use_reason_fuzzing"`
 }
 
 // DeauthAttackStatus represents the current status of a deauth attack
@@ -79,6 +82,9 @@ type DeauthAttackStatus struct {
 
 	// ErrorMessage contains error details if Status is AttackFailed
 	ErrorMessage string `json:"error_message,omitempty"`
+
+	// HandshakeCaptured indicates if a WPA handshake was detected during the attack
+	HandshakeCaptured bool `json:"handshake_captured"`
 }
 
 // IsActive returns true if the attack is currently running or paused

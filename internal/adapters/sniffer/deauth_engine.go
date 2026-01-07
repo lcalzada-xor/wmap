@@ -19,6 +19,7 @@ type AttackController struct {
 	CancelFn context.CancelFunc
 	StatusCh chan domain.DeauthAttackStatus
 	mu       sync.RWMutex
+	injector *Injector // Dedicated injector for this attack (if specific interface used)
 }
 
 // DeauthEngine manages multiple concurrent deauth attacks
@@ -27,10 +28,12 @@ type DeauthEngine struct {
 	activeAttacks map[string]*AttackController
 	mu            sync.RWMutex
 	maxConcurrent int
+	locker        ChannelLocker
+	Logger        func(string, string) // Message, Level ("info", "warning", "danger", "success")
 }
 
 // NewDeauthEngine creates a new deauth attack engine
-func NewDeauthEngine(injector *Injector, maxConcurrent int) *DeauthEngine {
+func NewDeauthEngine(injector *Injector, locker ChannelLocker, maxConcurrent int) *DeauthEngine {
 	if maxConcurrent <= 0 {
 		maxConcurrent = 5 // Default max concurrent attacks
 	}
@@ -38,6 +41,31 @@ func NewDeauthEngine(injector *Injector, maxConcurrent int) *DeauthEngine {
 		injector:      injector,
 		activeAttacks: make(map[string]*AttackController),
 		maxConcurrent: maxConcurrent,
+		locker:        locker,
+	}
+}
+
+// SetLogger sets the callback for logging events
+func (e *DeauthEngine) SetLogger(logger func(string, string)) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.Logger = logger
+}
+
+// log acts as a multiplexer for logs: stdout + callback
+func (e *DeauthEngine) log(message string, level string) {
+	// Stdout
+	prefix := "[DEAUTH]"
+	if level == "danger" || level == "error" {
+		prefix = "[DEAUTH ERROR]"
+	}
+	log.Printf("%s %s", prefix, message)
+
+	// Callback
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	if e.Logger != nil {
+		go e.Logger(message, level)
 	}
 }
 
@@ -65,6 +93,36 @@ func (e *DeauthEngine) StartAttack(config domain.DeauthAttackConfig) (string, er
 	// Generate unique attack ID
 	attackID := uuid.New().String()
 
+	// Handle Interface Selection
+	var attackInjector *Injector = e.injector // Default to shared injector
+	var dedicatedInjector *Injector = nil
+
+	if config.Interface != "" {
+		// Optimization: Check if default injector is already on this interface
+		if e.injector != nil && e.injector.Interface == config.Interface {
+			attackInjector = e.injector
+			e.log(fmt.Sprintf("Reusing default injector for interface %s", config.Interface), "info")
+		} else {
+			// Enforce Channel if provided
+			if config.Channel > 0 {
+				if err := SetInterfaceChannel(config.Interface, config.Channel); err != nil {
+					e.log(fmt.Sprintf("Warning: Failed to set channel %d on %s: %v", config.Channel, config.Interface, err), "warning")
+					// We proceed anyway, maybe it's already set or driver handles it
+				} else {
+					e.log(fmt.Sprintf("Set channel %d on %s", config.Channel, config.Interface), "info")
+				}
+			}
+
+			// Create a new injector for this specific interface
+			inj, err := NewInjector(config.Interface)
+			if err != nil {
+				return "", fmt.Errorf("failed to create injector for interface %s: %w", config.Interface, err)
+			}
+			attackInjector = inj
+			dedicatedInjector = inj
+		}
+	}
+
 	// Create attack controller
 	ctx, cancel := context.WithCancel(context.Background())
 	statusCh := make(chan domain.DeauthAttackStatus, 10)
@@ -74,6 +132,7 @@ func (e *DeauthEngine) StartAttack(config domain.DeauthAttackConfig) (string, er
 		Config:   config,
 		CancelFn: cancel,
 		StatusCh: statusCh,
+		injector: dedicatedInjector, // Store dedicated injector for cleanup
 		Status: domain.DeauthAttackStatus{
 			ID:          attackID,
 			Config:      config,
@@ -86,15 +145,16 @@ func (e *DeauthEngine) StartAttack(config domain.DeauthAttackConfig) (string, er
 	e.activeAttacks[attackID] = controller
 
 	// Start the attack in a goroutine
-	go e.runAttack(ctx, controller)
+	go e.runAttack(ctx, controller, attackInjector)
 
-	log.Printf("[DEAUTH] Started attack %s: Type=%s Target=%s", attackID, config.AttackType, config.TargetMAC)
+	e.log(fmt.Sprintf("Started attack %s: Type=%s Target=%s Interface=%s",
+		attackID, config.AttackType, config.TargetMAC, config.Interface), "success")
 
 	return attackID, nil
 }
 
 // runAttack executes the attack logic
-func (e *DeauthEngine) runAttack(ctx context.Context, controller *AttackController) {
+func (e *DeauthEngine) runAttack(ctx context.Context, controller *AttackController, injector *Injector) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("[DEAUTH] Attack %s panicked: %v", controller.ID, r)
@@ -104,6 +164,7 @@ func (e *DeauthEngine) runAttack(ctx context.Context, controller *AttackControll
 			now := time.Now()
 			controller.Status.EndTime = &now
 			controller.mu.Unlock()
+			e.log(fmt.Sprintf("Attack %s CRASHED: %v", controller.ID, r), "danger")
 		}
 	}()
 
@@ -114,11 +175,28 @@ func (e *DeauthEngine) runAttack(ctx context.Context, controller *AttackControll
 
 	config := controller.Config
 
+	// Effectiveness Monitoring
+	monitorEvents := make(chan string, 10)
+	monitorCtx, monitorCancel := context.WithCancel(ctx)
+	defer monitorCancel()
+
+	// Check if injector is available
+	if injector == nil {
+		e.log(fmt.Sprintf("Attack %s failed: No injector available", controller.ID), "error")
+		controller.mu.Lock()
+		controller.Status.Status = domain.AttackFailed
+		controller.Status.ErrorMessage = "No injector available (check interface configuration)"
+		controller.mu.Unlock()
+		return
+	}
+
+	go injector.StartMonitor(monitorCtx, config.TargetMAC, monitorEvents)
+
 	// Determine if continuous or burst
 	if config.PacketCount == 0 {
 		// Continuous attack
-		if err := e.injector.StartContinuousDeauth(ctx, config, controller.StatusCh); err != nil {
-			log.Printf("[DEAUTH] Continuous attack %s failed: %v", controller.ID, err)
+		if err := injector.StartContinuousDeauth(ctx, config, controller.StatusCh); err != nil {
+			e.log(fmt.Sprintf("Continuous attack %s failed: %v", controller.ID, err), "danger")
 			controller.mu.Lock()
 			controller.Status.Status = domain.AttackFailed
 			controller.Status.ErrorMessage = err.Error()
@@ -126,8 +204,8 @@ func (e *DeauthEngine) runAttack(ctx context.Context, controller *AttackControll
 		}
 	} else {
 		// Burst attack
-		if err := e.injector.SendDeauthBurst(config); err != nil {
-			log.Printf("[DEAUTH] Burst attack %s failed: %v", controller.ID, err)
+		if err := injector.SendDeauthBurst(config); err != nil {
+			e.log(fmt.Sprintf("Burst attack %s failed: %v", controller.ID, err), "danger")
 			controller.mu.Lock()
 			controller.Status.Status = domain.AttackFailed
 			controller.Status.ErrorMessage = err.Error()
@@ -137,8 +215,42 @@ func (e *DeauthEngine) runAttack(ctx context.Context, controller *AttackControll
 			controller.Status.PacketsSent = config.PacketCount
 			controller.Status.Status = domain.AttackStopped
 			controller.mu.Unlock()
+			e.log(fmt.Sprintf("Attack %s: Burst finished (%d packets)", controller.ID, config.PacketCount), "success")
 		}
 	}
+
+	// Wait for monitoring events for a short period if burst finished quickly?
+	// Or run monitoring in parallel with attack loop...
+	// Actually, we need to restructure runAttack to be selecting on both attack progression and monitoring.
+	// For continuous, StartContinuousDeauth blocks. We need to run it in goroutine or refactor it.
+	// For burst, it's blocking but short.
+
+	// Refactoring:
+	// We'll wrap the attack execution and monitoring in a select loop for handling events.
+	// But StartContinuousDeauth already has a loop.
+	// Let's just handle events asynchronously in a separate goroutine that updates status/cancels attack.
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case event := <-monitorEvents:
+				if event == "handshake" {
+					e.log(fmt.Sprintf("Handshake captured for attack %s! Stopping.", controller.ID), "success")
+					controller.mu.Lock()
+					controller.Status.HandshakeCaptured = true
+					controller.mu.Unlock()
+					// Stop the attack
+					controller.CancelFn()
+					return
+				}
+				if event == "probe" {
+					e.log(fmt.Sprintf("Target %s sent Probe Request", config.TargetMAC), "info")
+				}
+			}
+		}
+	}()
 
 	// Mark as completed
 	controller.mu.Lock()
@@ -149,8 +261,7 @@ func (e *DeauthEngine) runAttack(ctx context.Context, controller *AttackControll
 	controller.Status.EndTime = &now
 	controller.mu.Unlock()
 
-	log.Printf("[DEAUTH] Attack %s completed: PacketsSent=%d Status=%s",
-		controller.ID, controller.Status.PacketsSent, controller.Status.Status)
+	e.log(fmt.Sprintf("Attack %s completed", controller.ID), "info")
 }
 
 // StopAttack stops a running attack
@@ -172,11 +283,22 @@ func (e *DeauthEngine) StopAttack(id string) error {
 
 	// Cancel the context to stop the attack
 	controller.CancelFn()
+
+	// Close dedicated injector if exists
+	if controller.injector != nil {
+		controller.injector.Close()
+	}
+
+	// Unlock Channel
+	if e.locker != nil && controller.Config.Interface != "" {
+		e.locker.Unlock(controller.Config.Interface)
+	}
+
 	controller.Status.Status = domain.AttackStopped
 	now := time.Now()
 	controller.Status.EndTime = &now
 
-	log.Printf("[DEAUTH] Stopped attack %s", id)
+	e.log(fmt.Sprintf("Stopped attack %s", id), "warning")
 
 	return nil
 }
@@ -203,7 +325,7 @@ func (e *DeauthEngine) PauseAttack(id string) error {
 	controller.CancelFn()
 	controller.Status.Status = domain.AttackPaused
 
-	log.Printf("[DEAUTH] Paused attack %s", id)
+	e.log(fmt.Sprintf("Paused attack %s", id), "warning")
 
 	return nil
 }
@@ -280,7 +402,7 @@ func (e *DeauthEngine) CleanupFinished() int {
 	}
 
 	if removed > 0 {
-		log.Printf("[DEAUTH] Cleaned up %d finished attacks", removed)
+		e.log(fmt.Sprintf("Cleaned up %d finished attacks", removed), "system")
 	}
 
 	return removed
@@ -293,9 +415,9 @@ func (e *DeauthEngine) StopAll() {
 
 	for id := range e.activeAttacks {
 		if err := e.StopAttack(id); err != nil {
-			log.Printf("[DEAUTH] Failed to stop attack %s: %v", id, err)
+			e.log(fmt.Sprintf("Failed to stop attack %s: %v", id, err), "error")
 		}
 	}
 
-	log.Printf("[DEAUTH] Stopped all attacks")
+	e.log("Stopped all attacks", "system")
 }

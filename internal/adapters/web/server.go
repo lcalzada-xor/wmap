@@ -16,6 +16,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+type WSMessage struct {
+	Type    string      `json:"type"`
+	Payload interface{} `json:"payload"`
+}
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
@@ -141,7 +146,12 @@ func (s *Server) broadcastGraph() {
 	// Get Data from Service (Decoupled)
 	graphData := s.Service.GetGraph()
 
-	data, err := json.Marshal(graphData)
+	msg := WSMessage{
+		Type:    "graph",
+		Payload: graphData,
+	}
+
+	data, err := json.Marshal(msg)
 	if err != nil {
 		log.Println("JSON marshal error:", err)
 		return
@@ -156,6 +166,35 @@ func (s *Server) broadcastGraph() {
 		}
 	}
 	s.mu.Unlock()
+}
+
+// BroadcastLog sends a log message to all connected clients
+func (s *Server) BroadcastLog(message string, level string) {
+	payload := map[string]string{
+		"message": message,
+		"level":   level,
+	}
+
+	msg := WSMessage{
+		Type:    "log",
+		Payload: payload,
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Println("JSON marshal error:", err)
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for conn := range s.Clients {
+		if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+			// Don't log write errors for logs to avoid loop if logger uses this
+			conn.Close()
+			delete(s.Clients, conn)
+		}
+	}
 }
 
 // handleScan triggers an active scan
@@ -422,6 +461,7 @@ func (s *Server) handleDeauthStart(w http.ResponseWriter, r *http.Request) {
 		ReasonCode          uint16 `json:"reason_code"`
 		Channel             int    `json:"channel"`
 		LegalAcknowledgment bool   `json:"legal_acknowledgment"`
+		Interface           string `json:"interface"` // Added
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -464,6 +504,7 @@ func (s *Server) handleDeauthStart(w http.ResponseWriter, r *http.Request) {
 		PacketInterval: time.Duration(req.PacketIntervalMs) * time.Millisecond,
 		ReasonCode:     req.ReasonCode,
 		Channel:        req.Channel,
+		Interface:      req.Interface,
 	}
 
 	// Start attack

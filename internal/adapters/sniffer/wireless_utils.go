@@ -136,3 +136,15 @@ func getPhyCapabilities(phy string) (map[string]bool, []int, error) {
 
 	return bands, supportedChannels, nil
 }
+
+// SetInterfaceChannel sets the WiFi channel for a given interface.
+func SetInterfaceChannel(iface string, channel int) error {
+	if channel <= 0 {
+		return fmt.Errorf("invalid channel: %d", channel)
+	}
+	cmd := exec.Command("iw", iface, "set", "channel", fmt.Sprintf("%d", channel))
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to set channel %d on %s: %v (%s)", channel, iface, err, string(output))
+	}
+	return nil
+}

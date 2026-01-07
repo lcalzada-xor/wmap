@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"runtime"
 	"sync"
@@ -27,6 +28,12 @@ type SnifferConfig struct {
 	DwellTime int // milliseconds
 }
 
+// ChannelLocker overrides the channel hopper to lock on a specific channel.
+type ChannelLocker interface {
+	Lock(iface string, channel int) error
+	Unlock(iface string) error
+}
+
 // Sniffer handles packet capture and parsing.
 type Sniffer struct {
 	Config     SnifferConfig
@@ -38,8 +45,13 @@ type Sniffer struct {
 	pcapWriter *pcapgo.Writer
 	pcapFile   *os.File
 	// Capability caching
+	// Capability caching
 	capabilitiesCache *domain.InterfaceCapabilities
 	capsCacheMu       sync.RWMutex
+
+	// Locking state
+	hopperPaused bool
+	lockMu       sync.Mutex
 }
 
 // New creates a new Sniffer instance.
@@ -264,6 +276,14 @@ func (s *Sniffer) SetInterfaceChannels(iface string, channels []int) {
 
 // GetInterfaceDetails returns detailed info for this sniffer's interface.
 func (s *Sniffer) GetInterfaceDetails() []domain.InterfaceInfo {
+	// Helper to get MAC
+	getMAC := func(ifaceName string) string {
+		if iface, err := net.InterfaceByName(ifaceName); err == nil {
+			return iface.HardwareAddr.String()
+		}
+		return "Unknown"
+	}
+
 	// Check cache first
 	s.capsCacheMu.RLock()
 	if s.capabilitiesCache != nil {
@@ -271,6 +291,7 @@ func (s *Sniffer) GetInterfaceDetails() []domain.InterfaceInfo {
 		s.capsCacheMu.RUnlock()
 		return []domain.InterfaceInfo{{
 			Name:            s.Config.Interface,
+			MAC:             getMAC(s.Config.Interface),
 			Capabilities:    caps,
 			CurrentChannels: s.GetChannels(),
 		}}
@@ -284,6 +305,7 @@ func (s *Sniffer) GetInterfaceDetails() []domain.InterfaceInfo {
 		// Return basic info without capabilities
 		return []domain.InterfaceInfo{{
 			Name:            s.Config.Interface,
+			MAC:             getMAC(s.Config.Interface),
 			CurrentChannels: s.GetChannels(),
 		}}
 	}
@@ -305,7 +327,62 @@ func (s *Sniffer) GetInterfaceDetails() []domain.InterfaceInfo {
 
 	return []domain.InterfaceInfo{{
 		Name:            s.Config.Interface,
+		MAC:             getMAC(s.Config.Interface),
 		Capabilities:    caps,
 		CurrentChannels: s.GetChannels(),
 	}}
+}
+
+// Lock stops channel hopping and sets a specific channel for the interface.
+func (s *Sniffer) Lock(iface string, channel int) error {
+	s.lockMu.Lock()
+	defer s.lockMu.Unlock()
+
+	if s.Config.Interface != iface {
+		// If we manage multiple sniffers/interfaces in future this might need change.
+		// For now, if the requested interface is not ours, we can try to just set channel blindly
+		// via utils, but we can't control the hopper.
+		// If it IS ours, we stop hopper.
+		return SetInterfaceChannel(iface, channel)
+	}
+
+	if s.hopperPaused {
+		// Already locked, just switch channel
+		return SetInterfaceChannel(iface, channel)
+	}
+
+	if s.Hopper != nil {
+		log.Printf("[SNIFFER] Pausing hopper on %s to lock channel %d", iface, channel)
+		s.Hopper.Stop()
+		s.hopperPaused = true
+	}
+
+	return SetInterfaceChannel(iface, channel)
+}
+
+// Unlock resumes channel hopping if it was paused.
+func (s *Sniffer) Unlock(iface string) error {
+	s.lockMu.Lock()
+	defer s.lockMu.Unlock()
+
+	if s.Config.Interface != iface {
+		return nil
+	}
+
+	if !s.hopperPaused {
+		return nil
+	}
+
+	if len(s.Config.Channels) > 0 {
+		log.Printf("[SNIFFER] Resuming hopper on %s", iface)
+		dwell := time.Duration(s.Config.DwellTime) * time.Millisecond
+		if dwell == 0 {
+			dwell = 300 * time.Millisecond
+		}
+		s.Hopper = NewHopper(s.Config.Interface, s.Config.Channels, dwell)
+		go s.Hopper.Start()
+	}
+
+	s.hopperPaused = false
+	return nil
 }

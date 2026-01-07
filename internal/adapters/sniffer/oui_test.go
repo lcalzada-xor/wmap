@@ -37,7 +37,7 @@ func TestLoadOUIFile(t *testing.T) {
 	content := `
 # Comment
 11:22:33 TestVendor1
-AA-BB-CC   TestVendor2
+CC-BB-CC   TestVendor2
 	`
 	tmpfile, err := os.CreateTemp("", "oui_test_*.txt")
 	if err != nil {
@@ -61,7 +61,7 @@ AA-BB-CC   TestVendor2
 	if got := LookupVendor("11:22:33:00:00:00"); got != "TestVendor1" {
 		t.Errorf("Got %s, want TestVendor1", got)
 	}
-	if got := LookupVendor("AA:BB:CC:DD:EE:FF"); got != "TestVendor2" {
+	if got := LookupVendor("CC:BB:CC:DD:EE:FF"); got != "TestVendor2" {
 		t.Errorf("Got %s, want TestVendor2", got)
 	}
 }

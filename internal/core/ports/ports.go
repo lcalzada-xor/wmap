@@ -24,6 +24,10 @@ type Sniffer interface {
 	GetInterfaceChannels(iface string) []int
 	GetInterfaces() []string
 	GetInterfaceDetails() []domain.InterfaceInfo
+
+	// Channel Locking for attacks
+	Lock(iface string, channel int) error
+	Unlock(iface string) error
 }
 
 // NetworkService defines the core business logic (if we extract it from Server).

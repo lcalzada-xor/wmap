@@ -40,18 +40,36 @@ func InitOUIDatabase(dbPath string, cacheSize int) error {
 
 // LookupVendor attempts to find a vendor for a given MAC address.
 // It uses the following priority:
-// 1. OUI Database (if initialized)
-// 2. Static Common List
-// 3. Loaded External List
-// 4. Randomization Check
+// 1. Randomization Check (Locally Administered Bit)
+// 2. OUI Database (if initialized)
+// 3. Static Common List
+// 4. Loaded External List
 func LookupVendor(mac string) string {
 	if len(mac) < 8 {
 		return "Unknown"
 	}
+
+	// 1. Randomization Check (Locally Administered Bit)
+	// Check if the 2nd least significant bit of the first byte is set.
+	// In the string representation (hex), this corresponds to the second character.
+	// First byte bits: 76543210. LAA is bit 1.
+	// Hex: High Nibble (7654), Low Nibble (3210).
+	// LAA bit is bit 1 of the Low Nibble.
+	// Values with bit 1 set: 2 (0010), 3 (0011), 6 (0110), 7 (0111),
+	// A (1010), B (1011), E (1110), F (1111).
+	if len(mac) >= 2 {
+		c := mac[1]
+		// Check against '2','3','6','7','A','B','E','F' (case insensitive)
+		// Simpler: decode the hex char/byte
+		if isLocallyAdministered(c) {
+			return "Randomized"
+		}
+	}
+
 	prefix := strings.ToUpper(mac[0:8])
 	prefix = strings.ReplaceAll(prefix, "-", ":") // Normalize
 
-	// 1. Try OUI Database first (if available)
+	// 2. Try OUI Database first (if available)
 	if ouiDB != nil {
 		vendor, err := ouiDB.LookupVendor(mac)
 		if err == nil && vendor != "Unknown" {
@@ -60,12 +78,12 @@ func LookupVendor(mac string) string {
 		// On error or Unknown, fall through to other methods
 	}
 
-	// 2. Check Static Common List
+	// 3. Check Static Common List
 	if vendor, ok := CommonOUIs[prefix]; ok {
 		return vendor
 	}
 
-	// 3. Check Loaded External List
+	// 4. Check Loaded External List
 	ouiMutex.RLock()
 	if vendor, ok := externalOUIs[prefix]; ok {
 		ouiMutex.RUnlock()
@@ -73,16 +91,17 @@ func LookupVendor(mac string) string {
 	}
 	ouiMutex.RUnlock()
 
-	// 4. Randomization Check
-	// 2nd hex digit: 2, 6, A, E indicates locally administered
-	if len(mac) >= 2 {
-		c := mac[1]
-		if c == '2' || c == '6' || c == 'A' || c == 'a' || c == 'E' || c == 'e' {
-			return "Randomized"
-		}
-	}
-
 	return "Unknown"
+}
+
+func isLocallyAdministered(hexChar byte) bool {
+	// 2, 6, A, E are basic unicast LAA
+	// 3, 7, B, F are multicast LAA (shouldn't be source, but possible)
+	switch hexChar {
+	case '2', '3', '6', '7', 'a', 'b', 'e', 'f', 'A', 'B', 'E', 'F':
+		return true
+	}
+	return false
 }
 
 // LoadOUIFile loads a text file containing "OUI Vendor" lines.

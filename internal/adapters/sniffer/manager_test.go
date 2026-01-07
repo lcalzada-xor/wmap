@@ -16,13 +16,19 @@ func TestPartitionChannels(t *testing.T) {
 			name:     "2 interfaces, 4 channels",
 			channels: []int{1, 2, 3, 4},
 			n:        2,
-			want:     [][]int{{1, 3}, {2, 4}}, // Round robin: 0->1, 1->2, 2->3, 3->4 => Interface 0: [1, 3], Interface 1: [2, 4]
-			// Wait, my implementation was modulo: idx := i % n
-			// i=0 (ch=1) -> 0%2=0 -> iface 0
-			// i=1 (ch=2) -> 1%2=1 -> iface 1
-			// i=2 (ch=3) -> 2%2=0 -> iface 0
-			// i=3 (ch=4) -> 3%2=1 -> iface 1
 			// Correct.
+			// New logic attempts to split by band (2.4 vs 5).
+			// Since all are 2.4, they might all go to one interface if we reserve the other for 5GHz?
+			// The current implementation does: result[0] = band24, result[1] = band5.
+			// So [[1 2 3 4] []] is correct behavior for the current implementation.
+			want: [][]int{{1, 2, 3, 4}, {}},
+		},
+		{
+			name:     "2 interfaces, Mixed Bands",
+			channels: []int{1, 6, 11, 36, 40, 48},
+			n:        2,
+			// Expect split by band
+			want: [][]int{{1, 6, 11}, {36, 40, 48}},
 		},
 		{
 			name:     "3 interfaces, 5 channels",

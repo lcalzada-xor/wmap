@@ -2,6 +2,7 @@ package sniffer
 
 import (
 	"log"
+	"net"
 	"time"
 
 	"github.com/google/gopacket"
@@ -155,7 +156,7 @@ func (h *PacketHandler) handleMgmtFrame(packet gopacket.Packet, dot11 *layers.Do
 	h.parseIEs(ieData, device, h.Debug)
 
 	// Randomized MAC Check & Fingerprinting
-	h.analyzeRandomization(dot11, device)
+	h.analyzeRandomization(dot11.Address2, device)
 	h.fingerprintDevice(ieData, device)
 
 	if isProbe && device.SSID != "" {
@@ -196,6 +197,7 @@ func (h *PacketHandler) handleDataFrame(packet gopacket.Packet, dot11 *layers.Do
 		device.DataTransmitted = payloadLen
 		device.PacketsCount = 1
 		device.RetryCount = retryVal
+		h.analyzeRandomization(dot11.Address2, device)
 		return device
 	} else if !isToDS && isFromDS {
 		// Download: AP -> STA
@@ -213,6 +215,7 @@ func (h *PacketHandler) handleDataFrame(packet gopacket.Packet, dot11 *layers.Do
 		device.PacketsCount = 1
 		// Retries here are usually AP retrying sending to STA.
 		// We might not attribute this to the STA's "bad behavior" but it reflects link quality.
+		h.analyzeRandomization(dot11.Address1, device)
 		return device
 	}
 
@@ -377,8 +380,8 @@ func parseWPSAttributes(data []byte, device *domain.Device) string {
 }
 
 // analyzeRandomization checks for Locally Administered Address
-func (h *PacketHandler) analyzeRandomization(dot11 *layers.Dot11, device *domain.Device) {
-	if len(dot11.Address2) > 0 && (dot11.Address2[0]&0x02) != 0 {
+func (h *PacketHandler) analyzeRandomization(mac net.HardwareAddr, device *domain.Device) {
+	if len(mac) > 0 && (mac[0]&0x02) != 0 {
 		device.IsRandomized = true
 		device.Vendor = "Randomized"
 		// Future: Use Signature to guess vendor even if randomized

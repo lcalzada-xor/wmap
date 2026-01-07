@@ -152,6 +152,47 @@ func main() {
 	// 5. Initialize Network Service (Orchestrator)
 	networkService := services.NewNetworkService(registry, security, persistence, runnable)
 
+	// Initialize Deauth Engine
+	// Currently relying on the main SnifferManager which implements ChannelLocker
+	// If runnable is Mock, it might not implement ChannelLocker properly, checking...
+	var locker sniffer.ChannelLocker
+	if manager, ok := runnable.(*sniffer.SnifferManager); ok {
+		locker = manager
+	}
+	// Note: If mock, locker is nil, which is handled gracefully by engine (just no locking)
+
+	// Use the first interface for deauth injection by default, or find specific one.
+	// Injector needs an interface name.
+	var defaultInterface string
+	if len(cfg.Interfaces) > 0 {
+		defaultInterface = cfg.Interfaces[0]
+	}
+
+	// Create a dedicated injector or share one?
+	// DeauthEngine creates its own if interface specified in attack config.
+	// But it needs a base one.
+	var injector *sniffer.Injector
+	var errInj error
+
+	// Try to reuse injector from manager to avoid multiple handles/resource busy
+	if manager, ok := runnable.(*sniffer.SnifferManager); ok {
+		injector = manager.GetInjector(defaultInterface)
+		if injector != nil {
+			log.Printf("Reusing Sniffer injector for %s", defaultInterface)
+		}
+	}
+
+	// Fallback to creating a new one if not found or not using manager
+	if injector == nil {
+		injector, errInj = sniffer.NewInjector(defaultInterface)
+		if errInj != nil {
+			log.Printf("Warning: Failed to create default injector: %v", errInj)
+		}
+	}
+
+	deauthEngine := sniffer.NewDeauthEngine(injector, locker, 5)
+	networkService.SetDeauthEngine(deauthEngine)
+
 	// Start Cleanup Loop: Remove devices unseen for 10m, check every 1m
 	networkService.StartCleanupLoop(ctx, 10*time.Minute, 1*time.Minute)
 
@@ -203,6 +244,13 @@ func main() {
 	// Start Web Server in goroutine
 	go func() {
 		log.Printf("Starting Web Server on %s", cfg.Addr)
+
+		// Set Deauth Logger to bridge logs to WebSocket
+		// We do this here to ensure server is ready (though methods are safe)
+		networkService.SetDeauthLogger(func(msg, level string) {
+			server.BroadcastLog(msg, level)
+		})
+
 		// Run(ctx) handles graceful shutdown internally
 		if err := server.Run(ctx); err != nil {
 			log.Printf("Web Server error: %v", err)

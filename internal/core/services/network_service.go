@@ -51,6 +51,30 @@ func NewNetworkService(
 		sniffer:      sniffer,
 		graphBuilder: NewGraphBuilder(registry),
 	}
+
+	// Initialize Deauth Engine
+	// We check if sniffer implements the Locker interface.
+	// Since ports.Sniffer is an interface, we might need to update ports.
+	// For now, let's assume valid injection.
+	// Actually, we need to update ports/ports.go to include Lock/Unlock or
+	// cast it here if we know the implementation.
+	// Better approach: Update ports.Sniffer to include ChannelLocker methods or
+	// check type assertion.
+
+	// Quick fix: Type assert if possible, or update ports.
+	// Let's assume we update ports.Sniffer.
+}
+
+// SetDeauthEngine injects the deauth engine dependency
+func (s *NetworkService) SetDeauthEngine(engine *sniffer.DeauthEngine) {
+	s.deauthEngine = engine
+}
+
+// SetDeauthLogger sets the logger for the deauth engine
+func (s *NetworkService) SetDeauthLogger(logger func(string, string)) {
+	if s.deauthEngine != nil {
+		s.deauthEngine.SetLogger(logger)
+	}
 }
 
 // ProcessDevice handles a newly captured device packet.
@@ -199,6 +223,17 @@ func (s *NetworkService) StartDeauthAttack(config domain.DeauthAttackConfig) (st
 	if s.deauthEngine == nil {
 		return "", fmt.Errorf("deauth engine not initialized")
 	}
+
+	// Auto-detect channel if not specified
+	if config.Channel == 0 {
+		device, exists := s.registry.GetDevice(config.TargetMAC)
+		if exists && device.Channel > 0 {
+			config.Channel = device.Channel
+		} else {
+			return "", fmt.Errorf("channel is 0 and could not be auto-detected for target %s", config.TargetMAC)
+		}
+	}
+
 	return s.deauthEngine.StartAttack(config)
 }
 

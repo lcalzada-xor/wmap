@@ -137,3 +137,15 @@ func (s *MockSniffer) GetInterfaceDetails() []domain.InterfaceInfo {
 		CurrentChannels: []int{1, 6, 11},
 	}}
 }
+
+// Lock is a no-op for mock.
+func (s *MockSniffer) Lock(iface string, channel int) error {
+	log.Printf("[MOCK] Locking %s to channel %d", iface, channel)
+	return nil
+}
+
+// Unlock is a no-op for mock.
+func (s *MockSniffer) Unlock(iface string) error {
+	log.Printf("[MOCK] Unlocking %s", iface)
+	return nil
+}
