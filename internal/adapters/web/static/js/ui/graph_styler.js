@@ -4,6 +4,7 @@
  */
 
 import { State } from '../core/state.js';
+import { NodeGroups } from '../core/constants.js';
 
 export const GraphStyler = {
     styleNode(n) {
@@ -16,7 +17,7 @@ export const GraphStyler = {
         // WiFi Generation Styling
         if (n.is_wifi7) {
             n.borderWidth = 4;
-            n.color = { border: '#b900ff', background: n.group === 'ap' ? 'rgba(185, 0, 255, 0.2)' : undefined };
+            n.color = { border: '#b900ff', background: n.group === NodeGroups.AP ? 'rgba(185, 0, 255, 0.2)' : undefined };
             n.shadow = { color: '#b900ff', size: 15, x: 0, y: 0 };
         } else if (n.is_wifi6) {
             n.borderWidth = 2;
@@ -30,7 +31,7 @@ export const GraphStyler = {
         }
 
         // Icons
-        if (n.group === 'station') {
+        if (n.group === NodeGroups.STATION) {
             n.shape = 'icon';
             let iconCode = '\uf390'; // mobile
             let color = '#FF453A';
@@ -49,7 +50,7 @@ export const GraphStyler = {
             // Highlight Alias with Yellow Icon
             if (State.getAlias(n.mac)) n.icon.color = '#FFD60A';
 
-        } else if (n.group === 'ap') {
+        } else if (n.group === NodeGroups.AP) {
             n.shape = 'icon';
             n.icon = { face: '"Font Awesome 6 Free"', code: '\uf1eb', size: 32, color: '#32D74B', weight: '900' };
         }

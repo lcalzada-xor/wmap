@@ -1,0 +1,401 @@
+/* --- ADVANCED FILTER UI --- */
+
+/* Advanced Search Module */
+.search-module {
+    margin-bottom: 20px;
+}
+
+.search-bar-advanced {
+    position: relative;
+    display: flex;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 14px;
+    padding: 12px 14px;
+    transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.search-bar-advanced:focus-within {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 4px rgba(10, 132, 255, 0.15), 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.search-bar-advanced i.fa-search {
+    color: var(--accent-color);
+    font-size: 0.95em;
+}
+
+.search-bar-advanced input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: white;
+    margin: 0 10px;
+    outline: none;
+    font-family: var(--font-body);
+    font-size: 0.95rem;
+}
+
+.search-bar-advanced input::placeholder {
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.icon-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 6px 8px;
+    position: relative;
+    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+    margin: 0;
+    border-radius: 8px;
+}
+
+.icon-btn:hover {
+    color: var(--accent-color);
+    background: rgba(10, 132, 255, 0.15);
+    transform: scale(1.05);
+}
+
+.icon-btn:active {
+    transform: scale(0.95);
+}
+
+.icon-btn .badge {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    background: linear-gradient(135deg, var(--danger-color) 0%, #ff6b60 100%);
+    color: white;
+    border-radius: 12px;
+    padding: 2px 6px;
+    font-size: 0.65em;
+    font-weight: 700;
+    min-width: 18px;
+    text-align: center;
+    display: none;
+    box-shadow: 0 2px 8px rgba(255, 69, 58, 0.4);
+    border: 1.5px solid rgba(0, 0, 0, 0.3);
+}
+
+/* Suggestions Dropdown */
+.suggestions-dropdown {
+    position: absolute;
+    top: calc(100% + 5px);
+    left: 0;
+    right: 0;
+    background: rgba(20, 20, 30, 0.98);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    max-height: 250px;
+    overflow-y: auto;
+    z-index: 1000;
+    display: none;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(20px);
+}
+
+.suggestions-dropdown.active {
+    display: block;
+    animation: slideDown 0.2s ease;
+}
+
+.suggestion-item {
+    padding: 10px 15px;
+    cursor: pointer;
+    transition: background 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.suggestion-item:last-child {
+    border-bottom: none;
+}
+
+.suggestion-item:hover {
+    background: rgba(10, 132, 255, 0.15);
+}
+
+.suggestion-icon {
+    color: var(--accent-color);
+    width: 20px;
+    text-align: center;
+}
+
+/* Filter Tags */
+.filter-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+    min-height: 32px;
+}
+
+.filter-tag {
+    background: rgba(10, 132, 255, 0.15);
+    border: 1px solid var(--accent-color);
+    border-radius: 20px;
+    padding: 6px 12px;
+    font-size: 0.85em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    animation: slideIn 0.3s ease;
+    color: var(--text-color);
+}
+
+.filter-tag strong {
+    color: var(--accent-color);
+}
+
+.filter-tag .remove {
+    cursor: pointer;
+    opacity: 0.7;
+    transition: all 0.2s;
+    padding: 2px;
+    border-radius: 50%;
+}
+
+.filter-tag .remove:hover {
+    opacity: 1;
+    color: var(--danger-color);
+    background: rgba(255, 69, 58, 0.2);
+}
+
+/* Advanced Filters Panel */
+.advanced-filters {
+    margin-top: 15px;
+    padding: 0;
+    border-radius: 16px;
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+    background: rgba(28, 28, 30, 0.75);
+    backdrop-filter: blur(30px) saturate(180%);
+    -webkit-backdrop-filter: blur(30px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.advanced-filters.active {
+    max-height: 2000px;
+    opacity: 1;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.filter-section {
+    margin-bottom: 24px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.filter-section:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.filter-section h4 {
+    font-size: 0.8em;
+    color: var(--accent-color);
+    margin-bottom: 12px;
+    margin-top: 0;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.preset-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.preset-btn {
+    flex: 1;
+    min-width: 90px;
+    padding: 10px 14px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 10px;
+    color: white;
+    cursor: pointer;
+    transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+    font-size: 0.85em;
+    font-family: var(--font-body);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin: 0;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.preset-btn:hover {
+    background: rgba(10, 132, 255, 0.15);
+    border-color: rgba(10, 132, 255, 0.4);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(10, 132, 255, 0.2);
+}
+
+.preset-btn.active {
+    background: linear-gradient(135deg, var(--accent-color) 0%, #2094FA 100%);
+    color: white;
+    font-weight: 600;
+    border-color: var(--accent-color);
+    box-shadow: 0 4px 16px rgba(10, 132, 255, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.preset-btn i {
+    font-size: 0.9em;
+}
+
+.checkbox-group {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+}
+
+.checkbox-group label {
+    margin-bottom: 0;
+    font-size: 0.9em;
+    padding: 8px 10px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 8px;
+    transition: background 0.2s;
+}
+
+.checkbox-group label:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.range-inputs {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.range-inputs input {
+    flex: 1;
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    color: white;
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+    transition: all 0.2s;
+}
+
+.range-inputs input:focus {
+    border-color: var(--accent-color);
+    background: rgba(255, 255, 255, 0.12);
+    box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.15);
+    outline: none;
+}
+
+.range-inputs span {
+    color: var(--text-secondary);
+    font-size: 0.85em;
+    font-weight: 500;
+}
+
+.time-filter label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 0.85em;
+    color: var(--text-secondary);
+}
+
+.time-filter select {
+    width: 100%;
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    color: white;
+    font-family: var(--font-body);
+    font-size: 0.9em;
+}
+
+.traffic-inputs {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.traffic-inputs label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.85em;
+    margin-bottom: 0;
+}
+
+.traffic-inputs input {
+    flex: 1;
+    padding: 6px 10px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    color: white;
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+}
+
+.filter-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.filter-actions button {
+    flex: 1;
+    margin-top: 0;
+}
+
+.multi-select {
+    width: 100%;
+    min-height: 100px;
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    color: white;
+    font-family: var(--font-body);
+    font-size: 0.9em;
+}
+
+.multi-select option {
+    padding: 6px;
+    background: rgba(20, 20, 30, 0.95);
+    color: white;
+}
+
+.multi-select option:checked {
+    background: var(--accent-color);
+    color: black;
+}
+
+.pill {
+    display: inline-block;
+    background: rgba(10, 132, 255, 0.2);
+    color: var(--accent-color);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.85em;
+    font-weight: 600;
+}

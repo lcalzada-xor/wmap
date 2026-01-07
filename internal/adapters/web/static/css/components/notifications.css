@@ -1,0 +1,74 @@
+/* --- NOTIFICATIONS (Spatial Stack) --- */
+#notification-area {
+    position: fixed;
+    top: 70px;
+    /* Below island */
+    left: 50%;
+    transform: translateX(-50%);
+    width: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    z-index: 2000;
+    pointer-events: none;
+}
+
+.notification {
+    background: rgba(30, 30, 35, 0.95);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+    color: var(--text-color);
+    padding: 12px 24px;
+    border-radius: 40px;
+    /* Pill shape */
+    font-size: 0.9rem;
+    font-weight: 500;
+    pointer-events: auto;
+    opacity: 0;
+    animation: notifyPop 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    min-width: 200px;
+}
+
+@keyframes notifyPop {
+    from {
+        opacity: 0;
+        transform: translateY(-30px) scale(0.9);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.notification.success i {
+    color: var(--success-color);
+}
+
+.notification.warning i {
+    color: var(--warning-color);
+}
+
+.notification.danger i {
+    color: var(--danger-color);
+}
+
+.notification.success {
+    border-bottom: 2px solid var(--success-color);
+}
+
+/* Subtle indicator */
+.notification.warning {
+    border-bottom: 2px solid var(--warning-color);
+}
+
+.notification.danger {
+    border-bottom: 2px solid var(--danger-color);
+}

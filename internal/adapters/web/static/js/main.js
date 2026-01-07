@@ -5,6 +5,7 @@
 import { API } from './core/api.js';
 import { State } from './core/state.js';
 import { SocketClient } from './core/socket.js';
+import { NodeGroups, Events } from './core/constants.js';
 
 import { DataManager } from './graph/data.js';
 
@@ -16,10 +17,12 @@ import { TrailsRenderer } from './render/trails.js';
 import { Notifications } from './ui/notifications.js';
 import { Modals } from './ui/modals.js';
 import { HUD } from './ui/hud.js';
+import { ConsoleManager } from './ui/console.js';
 
 import { ContextMenu } from './ui/context_menu.js';
 import { GraphConfig } from './ui/graph_config.js';
 import { DeauthController } from './ui/deauth_controller.js';
+import { StartupVerifier } from './core/startup.js';
 
 // Vis.js Global because it's loaded via script tag (UMD)
 const vis = window.vis;
@@ -34,6 +37,9 @@ class App {
         this.network = null;
 
         this.compositor = new Compositor();
+
+        // Console Manager
+        this.console = new ConsoleManager();
     }
 
     init() {
@@ -43,6 +49,9 @@ class App {
 
         // Start Flow
         this.checkSession();
+
+        // Initial System Log
+        this.console.log("WMAP Kernel Initialized", "system");
     }
 
     checkSession() {
@@ -54,7 +63,10 @@ class App {
     startStreaming() {
         this.socket = new SocketClient(
             (data) => this.handleData(data),
-            (status, type) => Notifications.setStatus(status, type)
+            (status, type) => {
+                Notifications.setStatus(status, type);
+                this.console.log(`Socket Status: ${status}`, type === 'danger' ? 'danger' : 'info');
+            }
         );
         this.socket.connect();
 
@@ -109,6 +121,12 @@ class App {
     }
 
     async initUI() {
+        // Initialize Console
+        this.console.init();
+
+        // Expose globally for convenience (and for other modules to log)
+        window.Console = this.console;
+
         HUD.init((prop, val) => {
             // Refresh Callback
             if (prop === 'physics') {
@@ -125,30 +143,63 @@ class App {
             this.nodesView.refresh();
 
             // Update vendor dropdown periodically
-            if (prop === 'vendor' || prop === 'channels' || !prop) {
+            if (prop === Events.VENDOR || prop === Events.CHANNELS || !prop) {
                 FilterUI.populateVendorDropdown();
                 FilterUI.populateChannelDropdown();
             }
         }, this.nodes);
 
-        // Populate vendor dropdown initially
-        setTimeout(() => {
-            FilterUI.populateVendorDropdown();
-            FilterUI.populateChannelDropdown();
-        }, 2000); // Wait for initial data
+        // Populate initially only when we have data - Moved to handleData
+
 
         // Initialize Deauth Controller
-        this.deauthController = new DeauthController(API, State);
+        try {
+            this.deauthController = new DeauthController(API, this.nodes);
 
-        // Add context menu item for deauth attack
-        this.contextMenu.addAction('deauth', 'Deauth Attack', (nodeId) => {
-            const node = this.nodes.get(nodeId);
-            if (node && node.group === 'ap') {
-                this.deauthController.openPanel(node.MAC);
-            }
-        });
+            // Add context menu item for deauth attack
+            this.contextMenu.addAction('deauth', 'Deauth Attack', (nodeId) => {
+                const node = this.nodes.get(nodeId);
+                if (node) {
+                    const group = (node.group || '').toLowerCase();
 
-        Modals.initChannelModal();
+                    if (group === NodeGroups.AP || group === NodeGroups.ACCESS_POINT) {
+                        // Target is AP
+                        this.deauthController.openPanel(node.mac);
+                        this.console.log(`Deauth panel opened for AP: ${node.mac}`, "warning");
+                    } else if (group === NodeGroups.STATION || group === NodeGroups.CLIENT || group === NodeGroups.STA) {
+                        // Target is Client (Station)
+                        // Try to find connected AP
+                        let connectedAP = null;
+                        const connectedIds = this.network.getConnectedNodes(nodeId);
+
+                        if (connectedIds && connectedIds.length > 0) {
+                            for (const cid of connectedIds) {
+                                const cNode = this.nodes.get(cid);
+                                if (cNode && (cNode.group === NodeGroups.AP || cNode.group === NodeGroups.ACCESS_POINT)) {
+                                    connectedAP = cNode.mac; // Use lowercase mac
+                                    break;
+                                }
+                            }
+                        }
+
+                        this.deauthController.openPanel(connectedAP, node.mac);
+                        this.console.log(`Deauth panel opened for Station: ${node.mac} (Linked AP: ${connectedAP || 'None'})`, "warning");
+                    } else {
+                        this.console.log(`Deauth not available for node type: ${node.group}`, "info");
+                    }
+                }
+            });
+        } catch (err) {
+            console.error("Failed to initialize DeauthController", err);
+            this.console.log("Deauth Module Failed: " + err.message, "danger");
+        }
+
+        try {
+            Modals.initChannelModal();
+        } catch (err) {
+            console.error("Failed to initialize ChannelModal", err);
+        }
+
         this.initSpatialTilt();
     }
 
@@ -176,10 +227,35 @@ class App {
         });
     }
 
-    handleData(data) {
+    handleData(msg) {
+        // Handle new envelope format
+        let payload = msg;
+        let type = 'graph'; // Assume graph if no type (legacy/fallback)
+
+        if (msg.type && msg.payload) {
+            type = msg.type;
+            payload = msg.payload;
+        } else if (msg.nodes && msg.edges) {
+            // direct graph data
+            type = 'graph';
+        }
+
+        switch (type) {
+            case 'log':
+                this.console.log(payload.message, payload.level);
+                break;
+            case 'graph':
+                this.updateGraph(payload);
+                break;
+            default:
+                console.warn("Unknown WS message:", msg);
+        }
+    }
+
+    updateGraph(data) {
         // Stats
-        const apCount = data.nodes.filter(n => n.group === 'ap').length;
-        const staCount = data.nodes.filter(n => n.group === 'station').length;
+        const apCount = data.nodes.filter(n => n.group === NodeGroups.AP).length;
+        const staCount = data.nodes.filter(n => n.group === NodeGroups.STATION).length;
         HUD.updateStats(apCount, staCount);
 
         // Process
@@ -190,60 +266,30 @@ class App {
         // Note: Vis.js is smart enough to update diffs if ID matches
         this.nodes.update(processedNodes);
         this.edges.update(processedEdges);
+
+        // Initial Data Hook
+        if (!this.initialDataLoaded && data.nodes.length > 0) {
+            this.initialDataLoaded = true;
+            this.onInitialData();
+        }
+    }
+
+    async onInitialData() {
+        this.console.log("Initial Graph Data Received. Hydrating UI...", "system");
+
+        // Lazy load FilterUI if not already (it should be init by now but safe to check)
+        // We can access the module via the instance if we stored it, 
+        // OR re-import since ES modules are cached.
+        const { FilterUI } = await import('./ui/filter_ui.js');
+
+        FilterUI.populateVendorDropdown();
+        FilterUI.populateChannelDropdown();
     }
 }
 
 // --- Startup Verification & Bootstrap ---
 
-class StartupVerifier {
-    static async verify() {
-        // 1. Check for Critical DOM Elements
-        const requiredIds = ['mynetwork', 'status', 'dynamic-island'];
-        const missing = requiredIds.filter(id => !document.getElementById(id));
-        if (missing.length > 0) {
-            throw new Error(`Critical DOM elements missing: ${missing.join(', ')}`);
-        }
-
-        // 2. Check for External Dependencies (Vis.js)
-        if (typeof window.vis === 'undefined') {
-            throw new Error("Vis.js library failed to load. Please check your internet connection or CDN availability.");
-        }
-
-        return true;
-    }
-
-    static reportError(msg) {
-        console.error("Startup Error:", msg);
-        const statusEl = document.getElementById('status');
-        const islandEl = document.getElementById('dynamic-island');
-
-        if (statusEl) {
-            statusEl.innerText = "SYSTEM ERROR";
-            statusEl.style.color = "var(--danger-color)";
-        }
-
-        if (islandEl) {
-            islandEl.style.borderColor = "var(--danger-color)";
-        }
-
-        // Show a more detailed alert if possible, or just replace the status text
-        // For now, let's append a visible error message to the body for absolute clarity
-        const errDiv = document.createElement('div');
-        errDiv.style.position = 'fixed';
-        errDiv.style.top = '50%';
-        errDiv.style.left = '50%';
-        errDiv.style.transform = 'translate(-50%, -50%)';
-        errDiv.style.background = 'rgba(20, 0, 0, 0.95)';
-        errDiv.style.border = '1px solid red';
-        errDiv.style.padding = '20px';
-        errDiv.style.color = '#ff4444';
-        errDiv.style.zIndex = '9999';
-        errDiv.style.fontFamily = 'monospace';
-        errDiv.innerHTML = `<h3><u>INITIALIZATION FAILED</u></h3><p>${msg}</p>`;
-        document.body.appendChild(errDiv);
-    }
-}
-
+// --- Startup Verification & Bootstrap ---
 
 // Bootstrap with Safety Harness
 document.addEventListener('DOMContentLoaded', async () => {

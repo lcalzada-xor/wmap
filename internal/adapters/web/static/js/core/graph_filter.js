@@ -4,6 +4,7 @@
  */
 
 import { State } from '../core/state.js';
+import { NodeGroups } from '../core/constants.js';
 
 export const GraphFilter = {
     /**
@@ -24,15 +25,15 @@ export const GraphFilter = {
      */
     applyBasicFilters(node) {
         // Type filters
-        if (!State.filters.showAP && node.group === 'ap') return false;
-        if (!State.filters.showSta && node.group === 'station') return false;
+        if (!State.filters.showAP && node.group === NodeGroups.AP) return false;
+        if (!State.filters.showSta && node.group === NodeGroups.STATION) return false;
 
         // Legacy RSSI filter (kept for backwards compatibility)
         if (node.rssi !== undefined && node.rssi < State.filters.minRSSI) return false;
 
         // Persist Findings Logic
         if (!State.filters.persistFindings) {
-            if (node.group === 'network' || node.group === 'ap') return true;
+            if (node.group === NodeGroups.NETWORK || node.group === NodeGroups.AP) return true;
             if (node.lastSeen) {
                 if (Date.now() - new Date(node.lastSeen).getTime() > 60000) return false;
             }
@@ -184,7 +185,7 @@ export const GraphFilter = {
         }
 
         // Always show Networks and APs to preserve graph topology
-        if (node.group === 'network' || node.group === 'ap') {
+        if (node.group === NodeGroups.NETWORK || node.group === NodeGroups.AP) {
             return true;
         }
 
@@ -212,7 +213,7 @@ export const GraphFilter = {
         if (minTx === 0 && minRx === 0 && minPackets === 0) return true;
 
         // Always show Networks and APs to preserve graph topology
-        if (node.group === 'network' || node.group === 'ap') {
+        if (node.group === NodeGroups.NETWORK || node.group === NodeGroups.AP) {
             return true;
         }
 

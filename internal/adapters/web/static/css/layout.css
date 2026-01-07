@@ -1,0 +1,107 @@
+#mynetwork {
+    width: 100vw;
+    height: 100vh;
+    background: transparent;
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 1;
+    display: block;
+    mix-blend-mode: screen;
+    /* Blends nicely with animated background */
+    /* Spatial Tilt Support */
+    transform-style: preserve-3d;
+    transition: transform 0.1s cubic-bezier(0.2, 0.8, 0.2, 1);
+    will-change: transform;
+}
+
+#heatmap-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 2;
+    /* Brought to front for visibility */
+    pointer-events: none;
+    background: transparent;
+    /* Spatial Tilt Support */
+    transform-style: preserve-3d;
+    transition: transform 0.1s cubic-bezier(0.2, 0.8, 0.2, 1);
+    will-change: transform;
+}
+
+#radar-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    z-index: 2;
+}
+
+/* --- DYNAMIC ISLAND (Refined) --- */
+#dynamic-island-container {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2000;
+    pointer-events: auto;
+}
+
+#dynamic-island {
+    padding: 8px 16px;
+    /* Tighter initial state */
+    border-radius: 100px;
+    background: #000;
+    /* True black for the island */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 120px;
+    min-height: 36px;
+    transition: all 0.5s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+    /* "Bouncy" physics */
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15), 0 10px 40px rgba(0, 0, 0, 0.6);
+    cursor: default;
+    overflow: hidden;
+}
+
+#dynamic-island:hover {
+    padding: 12px 24px;
+    transform: scale(1.02);
+}
+
+#island-content {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: white;
+    font-size: 0.9rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+#island-content i {
+    color: var(--success-color);
+    /* Status indicator usually green */
+    font-size: 0.7rem;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    50% {
+        opacity: 0.5;
+        transform: scale(0.9);
+    }
+
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}

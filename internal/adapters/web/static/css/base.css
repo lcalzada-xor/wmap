@@ -1,0 +1,59 @@
+:root {
+    /* iOS 19 "Spatial" Palette */
+    --bg-color: #000000;
+    --panel-bg: rgba(28, 28, 30, 0.65);
+    /* Lighter, more translucent for vibrancy */
+    --panel-border: rgba(255, 255, 255, 0.12);
+    --panel-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    /* Deep shadow for lift */
+
+    --text-color: #F5F5F7;
+    /* Apple Off-White */
+    --text-secondary: #86868B;
+    /* Apple Grey */
+
+    /* Vibrant Spatial Accents */
+    --accent-color: #0A84FF;
+    /* System Blue Dark Mode */
+    --accent-glow: rgba(10, 132, 255, 0.5);
+
+    --success-color: #30D158;
+    --warning-color: #FF9F0A;
+    --danger-color: #FF453A;
+    --purple-vibrant: #BF5AF2;
+    --cyan-vibrant: #64D2FF;
+    --indigo-vibrant: #5E5CE6;
+
+    /* Typography */
+    --font-head: 'SF Pro Display', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-body: 'SF Pro Text', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'SF Mono', 'Fira Code', monospace;
+
+    /* Spatial Properties */
+    --blur-amount: 40px;
+    /* Deep depth blur */
+    --saturate-amount: 180%;
+    /* Vibrant glass */
+    --border-radius: 20px;
+    /* Continuous curve squircle-ish */
+    --border-radius-lg: 32px;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    /* Animated Gradient Mesh Background */
+    background: #000000;
+    background-image:
+        radial-gradient(at 0% 0%, rgba(10, 132, 255, 0.15) 0px, transparent 50%),
+        radial-gradient(at 100% 0%, rgba(191, 90, 242, 0.15) 0px, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(48, 209, 88, 0.1) 0px, transparent 50%),
+        radial-gradient(at 0% 50%, rgba(94, 92, 230, 0.1) 0px, transparent 50%);
+    background-attachment: fixed;
+    color: var(--text-color);
+    font-family: var(--font-body);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    letter-spacing: -0.01em;
+    /* Tight "Pro" tracking */
+}

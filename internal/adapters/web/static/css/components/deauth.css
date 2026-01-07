@@ -1,0 +1,114 @@
+/* --- DEAUTH ATTACK PANEL --- */
+.deauth-panel {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.9);
+    width: 420px;
+    max-width: 90vw;
+    max-height: 85vh;
+    overflow-y: auto;
+    opacity: 0;
+    pointer-events: none;
+    visibility: hidden;
+    transition: all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+    z-index: 2500;
+    /* Higher than HUD */
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+.deauth-panel.active {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate(-50%, -50%) scale(1);
+    visibility: visible;
+}
+
+.deauth-content {
+    background: var(--panel-bg);
+    backdrop-filter: blur(40px) saturate(var(--saturate-amount));
+    -webkit-backdrop-filter: blur(40px) saturate(var(--saturate-amount));
+    border: 1px solid var(--panel-border);
+    border-radius: 32px;
+    padding: 30px;
+    position: relative;
+    color: var(--text-color);
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* Deauth List */
+.attack-list {
+    margin-top: 10px;
+    max-height: 150px;
+    overflow-y: auto;
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 12px;
+    padding: 10px;
+}
+
+.attack-item {
+    padding: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.attack-item:last-child {
+    border-bottom: none;
+}
+
+.attack-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.attack-status.running {
+    color: var(--success-color);
+}
+
+.attack-status.stopped {
+    color: var(--warning-color);
+}
+
+.attack-controls {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 4px;
+}
+
+.btn-stop {
+    background: rgba(255, 69, 58, 0.2);
+    color: var(--danger-color);
+    border: 1px solid rgba(255, 69, 58, 0.3);
+    padding: 4px 10px;
+    border-radius: 8px;
+    font-size: 0.8em;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-stop:hover {
+    background: rgba(255, 69, 58, 0.4);
+}
+
+/* Interface Badge on Active Channels */
+.iface-badge {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    background: var(--success-color);
+    color: white;
+    font-size: 0.6em;
+    padding: 2px 5px;
+    border-radius: 6px;
+    font-weight: bold;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    pointer-events: none;
+    line-height: 1;
+}

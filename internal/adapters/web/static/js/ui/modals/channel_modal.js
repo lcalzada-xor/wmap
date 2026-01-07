@@ -17,7 +17,12 @@ export class ChannelModal {
         const btnClose = document.getElementById('btn-channel-modal-close');
         const btnOpen = document.getElementById('btn-channel-config');
 
-        if (!modal || !btnOpen) return;
+        if (!modal || !btnOpen) {
+            console.error("ChannelModal: Missing critical elements", { modal, btnOpen });
+            return;
+        }
+
+        console.log("ChannelModal: Initialized. Button:", btnOpen);
 
         // Inject Interface Selector if missing
         const modalContent = modal.querySelector('.modal-content');

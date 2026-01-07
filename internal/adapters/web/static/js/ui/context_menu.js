@@ -7,6 +7,7 @@ export class ContextMenu {
         this.network = network;
         this.nodes = nodesDataSet;
         this.ctxMenu = document.getElementById('context-menu');
+        this.customActions = new Map();
     }
 
     init() {
@@ -45,9 +46,24 @@ export class ContextMenu {
         });
     }
 
+    addAction(actionName, label, callback) {
+        console.log(`[ContextMenu] Registering action: ${actionName}`);
+        this.customActions.set(actionName, callback);
+        // We assume the HTML element already exists or we might need to dynamically create it?
+        // For now, the 'deauth' item is already in HTML.
+        // If we wanted dynamic items, we'd need to append to DOM.
+        // Let's assume the element exists for now as per main.js init.
+    }
+
     handleContextAction(action, nodeId) {
         const node = this.nodes.get(nodeId);
         if (!node) return;
+
+        // Check custom actions first
+        if (this.customActions.has(action)) {
+            this.customActions.get(action)(nodeId);
+            return;
+        }
 
         switch (action) {
             case 'focus':

@@ -402,93 +402,161 @@ export const FilterUI = {
     /**
      * Update filter tags display
      */
+    /**
+     * Update filter tags display (Optimized for DOM Performance)
+     */
     updateFilterTags() {
         const container = document.getElementById('filter-tags');
         if (!container) return;
 
-        container.innerHTML = '';
+        // Collect all active filters into a unified list of objects
+        // { id: 'type-value', type: 'Type', value: 'Value', onRemove: fn }
+        const activeTags = [];
 
-        // Search query tag
+        // Helper to generate unique ID
+        const getId = (type, val) => `tag-${type}-${val}`.replace(/\s+/g, '-').toLowerCase();
+
+        // Search
         if (State.filters.searchQuery && State.filters.searchQuery.length > 0) {
-            this.addFilterTag(container, 'Search', State.filters.searchQuery, () => {
-                document.getElementById('node-search').value = '';
-                State.filters.searchQuery = '';
-                this.updateFilterTags();
-                if (this.refreshCallback) this.refreshCallback('search', '');
+            activeTags.push({
+                id: getId('search', 'query'),
+                type: 'Search',
+                value: State.filters.searchQuery,
+                onRemove: () => {
+                    document.getElementById('node-search').value = '';
+                    State.filters.searchQuery = '';
+                    this.updateFilterTags();
+                    if (this.refreshCallback) this.refreshCallback('search', '');
+                }
             });
         }
 
-        // Security tags
+        // Security
         State.filters.security.forEach(sec => {
-            this.addFilterTag(container, 'Security', sec, () => {
-                State.filters.security = State.filters.security.filter(s => s !== sec);
-                this.syncUIWithState();
-                this.updateFilterTags();
-                if (this.refreshCallback) this.refreshCallback('security', State.filters.security);
-            });
-        });
-
-        // Frequency tags
-        State.filters.frequency.forEach(freq => {
-            this.addFilterTag(container, 'Frequency', `${freq} GHz`, () => {
-                State.filters.frequency = State.filters.frequency.filter(f => f !== freq);
-                this.syncUIWithState();
-                this.updateFilterTags();
-                if (this.refreshCallback) this.refreshCallback('frequency', State.filters.frequency);
-            });
-        });
-
-        // Vendor tags
-        State.filters.vendors.forEach(vendor => {
-            this.addFilterTag(container, 'Vendor', vendor, () => {
-                State.filters.vendors = State.filters.vendors.filter(v => v !== vendor);
-                this.syncUIWithState();
-                this.updateFilterTags();
-                if (this.refreshCallback) this.refreshCallback('vendor', State.filters.vendors);
-            });
-        });
-
-        // Channel tags
-        State.filters.channels.forEach(channel => {
-            this.addFilterTag(container, 'Channel', channel.toString(), () => {
-                State.filters.channels = State.filters.channels.filter(c => c !== channel);
-                const channelSelect = document.getElementById('filter-channels');
-                if (channelSelect) {
-                    Array.from(channelSelect.options).forEach(opt => {
-                        if (parseInt(opt.value) === channel) opt.selected = false;
-                    });
+            activeTags.push({
+                id: getId('security', sec),
+                type: 'Security',
+                value: sec,
+                onRemove: () => {
+                    State.filters.security = State.filters.security.filter(s => s !== sec);
+                    this.syncUIWithState();
+                    this.updateFilterTags();
+                    if (this.refreshCallback) this.refreshCallback('security', State.filters.security);
                 }
-                this.updateFilterTags();
-                if (this.refreshCallback) this.refreshCallback('channels', State.filters.channels);
             });
         });
 
-        // Signal range tag
+        // Frequency
+        State.filters.frequency.forEach(freq => {
+            activeTags.push({
+                id: getId('frequency', freq),
+                type: 'Frequency',
+                value: `${freq} GHz`,
+                onRemove: () => {
+                    State.filters.frequency = State.filters.frequency.filter(f => f !== freq);
+                    this.syncUIWithState();
+                    this.updateFilterTags();
+                    if (this.refreshCallback) this.refreshCallback('frequency', State.filters.frequency);
+                }
+            });
+        });
+
+        // Vendor
+        State.filters.vendors.forEach(vendor => {
+            activeTags.push({
+                id: getId('vendor', vendor),
+                type: 'Vendor',
+                value: vendor,
+                onRemove: () => {
+                    State.filters.vendors = State.filters.vendors.filter(v => v !== vendor);
+                    this.syncUIWithState();
+                    this.updateFilterTags();
+                    if (this.refreshCallback) this.refreshCallback('vendor', State.filters.vendors);
+                }
+            });
+        });
+
+        // Channel
+        State.filters.channels.forEach(channel => {
+            activeTags.push({
+                id: getId('channel', channel),
+                type: 'Channel',
+                value: channel.toString(),
+                onRemove: () => {
+                    State.filters.channels = State.filters.channels.filter(c => c !== channel);
+                    const channelSelect = document.getElementById('filter-channels');
+                    if (channelSelect) {
+                        Array.from(channelSelect.options).forEach(opt => {
+                            if (parseInt(opt.value) === channel) opt.selected = false;
+                        });
+                    }
+                    this.updateFilterTags();
+                    if (this.refreshCallback) this.refreshCallback('channels', State.filters.channels);
+                }
+            });
+        });
+
+        // Signal Range
         if (State.filters.signalRange.min !== -100 || State.filters.signalRange.max !== 0) {
-            this.addFilterTag(container, 'Signal',
-                `${State.filters.signalRange.min} to ${State.filters.signalRange.max} dBm`,
-                () => {
+            activeTags.push({
+                id: getId('signal', 'range'),
+                type: 'Signal',
+                value: `${State.filters.signalRange.min} to ${State.filters.signalRange.max} dBm`,
+                onRemove: () => {
                     State.filters.signalRange = { min: -100, max: 0 };
                     this.syncUIWithState();
                     this.updateFilterTags();
                     if (this.refreshCallback) this.refreshCallback('signalRange', State.filters.signalRange);
                 }
-            );
+            });
         }
 
-        // Time range tag
+        // Time Range
         if (State.filters.timeRange.lastSeen) {
             const minutes = State.filters.timeRange.lastSeen / (60 * 1000);
             let label = `${minutes}m`;
             if (minutes >= 60) label = `${minutes / 60}h`;
 
-            this.addFilterTag(container, 'Time', `Last ${label}`, () => {
-                State.filters.timeRange.lastSeen = null;
-                this.syncUIWithState();
-                this.updateFilterTags();
-                if (this.refreshCallback) this.refreshCallback('timeRange', null);
+            activeTags.push({
+                id: getId('time', 'range'),
+                type: 'Time',
+                value: `Last ${label}`,
+                onRemove: () => {
+                    State.filters.timeRange.lastSeen = null;
+                    this.syncUIWithState();
+                    this.updateFilterTags();
+                    if (this.refreshCallback) this.refreshCallback('timeRange', null);
+                }
             });
         }
+
+        // RECONCILIATION
+        const existingTags = Array.from(container.children);
+        const existingIds = new Set(existingTags.map(el => el.dataset.tagId));
+        const newIds = new Set(activeTags.map(t => t.id));
+
+        // 1. Remove tags that are no longer active
+        existingTags.forEach(el => {
+            if (!newIds.has(el.dataset.tagId)) {
+                el.remove();
+            }
+        });
+
+        // 2. Add new tags
+        activeTags.forEach(tagData => {
+            if (!existingIds.has(tagData.id)) {
+                this.addFilterTag(container, tagData.type, tagData.value, tagData.onRemove, tagData.id);
+            } else {
+                // Optional: Update value if it changed (e.g., search text update)
+                // For simple tags ID usually implies value, but search text might change while ID stays 'tag-search-query' if logic above isn't granular enough.
+                // In my logic above, search ID is static 'tag-search-query', so we SHOULD update text.
+                const el = container.querySelector(`[data-tag-id="${tagData.id}"]`);
+                if (el) {
+                    const span = el.querySelector('span');
+                    if (span) span.innerHTML = `<strong>${tagData.type}:</strong> ${tagData.value}`;
+                }
+            }
+        });
 
         this.updateActiveFiltersCount();
     },
@@ -496,9 +564,14 @@ export const FilterUI = {
     /**
      * Add a filter tag chip
      */
-    addFilterTag(container, type, value, onRemove) {
+    /**
+     * Add a filter tag chip
+     */
+    addFilterTag(container, type, value, onRemove, id = null) {
         const tag = document.createElement('div');
         tag.className = 'filter-tag';
+        if (id) tag.dataset.tagId = id;
+
         tag.innerHTML = `
             <span><strong>${type}:</strong> ${value}</span>
             <i class="fas fa-times remove"></i>

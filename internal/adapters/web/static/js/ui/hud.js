@@ -6,6 +6,8 @@
 import { State } from '../core/state.js';
 import { API } from '../core/api.js';
 import { Notifications } from './notifications.js';
+import { NodeGroups, Colors } from '../core/constants.js';
+import { HUDTemplates } from './hud_templates.js';
 
 export const HUD = {
     init(refreshCallback) {
@@ -111,139 +113,14 @@ export const HUD = {
         // Close Handler
         if (btnClose) btnClose.onclick = () => this.hideDetails();
 
-        // Data Prep
-        // Fix: Detect group properly to avoid "Station" default for Networks
-        let type = 'Station';
-        let detailIcon = 'fa-mobile-alt';
-        let detailColor = '#ff453a';
+        // Helper formatters passed to template
+        const formatters = {
+            formatBytes: this.formatBytes,
+            timeAgo: this.timeAgo
+        };
 
-        if (node.group === 'ap') {
-            type = 'Access Point';
-            detailIcon = 'fa-wifi';
-            detailColor = '#30d158';
-        } else if (node.group === 'network') {
-            type = 'SSID Network';
-            detailIcon = 'fa-cloud';
-            detailColor = '#0a84ff';
-        }
-
-        const vendor = node.vendor || 'Unknown';
-        const ssid = node.ssid || '<span style="opacity:0.5">N/A</span>';
-        const channel = node.channel ? node.channel : '<span style="opacity:0.5">N/A</span>';
-        const rssiVal = node.rssi !== undefined ? node.rssi : -100;
-
-        // New Data
-        // Fix: JSON uses 'frequency', JS was using 'freq'
-        const freqVal = node.frequency || node.freq;
-        const freq = freqVal ? `${(freqVal / 1000).toFixed(1)} GHz` : 'N/A';
-        const width = node.bw ? `${node.bw} MHz` : 'N/A';
-        const security = node.security || (node.group === 'network' ? 'Unknown' : 'OPEN');
-
-        // Traffic
-        const tx = this.formatBytes(node.data_tx || 0);
-        const rx = this.formatBytes(node.data_rx || 0);
-        const packets = node.packets || 0;
-
-        // Time
-        const seenFirst = this.timeAgo(node.first_seen);
-        const seenLast = this.timeAgo(node.last_seen);
-
-        // Subheader (MAC or ID)
-        const subHeader = node.mac || node.id || '';
-
-        // Signal Bar Logic
-        let signalColor = '#ff453a';
-        let signalWidth = '20%';
-        if (rssiVal > -50) { signalColor = '#30d158'; signalWidth = '100%'; }
-        else if (rssiVal > -70) { signalColor = '#ffcf00'; signalWidth = '70%'; }
-        else if (rssiVal > -85) { signalColor = '#ff9f0a'; signalWidth = '40%'; }
-
-        // Template
-        content.innerHTML = `
-            <div class="detail-row" style="border:none; margin-bottom:20px;">
-                <div style="font-size:1.2em; font-weight:700; margin-bottom:5px;">${node.label || node.mac || node.id}</div>
-                <div style="font-size:0.9em; opacity:0.7;">${subHeader}</div>
-             </div>
-
-            <div class="detail-row">
-                <div class="detail-label">Type</div>
-                <div class="detail-value" style="display:flex; align-items:center;">
-                   <i class="fas ${detailIcon}" style="margin-right:8px; color: ${detailColor}"></i>
-                   ${type}
-                </div>
-            </div>
-
-            <div class="detail-row">
-                <div class="detail-label">Vendor</div>
-                <div class="detail-value">${vendor}</div>
-            </div>
-
-             <div class="detail-row">
-                <div class="detail-label">Network</div>
-                <div class="detail-value">
-                   SSID: <strong>${ssid}</strong>
-                </div>
-            </div>
-
-             <div class="detail-row">
-                <div class="detail-label">Security</div>
-                <div class="detail-value">
-                   <span style="color:var(--accent-color)">${security}</span>
-                </div>
-            </div>
-
-            <div class="detail-row">
-                <div class="detail-label">Signal Quality (${rssiVal} dBm)</div>
-                <div style="width:100%; height:8px; background:rgba(255,255,255,0.1); border-radius:4px; margin-top:5px; overflow:hidden;">
-                    <div style="width:${signalWidth}; height:100%; background:${signalColor}; transition:width 0.3s ease;"></div>
-                </div>
-            </div>
-
-            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:10px;">
-                 <div class="detail-row" style="margin:0;">
-                    <div class="detail-label">Channel</div>
-                    <div class="detail-value">${channel}</div>
-                </div>
-                 <div class="detail-row" style="margin:0;">
-                    <div class="detail-label">Frequency</div>
-                    <div class="detail-value">${freq}</div>
-                </div>
-            </div>
-
-            <div style="margin-top:15px; padding-top:15px; border-top:1px solid var(--panel-border);">
-                <div style="font-size:0.8em; color:var(--text-secondary); margin-bottom:10px; font-weight:600; letter-spacing:1px;">TRAFFIC STATS</div>
-                 <div class="detail-row" style="justify-content:space-between">
-                    <div class="detail-label">Data Transmitted</div>
-                    <div class="detail-value">${tx}</div>
-                </div>
-                 <div class="detail-row" style="justify-content:space-between">
-                    <div class="detail-label">Data Received</div>
-                    <div class="detail-value">${rx}</div>
-                </div>
-                 <div class="detail-row" style="justify-content:space-between">
-                    <div class="detail-label">Total Packets</div>
-                    <div class="detail-value">${packets}</div>
-                </div>
-            </div>
-
-            <div style="margin-top:15px; padding-top:15px; border-top:1px solid var(--panel-border);">
-                <div style="font-size:0.8em; color:var(--text-secondary); margin-bottom:10px; font-weight:600; letter-spacing:1px;">ACTIVITY</div>
-                 <div class="detail-row" style="justify-content:space-between">
-                    <div class="detail-label">First Seen</div>
-                    <div class="detail-value">${seenFirst}</div>
-                </div>
-                 <div class="detail-row" style="justify-content:space-between">
-                    <div class="detail-label">Last Seen</div>
-                    <div class="detail-value">${seenLast}</div>
-                </div>
-            </div>
-
-            <div style="margin-top:20px;">
-                <button class="action-btn-secondary" style="width:100%; font-size:0.9em" onclick="HUD.copyToClipboard('${node.mac || node.id}')">
-                    <i class="far fa-copy"></i> Copy ID
-                </button>
-            </div>
-        `;
+        // Use Template
+        content.innerHTML = HUDTemplates.detailsPanel(node, formatters);
 
         panel.classList.add('active');
     },

@@ -1,0 +1,198 @@
+/* --- CONSOLE PANEL (iOS 19 Bottom Sheet) --- */
+:root {
+    --console-height-open: 300px;
+    --console-height-closed: 40px;
+}
+
+#console-panel {
+    position: fixed;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%) translateY(calc(100% - var(--console-height-closed)));
+    width: 600px;
+    max-width: 95vw;
+    height: var(--console-height-open);
+
+    background: var(--panel-bg);
+    backdrop-filter: blur(var(--blur-amount)) saturate(var(--saturate-amount));
+    -webkit-backdrop-filter: blur(var(--blur-amount)) saturate(var(--saturate-amount));
+
+    border: 1px solid var(--panel-border);
+    border-bottom: none;
+    border-top-left-radius: 24px;
+    border-top-right-radius: 24px;
+
+    box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
+    z-index: 2000;
+
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.5s cubic-bezier(0.19, 1, 0.22, 1);
+}
+
+#console-panel.open {
+    transform: translateX(-50%) translateY(0);
+}
+
+/* Header / Drag Handle Area */
+.console-header {
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    cursor: pointer;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.console-header:hover {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.console-title {
+    font-family: var(--font-head);
+    font-size: 0.85em;
+    color: var(--text-secondary);
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+/* Small indicator dot for new logs */
+#console-indicator {
+    width: 8px;
+    height: 8px;
+    background: var(--accent-color);
+    border-radius: 50%;
+    display: none;
+    box-shadow: 0 0 10px var(--accent-color);
+}
+
+#console-indicator.pulse {
+    animation: pulse 1s infinite;
+}
+
+.console-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.console-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.9em;
+    padding: 4px 8px;
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+
+.console-btn:hover {
+    color: var(--text-color);
+    background: rgba(255, 255, 255, 0.1);
+}
+
+/* Content Area */
+#console-list {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 10px 20px;
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+/* Custom Scrollbar for console */
+#console-list::-webkit-scrollbar {
+    width: 4px;
+}
+
+#console-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+#console-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+}
+
+/* Log Entries */
+.console-entry {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+    animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(5px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.entry-time {
+    color: var(--text-secondary);
+    font-size: 0.85em;
+    min-width: 65px;
+}
+
+.entry-icon {
+    width: 16px;
+    text-align: center;
+}
+
+.entry-msg {
+    color: var(--text-color);
+    word-break: break-word;
+    line-height: 1.4;
+}
+
+/* Level Colors */
+.entry-info .entry-icon {
+    color: var(--accent-color);
+}
+
+.entry-success .entry-icon {
+    color: var(--success-color);
+}
+
+.entry-warning .entry-icon,
+.entry-warning .entry-msg {
+    color: var(--warning-color);
+}
+
+.entry-danger .entry-icon,
+.entry-danger .entry-msg {
+    color: var(--danger-color);
+}
+
+.entry-system .entry-icon {
+    color: #8e8e93;
+}
+
+/* Handle Bar Visual */
+.drag-handle {
+    width: 36px;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 2px;
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+}

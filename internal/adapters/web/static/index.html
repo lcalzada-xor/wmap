@@ -123,9 +123,10 @@
             <!-- Time Range -->
             <div class="filter-section">
                 <h4><i class="fas fa-clock"></i> Activity Time</h4>
-                <div class="time-filter">
+                <div class="form-group">
                     <label>Last Seen:</label>
-                    <select id="time-range-preset">
+                    <select id="time-range-preset"
+                        style="width: 100%; padding: 8px; margin-top: 4px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: #fff;">
                         <option value="">Any time</option>
                         <option value="5m">Last 5 minutes</option>
                         <option value="15m">Last 15 minutes</option>
@@ -200,6 +201,14 @@
                 <button id="btn-channel-config" class="action-btn-secondary"
                     style="width:100%; padding:10px; cursor:pointer; font-size:0.9em;">
                     <i class="fas fa-broadcast-tower"></i> Channel Configuration
+                </button>
+            </div>
+
+            <!-- Deauth Attack Toggle -->
+            <div style="margin-top: 10px;">
+                <button id="btn-toggle-deauth" class="action-btn-secondary"
+                    style="width:100%; padding:10px; cursor:pointer; font-size:0.9em; background: rgba(255, 69, 58, 0.15); border: 1px solid rgba(255, 69, 58, 0.3); color: var(--danger-color);">
+                    <i class="fas fa-bolt"></i> Deauth Visualizer
                 </button>
             </div>
 
@@ -396,9 +405,31 @@
                 <i class="fas fa-cog"></i> Attack Configuration
             </h4>
 
+            <div class="form-group" style="margin-bottom: 12px;">
+                <label style="display: block; color: #fff; font-size: 0.85em; margin-bottom: 5px;">Interface:</label>
+                <select id="deauth-interface"
+                    style="width: 100%; padding: 8px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: #fff;">
+                    <option value="">Safe Default (Auto)</option>
+                </select>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 15px;">
+                <label style="display: flex; align-items: center; color: #fff; font-size: 0.85em; cursor: pointer;">
+                    <input type="checkbox" id="deauth-stealth" style="margin-right: 8px;">
+                    <span style="color: #ff6b6b;">Stealth Mode (Reason Fuzzing)</span>
+                </label>
+            </div>
+
+            <div style="margin-bottom: 15px; text-align: right;">
+                <button id="mitm-prep-btn"
+                    style="font-size: 0.75em; background: rgba(255, 179, 0, 0.15); color: #ffb300; border: 1px solid rgba(255, 179, 0, 0.3); padding: 4px 10px; border-radius: 4px; cursor: pointer;">
+                    Apply MitM Prep Preset
+                </button>
+            </div>
+
             <label style="display: block; margin-top: 12px; color: #fff; font-size: 0.85em;">Target Device (AP):</label>
             <select id="deauth-target"
-                style="width: 100%; padding: 8px; margin-top: 4px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: #fff;">
+                style="width: 100%; padding: 8px; margin-top: 4px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: #fff;">
                 <option value="">-- Select Target --</option>
             </select>
 
@@ -466,6 +497,31 @@
             <!-- Content Injected via JS -->
             <div style="text-align:center; opacity:0.6; padding:20px;">
                 Select a node to view details
+            </div>
+        </div>
+    </div>
+
+    <!-- Console Panel (Bottom Sheet) -->
+    <div id="console-panel">
+        <div class="drag-handle"></div>
+        <div class="console-header" id="console-toggle">
+            <div class="console-title">
+                <i class="fas fa-terminal" style="color:var(--accent-color)"></i> Console <span
+                    id="console-indicator"></span>
+            </div>
+            <div class="console-actions">
+                <button class="console-btn" id="console-clear" title="Clear Logs"><i
+                        class="fas fa-trash-alt"></i></button>
+                <button class="console-btn" title="Filter"><i class="fas fa-filter"></i></button>
+                <button class="console-btn" title="Toggle"><i class="fas fa-chevron-up"></i></button>
+            </div>
+        </div>
+        <div id="console-list">
+            <!-- Logs go here -->
+            <div class="console-entry entry-system" style="opacity:0.5; font-style:italic;">
+                <span class="entry-time">--:--:--</span>
+                <span class="entry-icon"><i class="fas fa-power-off"></i></span>
+                <span class="entry-msg">System Ready.</span>
             </div>
         </div>
     </div>

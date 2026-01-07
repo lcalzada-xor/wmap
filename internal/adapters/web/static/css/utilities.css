@@ -1,0 +1,27 @@
+/* Glassmorphism Utilities - Refined */
+.glass {
+    background: var(--panel-bg);
+    backdrop-filter: blur(var(--blur-amount)) saturate(var(--saturate-amount));
+    -webkit-backdrop-filter: blur(var(--blur-amount)) saturate(var(--saturate-amount));
+    border: 1px solid var(--panel-border);
+    box-shadow: var(--panel-shadow);
+}
+
+/* Fix for Select Options Visibility */
+select option {
+    background-color: #1c1c1e;
+    /* Dark background matching panel */
+    color: #fff;
+}
+
+.text-success {
+    color: var(--success-color);
+}
+
+.text-danger {
+    color: var(--danger-color);
+}
+
+.text-warning {
+    color: var(--warning-color);
+}
