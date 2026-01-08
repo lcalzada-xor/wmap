@@ -16,6 +16,7 @@ type ChannelHopper struct {
 	Delay     time.Duration
 	mu        sync.RWMutex // Protects Channels
 	stopChan  chan struct{}
+	resetChan chan time.Duration
 }
 
 // NewHopper creates a new ChannelHopper.
@@ -25,6 +26,7 @@ func NewHopper(iface string, channels []int, delay time.Duration) *ChannelHopper
 		Channels:  channels,
 		Delay:     delay,
 		stopChan:  make(chan struct{}),
+		resetChan: make(chan time.Duration, 1),
 	}
 }
 
@@ -63,14 +65,49 @@ func (h *ChannelHopper) Start() {
 	// Initial hop
 	h.hop(r)
 
+	// Logic to handle Pause:
+	// Use a timer reset mechanism.
+	// When normal tick fires -> hop.
+	// When reset fires (Pause) -> update ticker or sleep.
+
+	// Better approach:
+	// Main loop selects on ticker AND a 'resetChan'.
+	// Pause() sends to resetChan.
+
 	for {
 		select {
 		case <-h.stopChan:
 			log.Printf("Stopping channel hopper on %s", h.Interface)
 			return
+		case d := <-h.resetChan:
+			// Pausing!
+			log.Printf("Hopper on %s PAUSED for %v", h.Interface, d)
+			// Stop ticker
+			ticker.Stop()
+			// Sleep for duration
+			select {
+			case <-time.After(d):
+				// Resume
+				log.Printf("Hopper on %s RESUMING", h.Interface)
+				ticker.Reset(h.Delay)
+			case <-h.stopChan:
+				return
+			}
 		case <-ticker.C:
 			h.hop(r)
 		}
+	}
+}
+
+// Pause temporarily stops the hopper for the given duration.
+// Useful when a handshake/interesting packet is detected on the current channel.
+func (h *ChannelHopper) Pause(duration time.Duration) {
+	// Non-blocking send to avoid blocking if hopper is stopped or busy
+	select {
+	case h.resetChan <- duration:
+	default:
+		// If channel is full (already pausing?), ignore or retry?
+		// Ignore is fine, likely already paused.
 	}
 }
 

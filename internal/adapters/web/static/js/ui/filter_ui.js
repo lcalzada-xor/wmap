@@ -170,10 +170,26 @@ export const FilterUI = {
             });
         });
 
+        // Vulnerability checkboxes
+        document.querySelectorAll('.filter-vulnerability').forEach(cb => {
+            cb.addEventListener('change', () => {
+                this.updateArrayFilter('vulnerabilities', cb.value, cb.checked);
+            });
+        });
+
         // Frequency checkboxes
         document.querySelectorAll('.filter-frequency').forEach(cb => {
             cb.addEventListener('change', () => {
                 this.updateArrayFilter('frequency', cb.value, cb.checked);
+            });
+        });
+
+        // Boolean filters (New)
+        document.querySelectorAll('.filter-boolean').forEach(cb => {
+            cb.addEventListener('change', () => {
+                State.filters[cb.value] = cb.checked;
+                this.updateFilterTags();
+                if (this.refreshCallback) this.refreshCallback(cb.value, cb.checked);
             });
         });
 
@@ -253,7 +269,17 @@ export const FilterUI = {
                     case '1h': ms = 60 * 60 * 1000; break;
                     case '24h': ms = 24 * 60 * 60 * 1000; break;
                     case 'custom':
-                        // TODO: Show custom date picker
+                        const input = prompt("Enter minutes (e.g. 10) or hours (e.g. 1h):", "10");
+                        if (input) {
+                            // Simple parser
+                            let val = parseInt(input);
+                            if (input.toLowerCase().includes('h')) {
+                                val = parseFloat(input) * 60;
+                            }
+                            if (!isNaN(val) && val > 0) {
+                                ms = val * 60 * 1000;
+                            }
+                        }
                         break;
                     default: ms = null;
                 }
@@ -375,8 +401,17 @@ export const FilterUI = {
             cb.checked = State.filters.security.includes(cb.value);
         });
 
+        document.querySelectorAll('.filter-vulnerability').forEach(cb => {
+            cb.checked = State.filters.vulnerabilities.includes(cb.value);
+        });
+
         document.querySelectorAll('.filter-frequency').forEach(cb => {
             cb.checked = State.filters.frequency.includes(cb.value);
+        });
+
+        // Update boolean filters
+        document.querySelectorAll('.filter-boolean').forEach(cb => {
+            cb.checked = State.filters[cb.value] === true;
         });
 
         // Update search input
@@ -431,6 +466,30 @@ export const FilterUI = {
             });
         }
 
+        // Boolean Filters
+        const booleanFilters = [
+            { key: 'hasHandshake', label: 'Handshake' },
+            { key: 'hiddenSSID', label: 'Hidden SSID' },
+            { key: 'wpsActive', label: 'WPS' },
+            { key: 'randomizedMac', label: 'Randomized' }
+        ];
+
+        booleanFilters.forEach(f => {
+            if (State.filters[f.key]) {
+                activeTags.push({
+                    id: getId('status', f.key),
+                    type: 'Status',
+                    value: f.label,
+                    onRemove: () => {
+                        State.filters[f.key] = false;
+                        this.syncUIWithState();
+                        this.updateFilterTags();
+                        if (this.refreshCallback) this.refreshCallback(f.key, false);
+                    }
+                });
+            }
+        });
+
         // Security
         State.filters.security.forEach(sec => {
             activeTags.push({
@@ -442,6 +501,21 @@ export const FilterUI = {
                     this.syncUIWithState();
                     this.updateFilterTags();
                     if (this.refreshCallback) this.refreshCallback('security', State.filters.security);
+                }
+            });
+        });
+
+        // Vulnerabilities
+        State.filters.vulnerabilities.forEach(vuln => {
+            activeTags.push({
+                id: getId('vuln', vuln),
+                type: 'Vuln',
+                value: vuln,
+                onRemove: () => {
+                    State.filters.vulnerabilities = State.filters.vulnerabilities.filter(v => v !== vuln);
+                    this.syncUIWithState();
+                    this.updateFilterTags();
+                    if (this.refreshCallback) this.refreshCallback('vulnerabilities', State.filters.vulnerabilities);
                 }
             });
         });
@@ -601,11 +675,12 @@ export const FilterUI = {
         this.syncUIWithState();
         this.updateFilterTags();
 
-        // Clear vendor select
-        const vendorSelect = document.getElementById('filter-vendor');
         if (vendorSelect) {
             Array.from(vendorSelect.options).forEach(opt => opt.selected = false);
         }
+
+        // Uncheck all boolean filters
+        document.querySelectorAll('.filter-boolean').forEach(cb => cb.checked = false);
 
         // Clear time range
         const timeRange = document.getElementById('time-range-preset');

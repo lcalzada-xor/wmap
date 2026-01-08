@@ -21,7 +21,7 @@ func TestHandlePacket(t *testing.T) {
 	staMac := net.HardwareAddr{0x00, 0x22, 0x33, 0x44, 0x55, 0x66}
 
 	mockLoc := MockGeo{}
-	handler := NewPacketHandler(mockLoc, true)
+	handler := NewPacketHandler(mockLoc, true, nil, nil)
 
 	tests := []struct {
 		name         string
@@ -150,7 +150,7 @@ func TestHandlePacket(t *testing.T) {
 
 func BenchmarkHandlePacket_Beacon(b *testing.B) {
 	mockLoc := MockGeo{}
-	handler := NewPacketHandler(mockLoc, false)
+	handler := NewPacketHandler(mockLoc, false, nil, nil)
 	apMac := net.HardwareAddr{0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF}
 
 	packet := NewPacketBuilder().
@@ -166,7 +166,7 @@ func BenchmarkHandlePacket_Beacon(b *testing.B) {
 
 func BenchmarkHandlePacket_Data(b *testing.B) {
 	mockLoc := MockGeo{}
-	handler := NewPacketHandler(mockLoc, false)
+	handler := NewPacketHandler(mockLoc, false, nil, nil)
 	apMac := net.HardwareAddr{0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF}
 	staMac := net.HardwareAddr{0x11, 0x22, 0x33, 0x44, 0x55, 0x66}
 

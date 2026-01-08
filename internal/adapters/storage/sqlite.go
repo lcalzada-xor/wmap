@@ -111,7 +111,7 @@ func (a *SQLiteAdapter) SaveDevice(d domain.Device) error {
 	for ssid, ts := range d.ProbedSSIDs {
 		// Use FirstOrCreate to avoid duplicates, update timestamp if exists
 		var probe ProbeModel
-		if err := a.db.Where("device_mac = ? AND ssid = ?", d.MAC, ssid).First(&probe).Error; err != nil {
+		if err := a.db.Where(&ProbeModel{DeviceMAC: d.MAC, SSID: ssid}).First(&probe).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				// Create new
 				probe = ProbeModel{

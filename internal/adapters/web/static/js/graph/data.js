@@ -18,7 +18,7 @@ export const DataManager = {
         rawNodes.forEach(n => {
             // Create a simple signature to check for changes
             // We only care about fields that affect styling or data display
-            const signature = `${n.id}|${n.group}|${n.rssi}|${n.channel}|${n.active}|${n.data_tx}|${n.data_rx}|${n.last_seen}`;
+            const signature = `${n.id}|${n.group}|${n.rssi}|${n.channel}|${n.active}|${n.data_tx}|${n.data_rx}|${n.last_seen}|${n.has_handshake}|${n.ssid}|${n.is_randomized}|${n.wps_info}|${n.capabilities}|${n.security}`;
 
             const cached = this.nodeCache.get(n.id);
             if (!cached || cached.signature !== signature) {

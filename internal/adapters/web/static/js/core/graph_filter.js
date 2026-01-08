@@ -5,6 +5,7 @@
 
 import { State } from '../core/state.js';
 import { NodeGroups } from '../core/constants.js';
+import { AttackTags } from '../core/attack_tags.js';
 
 export const GraphFilter = {
     /**
@@ -46,11 +47,14 @@ export const GraphFilter = {
      * Advanced filters (new logic)
      */
     applyAdvancedFilters(node) {
-        // Text search (multi-field)
+        // Text search (multi-field with wildcard support)
         if (!this.filterByText(node)) return false;
 
         // Security filter
         if (!this.filterBySecurity(node)) return false;
+
+        // Vulnerability filter
+        if (!this.filterByVulnerability(node)) return false;
 
         // Frequency filter
         if (!this.filterByFrequency(node)) return false;
@@ -70,29 +74,59 @@ export const GraphFilter = {
         // Traffic filter
         if (!this.filterByTraffic(node)) return false;
 
+        // New Boolean Filters
+        if (State.filters.hasHandshake && !node.has_handshake) return false;
+        if (State.filters.hiddenSSID && node.ssid !== "") return false; // Assuming hidden SSID is empty string
+        // Check for WPS - checking capabilities or specific field if available
+        if (State.filters.wpsActive) {
+            const hasWPS = (node.wps_info && node.wps_info !== "") ||
+                (node.capabilities && node.capabilities.includes("WPS"));
+            if (!hasWPS) return false;
+        }
+        if (State.filters.randomizedMac && !node.is_randomized) return false;
+
         return true;
     },
 
     /**
-     * Multi-field text search
+     * Multi-field text search with wildcard support (*)
      */
     filterByText(node) {
         if (!State.filters.searchQuery || State.filters.searchQuery.length === 0) {
             return true;
         }
 
-        const q = State.filters.searchQuery.toLowerCase();
+        const query = State.filters.searchQuery.toLowerCase();
+
+        // Helper for wildcard matching
+        const matches = (text, pattern) => {
+            if (!text) return false;
+            if (pattern.includes('*')) {
+                const parts = pattern.split('*');
+                // Simple wildcard implementation: check if all parts exist in order
+                let currentIndex = 0;
+                for (const part of parts) {
+                    if (part === '') continue;
+                    const foundIndex = text.indexOf(part, currentIndex);
+                    if (foundIndex === -1) return false;
+                    currentIndex = foundIndex + part.length;
+                }
+                return true;
+            }
+            return text.includes(pattern);
+        };
+
         const label = (node.label || "").toLowerCase();
         const mac = (node.mac || "").toLowerCase();
         const ssid = (node.ssid || "").toLowerCase();
         const vendor = (node.vendor || "").toLowerCase();
         const alias = (State.getAlias(node.mac) || "").toLowerCase();
 
-        return label.includes(q) ||
-            mac.includes(q) ||
-            ssid.includes(q) ||
-            vendor.includes(q) ||
-            alias.includes(q);
+        return matches(label, query) ||
+            matches(mac, query) ||
+            matches(ssid, query) ||
+            matches(vendor, query) ||
+            matches(alias, query);
     },
 
     /**
@@ -106,6 +140,20 @@ export const GraphFilter = {
         if (!node.security) return false;
 
         return State.filters.security.includes(node.security);
+    },
+
+    /**
+     * Vulnerability filter
+     */
+    filterByVulnerability(node) {
+        if (!State.filters.vulnerabilities || State.filters.vulnerabilities.length === 0) {
+            return true;
+        }
+
+        const tags = AttackTags.getTags(node).map(t => t.label);
+
+        // Check if node has ANY of the selected vulnerabilities
+        return State.filters.vulnerabilities.some(v => tags.includes(v));
     },
 
     /**

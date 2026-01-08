@@ -263,6 +263,13 @@ export const FilterManager = {
         State.filters.signalRange = { min: -100, max: 0 };
         State.filters.timeRange = { lastSeen: null };
         State.filters.traffic = { minTx: 0, minRx: 0, minPackets: 0 };
+
+        // Reset boolean filters
+        State.filters.hasHandshake = false;
+        State.filters.hiddenSSID = false;
+        State.filters.wpsActive = false;
+        State.filters.randomizedMac = false;
+
         State.filters.activePreset = null;
     },
 

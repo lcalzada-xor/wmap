@@ -197,6 +197,29 @@ func (s *Server) BroadcastLog(message string, level string) {
 	}
 }
 
+// BroadcastAlert sends an alert object to all connected clients
+func (s *Server) BroadcastAlert(alert domain.Alert) {
+	msg := WSMessage{
+		Type:    "alert",
+		Payload: alert,
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Println("JSON marshal error:", err)
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for conn := range s.Clients {
+		if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+			conn.Close()
+			delete(s.Clients, conn)
+		}
+	}
+}
+
 // handleScan triggers an active scan
 func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {

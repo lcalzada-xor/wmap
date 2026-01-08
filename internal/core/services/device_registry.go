@@ -99,6 +99,12 @@ func (r *DeviceRegistry) ProcessDevice(newDevice domain.Device) (domain.Device, 
 
 		shard.devices[newDevice.MAC] = newDevice
 		r.updateSSIDsInternal(newDevice)
+
+		// Populate discovery cache for new device to prevent immediate re-discovery
+		r.discoCacheMu.Lock()
+		r.discoCache[newDevice.MAC] = newDevice.Signature
+		r.discoCacheMu.Unlock()
+
 		return newDevice, true
 	}
 
@@ -164,6 +170,9 @@ func (r *DeviceRegistry) mergeDeviceData(existing *domain.Device, newDevice doma
 	}
 	if newDevice.WPSInfo != "" {
 		existing.WPSInfo = newDevice.WPSInfo
+	}
+	if newDevice.HasHandshake {
+		existing.HasHandshake = true
 	}
 
 	existing.DataTransmitted += newDevice.DataTransmitted

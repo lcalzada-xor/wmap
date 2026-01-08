@@ -12,7 +12,9 @@ type GraphNode struct {
 	RSSI         int       `json:"rssi,omitempty"`
 	LastSeen     time.Time `json:"last_seen,omitempty"`
 	FirstSeen    time.Time `json:"first_seen,omitempty"`
-	IsRandomized bool      `json:"isRandomized,omitempty"`
+	Capabilities []string  `json:"capabilities,omitempty"`
+	IsRandomized bool      `json:"is_randomized,omitempty"`
+	HasHandshake bool      `json:"has_handshake,omitempty"`
 	ProbedSSIDs  []string  `json:"probedSSIDs,omitempty"`
 	IETags       []int     `json:"ieTags,omitempty"`
 

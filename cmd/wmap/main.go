@@ -50,6 +50,23 @@ func main() {
 			log.Fatalf("No interfaces configured")
 		}
 
+		// Proactively kill conflicting processes (NetworkManager, wpa_supplicant)
+		log.Println("Stopping conflicting network services (NetworkManager, wpa_supplicant)...")
+		if err := sniffer.KillConflictingProcesses(); err != nil {
+			log.Printf("Warning: Failed to stop conflicting processes: %v", err)
+			log.Printf("Monitor mode might be unstable.")
+		}
+
+		// Ensure we restore services when we exit (even on panic or signal)
+		defer func() {
+			log.Println("Restoring network services...")
+			if err := sniffer.RestoreNetworkServices(); err != nil {
+				log.Printf("Error restoring network services: %v", err)
+			} else {
+				log.Println("Network services restored.")
+			}
+		}()
+
 		for _, iface := range cfg.Interfaces {
 			if err := enableMonitorMode(iface); err != nil {
 				log.Fatalf("Failed to enable monitor mode on %s: %v", iface, err)
@@ -214,6 +231,9 @@ func main() {
 	})
 
 	// PUMP: Channel -> Service
+	// 6. Web Server (Create early to use in pump)
+	server := web.NewServer(cfg.Addr, networkService, sessionManager)
+
 	// PUMP: Channel -> Service
 	go func() {
 		for {
@@ -224,19 +244,14 @@ func main() {
 				networkService.ProcessDevice(d)
 			case a := <-sourceAlertChan:
 				slog.Info("ALERT RECEIVED", "type", a.Type, "msg", a.Message)
-				// networkService.ProcessAlert(a)
-				// Also fallback for mock which writes to deviceChan if we are in mock mode?
-				// If mock mode, sourceDeviceChan IS deviceChan, so we are good.
-				// But wait, if cfg.MockMode below we assign sourceDeviceChan = deviceChan.
-				// But we declared deviceChan at line 66.
-				// If not mock mode, nobody writes to deviceChan. It's unused.
-				// That's fine.
+				server.BroadcastAlert(a)
 			}
 		}
 	}()
 
 	// Web Server
-	server := web.NewServer(cfg.Addr, networkService, sessionManager)
+	// Web Server (Already created)
+	// server := web.NewServer(cfg.Addr, networkService, sessionManager)
 
 	// Error channel to catch failures
 	errChan := make(chan error, 1)

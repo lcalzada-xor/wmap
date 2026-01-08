@@ -55,7 +55,7 @@ type Sniffer struct {
 }
 
 // New creates a new Sniffer instance.
-func New(config SnifferConfig, out chan<- domain.Device, alerts chan<- domain.Alert, loc geo.Provider) *Sniffer {
+func New(config SnifferConfig, out chan<- domain.Device, alerts chan<- domain.Alert, loc geo.Provider, hm *HandshakeManager) *Sniffer {
 	inj, err := NewInjector(config.Interface)
 	if err != nil {
 		log.Printf("Warning: Failed to initialize injector: %v", err)
@@ -65,9 +65,11 @@ func New(config SnifferConfig, out chan<- domain.Device, alerts chan<- domain.Al
 		Config:   config,
 		Output:   out,
 		Alerts:   alerts,
-		handler:  NewPacketHandler(loc, config.Debug),
 		Injector: inj,
 	}
+
+	// Create handler with pause callback
+	s.handler = NewPacketHandler(loc, config.Debug, hm, s.PauseHopper)
 
 	// Initialize Hopper if channels are provided
 	if len(config.Channels) > 0 {
@@ -247,6 +249,31 @@ func (s *Sniffer) SetInterfaceChannels(iface string, channels []int) {
 		return
 	}
 
+	// Validation: Filter out unsupported channels
+	infos := s.GetInterfaceDetails()
+	if len(infos) > 0 && len(infos[0].Capabilities.SupportedChannels) > 0 {
+		supported := infos[0].Capabilities.SupportedChannels
+		supportedSet := make(map[int]bool)
+		for _, ch := range supported {
+			supportedSet[ch] = true
+		}
+
+		var validChannels []int
+		var ignored []int
+		for _, ch := range channels {
+			if supportedSet[ch] {
+				validChannels = append(validChannels, ch)
+			} else {
+				ignored = append(ignored, ch)
+			}
+		}
+
+		if len(ignored) > 0 {
+			log.Printf("Warning: Ignoring unsupported channels for %s: %v", iface, ignored)
+		}
+		channels = validChannels
+	}
+
 	// Case 1: Empty channels provided -> Stop Hopper if active
 	if len(channels) == 0 {
 		if s.Hopper != nil {
@@ -385,4 +412,11 @@ func (s *Sniffer) Unlock(iface string) error {
 
 	s.hopperPaused = false
 	return nil
+}
+
+// PauseHopper pauses the channel hopper for a duration.
+func (s *Sniffer) PauseHopper(duration time.Duration) {
+	if s.Hopper != nil {
+		s.Hopper.Pause(duration)
+	}
 }

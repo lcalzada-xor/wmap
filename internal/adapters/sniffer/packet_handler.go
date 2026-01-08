@@ -1,6 +1,7 @@
 package sniffer
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"time"
@@ -13,21 +14,62 @@ import (
 
 // PacketHandler encapsulates the logic for parsing packets.
 type PacketHandler struct {
-	Location geo.Provider
-	Debug    bool
+	Location         geo.Provider
+	Debug            bool
+	HandshakeManager *HandshakeManager
+	PauseCallback    func(time.Duration)
 }
 
 // NewPacketHandler creates a new PacketHandler.
-func NewPacketHandler(loc geo.Provider, debug bool) *PacketHandler {
+func NewPacketHandler(loc geo.Provider, debug bool, hm *HandshakeManager, pauseFunc func(time.Duration)) *PacketHandler {
 	return &PacketHandler{
-		Location: loc,
-		Debug:    debug,
+		Location:         loc,
+		Debug:            debug,
+		HandshakeManager: hm,
+		PauseCallback:    pauseFunc,
 	}
 }
 
 // HandlePacket processes a single packet and returns a Device if relevant info is found.
 // It also returns an Alert if a threat is detected.
 func (h *PacketHandler) HandlePacket(packet gopacket.Packet) (*domain.Device, *domain.Alert) {
+	// Handshake Capture
+	if h.HandshakeManager != nil {
+		// Aggressive Pause: If we see EAPOL, pause IMMEDIATELY
+		if isEAPOLKey(packet) {
+			if h.PauseCallback != nil {
+				h.PauseCallback(5 * time.Second)
+			}
+		}
+
+		saved := h.HandshakeManager.ProcessFrame(packet)
+		if saved {
+			// Trigger Reactive Hopping: Pause to capture more frames
+			if h.PauseCallback != nil {
+				h.PauseCallback(5 * time.Second)
+			}
+
+			// Alert! Handshake Captured
+			// We need BSSID from packet to be accurate, but ProcessFrame handles it internally.
+			// Let's extract BSSID purely for the alert if possible.
+			// Actually, ProcessFrame knows if it saved.
+			// Re-extraction for Alert context:
+			dot11 := packet.Layer(layers.LayerTypeDot11).(*layers.Dot11)
+			bssid := dot11.Address3.String()
+
+			alert := &domain.Alert{
+				Type:      "HANDSHAKE_CAPTURED",
+				Subtype:   "WPA_HANDSHAKE",
+				DeviceMAC: dot11.Address2.String(), // Source (likely Station or AP)
+				TargetMAC: dot11.Address1.String(), // Dest
+				Timestamp: time.Now(),
+				Message:   "WPA Handshake Captured",
+				Details:   fmt.Sprintf("BSSID: %s", bssid),
+			}
+			return nil, alert
+		}
+	}
+
 	dot11Layer := packet.Layer(layers.LayerTypeDot11)
 	if dot11Layer == nil {
 		return nil, nil
@@ -153,8 +195,6 @@ func (h *PacketHandler) handleMgmtFrame(packet gopacket.Packet, dot11 *layers.Do
 
 	h.parseIEs(ieData, device, h.Debug)
 
-	h.parseIEs(ieData, device, h.Debug)
-
 	// Randomized MAC Check & Fingerprinting
 	h.analyzeRandomization(dot11.Address2, device)
 	h.fingerprintDevice(ieData, device)
@@ -169,6 +209,11 @@ func (h *PacketHandler) handleMgmtFrame(packet gopacket.Packet, dot11 *layers.Do
 	// If it's a beacon, the SSID we found is the one it's broadcasting
 	// If it's a probe, the SSID is what it's looking for.
 	// The device.SSID field is somewhat dual-purpose here.
+
+	// Check for HasHandshake if it's an AP
+	if device.Type == "ap" && h.HandshakeManager != nil {
+		device.HasHandshake = h.HandshakeManager.HasHandshake(device.MAC)
+	}
 
 	// Only return if we actually classified it
 	if isBeacon || isProbe {
@@ -229,6 +274,9 @@ func (h *PacketHandler) parseIEs(data []byte, device *domain.Device, debug bool)
 	// Defaults
 	device.Security = "OPEN"
 	device.Standard = "802.11g/a" // baseline
+
+	// DEBUG
+	// fmt.Printf("DEBUG parseIEs: len=%d data=%v\n", len(data), data)
 
 	for offset < limit {
 		if offset+1 >= limit {
@@ -453,4 +501,13 @@ func frequencyToChannel(freq int) int {
 	}
 
 	return 0
+}
+
+func isEAPOLKey(packet gopacket.Packet) bool {
+	if eapolLayer := packet.Layer(layers.LayerTypeEAPOL); eapolLayer != nil {
+		if eapol, ok := eapolLayer.(*layers.EAPOL); ok {
+			return eapol.Type == layers.EAPOLTypeKey
+		}
+	}
+	return false
 }

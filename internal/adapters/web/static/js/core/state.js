@@ -22,6 +22,7 @@ export const State = {
         searchQuery: '',
 
         // Advanced filters (new)
+        vulnerabilities: [],    // ['WEP', 'WPS', 'KRACK', 'DRAGON']
         security: [],           // ['WPA2', 'WPA3', 'OPEN', 'WEP']
         frequency: [],          // ['2.4', '5']
         channels: [],           // [1, 6, 11, 36, 40, ...]
@@ -38,6 +39,12 @@ export const State = {
             minRx: 0,           // bytes
             minPackets: 0       // packet count
         },
+        // Booleans (New)
+        hasHandshake: false,
+        hiddenSSID: false,
+        wpsActive: false,
+        randomizedMac: false,
+
         activePreset: null,     // Currently active preset ID
         searchHistory: []       // Last 10 searches
     },

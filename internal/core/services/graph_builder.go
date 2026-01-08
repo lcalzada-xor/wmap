@@ -96,7 +96,9 @@ func (b *GraphBuilder) BuildGraph() domain.GraphData {
 			RSSI:         device.RSSI,
 			LastSeen:     device.LastSeen,
 			FirstSeen:    device.FirstSeen,
+			Capabilities: device.Capabilities,
 			IsRandomized: device.IsRandomized,
+			HasHandshake: device.HasHandshake,
 			SSID:         device.SSID,
 			Channel:      device.Channel,
 			Security:     device.Security,
@@ -107,6 +109,7 @@ func (b *GraphBuilder) BuildGraph() domain.GraphData {
 			IsWiFi6:      device.IsWiFi6,
 			IsWiFi7:      device.IsWiFi7,
 			Signature:    device.Signature,
+			WPSInfo:      device.WPSInfo,
 			IETags:       device.IETags,
 
 			// Traffic Stats

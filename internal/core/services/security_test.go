@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
+	"github.com/lcalzada-xor/wmap/internal/core/ports"
 )
 
 func TestSecurityIntelligenceAlerts(t *testing.T) {
@@ -83,3 +84,78 @@ func TestSecurityIntelligenceAlerts(t *testing.T) {
 		t.Error("Evil Twin alert not triggered")
 	}
 }
+
+func TestSecurityEngine_evaluateRules(t *testing.T) {
+	// Directly setup SecurityEngine with mock registry
+	mockReg := &MockRegistrySecurity{}
+	svc := NewSecurityEngine(mockReg)
+
+	// Add Rules
+	ruleSSID := domain.AlertRule{
+		ID:      "rule-1",
+		Enabled: true,
+		Type:    domain.AlertSSID,
+		Value:   "TargetCorp",
+		Exact:   false, // Contains
+	}
+	svc.AddRule(ruleSSID)
+
+	ruleMAC := domain.AlertRule{
+		ID:      "rule-2",
+		Enabled: true,
+		Type:    domain.AlertMAC,
+		Value:   "11:22:33:44:55:66",
+	}
+	svc.AddRule(ruleMAC)
+
+	// 1. Trigger SSID Rule
+	svc.Analyze(domain.Device{
+		MAC:        "aa:bb:cc:dd:ee:ff",
+		SSID:       "TargetCorp_Guest",
+		Behavioral: &domain.BehavioralProfile{AnomalyDetails: make(map[string]float64)},
+	})
+
+	// 2. Trigger MAC Rule
+	svc.Analyze(domain.Device{
+		MAC:        "11:22:33:44:55:66",
+		SSID:       "HomeWifi",
+		Behavioral: &domain.BehavioralProfile{AnomalyDetails: make(map[string]float64)},
+	})
+
+	alerts := svc.GetAlerts()
+	foundSSID := false
+	foundMAC := false
+
+	for _, a := range alerts {
+		if a.RuleID == "rule-1" {
+			foundSSID = true
+		}
+		if a.RuleID == "rule-2" {
+			foundMAC = true
+		}
+	}
+
+	if !foundSSID {
+		t.Error("SSID Rule not triggered")
+	}
+	if !foundMAC {
+		t.Error("MAC Rule not triggered")
+	}
+}
+
+// MockRegistrySecurity specific for this test
+type MockRegistrySecurity struct {
+	ports.DeviceRegistry
+}
+
+func (m *MockRegistrySecurity) GetSSIDSecurity(ssid string) (string, bool) { return "", false }
+func (m *MockRegistrySecurity) GetAllDevices() []domain.Device             { return []domain.Device{} }
+func (m *MockRegistrySecurity) GetDevice(mac string) (domain.Device, bool) {
+	return domain.Device{}, false
+}
+
+// Redefining helpers if missing, or we can just assume they exist if compilation passes.
+// But to be safe, if setupTestService is already defined in another file, we shouldn't redefine it.
+// We are in 'services' package.
+// If previous test run passed existing security tests, setupTestService must be there.
+// I will NOT redefine it.

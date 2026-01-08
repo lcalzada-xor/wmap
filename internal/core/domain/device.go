@@ -40,11 +40,12 @@ type Device struct {
 	Signature      string               `json:"signature,omitempty"` // IE Hash for model identification
 	WPSInfo        string               `json:"wps_info,omitempty"`  // WPS State/Version
 
+	// Security & Advanced Protocols (Phase C)
+	Has11k       bool `json:"has11k,omitempty"` // 802.11k
+	Has11v       bool `json:"has11v,omitempty"` // 802.11v
+	Has11r       bool `json:"has11r,omitempty"` // 802.11r
+	HasHandshake bool `json:"has_handshake,omitempty"`
+
 	// Behavioral Intelligence (Phase A)
 	Behavioral *BehavioralProfile `json:"behavioral,omitempty"`
-
-	// Security & Advanced Protocols (Phase C)
-	Has11k bool `json:"has11k,omitempty"` // 802.11k
-	Has11v bool `json:"has11v,omitempty"` // 802.11v
-	Has11r bool `json:"has11r,omitempty"` // 802.11r
 }

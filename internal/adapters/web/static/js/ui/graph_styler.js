@@ -53,6 +53,19 @@ export const GraphStyler = {
         } else if (n.group === NodeGroups.AP) {
             n.shape = 'icon';
             n.icon = { face: '"Font Awesome 6 Free"', code: '\uf1eb', size: 32, color: '#32D74B', weight: '900' };
+
+
+            // Handshake Captured (Lock Badge)
+            if (n.has_handshake) {
+                // Instead of replacing the icon, we append a badge to the label
+                // Vis.js supports unicode in labels.
+                if (!n.label) n.label = '';
+                // Check if already has lock to avoid duplication if called multiple times
+                if (!n.label.includes('🔒')) {
+                    n.label += ' 🔒';
+                }
+                // Optional: Make label color generic if not valid, but let's keep it simple.
+            }
         }
 
         return n;

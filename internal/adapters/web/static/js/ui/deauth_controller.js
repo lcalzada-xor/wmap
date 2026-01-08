@@ -54,7 +54,7 @@ export class DeauthController {
         this.startPeriodicUpdates();
     }
 
-    openPanel(targetMAC = null, clientMAC = null) {
+    openPanel(targetMAC = null, clientMAC = null, channel = null) {
         this.panel.classList.add('active');
         this.updateTargetDropdown();
         this.populateInterfaces();
@@ -71,14 +71,30 @@ export class DeauthController {
 
             if (!optionExists) {
                 const node = this.nodes.get(targetMAC); // Try to get info
+                // If we have the node, and channel wasn't passed, try to get it
+                if (node && !channel && node.channel) {
+                    channel = node.channel;
+                }
                 const label = node ? (node.ssid ? `${node.ssid} (${targetMAC})` : targetMAC) : targetMAC;
                 const option = document.createElement('option');
                 option.value = targetMAC;
                 option.textContent = label;
                 this.targetSelect.appendChild(option);
+            } else if (!channel) {
+                // If option exists but channel not passed, try to find it from nodes
+                const node = this.nodes.get(targetMAC);
+                if (node && node.channel) channel = node.channel;
             }
 
             this.targetSelect.value = targetMAC;
+        }
+
+        if (channel) {
+            const channelInput = document.getElementById('deauth-channel');
+            if (channelInput) {
+                channelInput.value = channel;
+                this.highlightField(channelInput);
+            }
         }
 
         if (clientMAC) {
@@ -250,6 +266,7 @@ export class DeauthController {
         const reasonCode = parseInt(document.getElementById('deauth-reason').value);
         const legalAck = document.getElementById('deauth-legal-ack').checked;
         const interfaceName = this.interfaceSelect ? this.interfaceSelect.value : "";
+        const channelVal = parseInt(document.getElementById('deauth-channel').value);
 
         // Validation
         if (!targetMAC) {
@@ -275,7 +292,7 @@ export class DeauthController {
             packet_count: packetCount,
             packet_interval_ms: packetInterval,
             reason_code: reasonCode,
-            channel: 0, // Auto-detect from target
+            channel: channelVal || 0, // Use input or 0 for auto-detect
             legal_acknowledgment: legalAck,
             interface: interfaceName
         };

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/lcalzada-xor/wmap/geo"
@@ -32,10 +33,21 @@ type SnifferManager struct {
 	// Status tracking
 	statuses map[string]*SnifferStatus
 	mu       sync.RWMutex
+
+	// Shared components
+	HandshakeManager *HandshakeManager
 }
 
 // NewManager creates a manager for the given interfaces.
 func NewManager(interfaces []string, dwell int, debug bool, loc geo.Provider) *SnifferManager {
+	// Use XDG-compliant path for handshakes
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Printf("Warning: Could not resolve home directory, using fallback path: %v", err)
+		home = "."
+	}
+	handshakeDir := filepath.Join(home, ".local", "share", "wmap", "handshakes")
+
 	return &SnifferManager{
 		Interfaces: interfaces,
 		DwellTime:  dwell,
@@ -44,6 +56,8 @@ func NewManager(interfaces []string, dwell int, debug bool, loc geo.Provider) *S
 		Output:     make(chan domain.Device, 1000), // Aggregated output
 		Alerts:     make(chan domain.Alert, 100),   // Aggregated alerts
 		statuses:   make(map[string]*SnifferStatus),
+		// Initialize shared HandshakeManager
+		HandshakeManager: NewHandshakeManager(handshakeDir),
 	}
 }
 
@@ -91,7 +105,7 @@ func (m *SnifferManager) Start(ctx context.Context) error {
 		// Note: We need to bridge the individual Output channels to the manager's aggregated Output
 		// Or we can pass the manager's channel directly IF it was send-only, but Sniffer expects chan<-
 		// Yes, we can pass m.Output directly.
-		sniff := New(cfg, m.Output, m.Alerts, m.Loc)
+		sniff := New(cfg, m.Output, m.Alerts, m.Loc, m.HandshakeManager)
 		m.Sniffers = append(m.Sniffers, sniff)
 
 		wg.Add(1)

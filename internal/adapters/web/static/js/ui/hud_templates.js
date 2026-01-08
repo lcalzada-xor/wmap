@@ -1,4 +1,5 @@
 import { NodeGroups, Colors } from '../core/constants.js';
+import { AttackTags } from '../core/attack_tags.js';
 
 /**
  * HTML Templates for HUD components
@@ -24,6 +25,15 @@ export const HUDTemplates = {
             type = 'SSID Network';
             detailIcon = 'fa-cloud';
             detailColor = Colors.NODE_NETWORK;
+        }
+
+        // Generate Attack Tags
+        const tags = AttackTags.getTags(node);
+        let tagsHtml = '';
+        if (tags.length > 0) {
+            tagsHtml = `<div class="attack-tags-container">`;
+            tagsHtml += tags.map(t => `<span class="attack-tag" style="background:${t.color}20; color:${t.color}; border-color:${t.color}40;">${t.label}</span>`).join('');
+            tagsHtml += `</div>`;
         }
 
         const vendor = node.vendor || 'Unknown';
@@ -54,6 +64,7 @@ export const HUDTemplates = {
             <div class="detail-row" style="border:none; margin-bottom:20px;">
                 <div style="font-size:1.2em; font-weight:700; margin-bottom:5px;">${node.label || node.mac || node.id}</div>
                 <div style="font-size:0.9em; opacity:0.7;">${subHeader}</div>
+                ${tagsHtml}
              </div>
 
             <div class="detail-row">
@@ -128,6 +139,23 @@ export const HUDTemplates = {
                     <div class="detail-value">${seenLast}</div>
                 </div>
             </div>
+
+            ${node.hasHandshake ? `
+            <div style="margin-top:15px; padding-top:15px; border-top:1px solid var(--panel-border);">
+                <div style="font-size:0.8em; color:var(--text-secondary); margin-bottom:10px; font-weight:600; letter-spacing:1px;">HANDSHAKE CAPTURED</div>
+                <div class="detail-row" style="justify-content:space-between">
+                    <div class="detail-label">
+                        <i class="fas fa-check-circle" style="color: var(--success-color); margin-right:5px;"></i>
+                        WPA Handshake Available
+                    </div>
+                </div>
+                <div style="margin-top:10px;">
+                    <button class="action-btn-secondary" style="width:100%; font-size:0.9em" onclick="window.open('file:///home/llvch/.local/share/wmap/handshakes', '_blank')">
+                        <i class="fas fa-folder-open"></i> Open Captures Folder
+                    </button>
+                </div>
+            </div>
+            ` : ''}
 
             <div style="margin-top:20px;">
                 <button class="action-btn-secondary" style="width:100%; font-size:0.9em" onclick="HUD.copyToClipboard('${node.mac || node.id}')">

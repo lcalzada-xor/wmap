@@ -148,3 +148,52 @@ func SetInterfaceChannel(iface string, channel int) error {
 	}
 	return nil
 }
+
+// KillConflictingProcesses stops NetworkManager and wpa_supplicant to prevent interference.
+// This is critical for reliable monitor mode operation.
+func KillConflictingProcesses() error {
+	commands := [][]string{
+		{"systemctl", "stop", "NetworkManager"},
+		{"systemctl", "stop", "wpa_supplicant"},
+		// Stronger kill if systemctl isn't enough or for non-systemd systems (optional, keeping safe for now)
+		// {"killall", "wpa_supplicant"},
+	}
+
+	for _, cmdParts := range commands {
+		cmdName := cmdParts[0]
+		cmdArgs := cmdParts[1:]
+		// We use exec.Command directly here. runCmd helper is in main package, not here.
+		// We can add a local helper or just run it.
+		cmd := exec.Command(cmdName, cmdArgs...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			// Don't error out immediately, just log and try next?
+			// But for now, returning error is safer so main knows something went wrong.
+			// However, stopping a stopped service might fail or return different codes?
+			// systemctl usually exits 0 if already stopped.
+			return fmt.Errorf("failed to execute %s %v: %v (%s)", cmdName, cmdArgs, err, string(out))
+		}
+	}
+	return nil
+}
+
+// RestoreNetworkServices restarts NetworkManager and wpa_supplicant.
+func RestoreNetworkServices() error {
+	commands := [][]string{
+		{"systemctl", "start", "wpa_supplicant"}, // Start supplicant first usually
+		{"systemctl", "start", "NetworkManager"},
+	}
+
+	var lastErr error
+	for _, cmdParts := range commands {
+		cmdName := cmdParts[0]
+		cmdArgs := cmdParts[1:]
+		cmd := exec.Command(cmdName, cmdArgs...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			// We try to restore everything even if one fails
+			lastErr = fmt.Errorf("failed to execute %s %v: %v (%s)", cmdName, cmdArgs, err, string(out))
+		}
+	}
+	return lastErr
+}

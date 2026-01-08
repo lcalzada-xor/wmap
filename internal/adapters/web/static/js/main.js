@@ -163,13 +163,14 @@ class App {
                     const group = (node.group || '').toLowerCase();
 
                     if (group === NodeGroups.AP || group === NodeGroups.ACCESS_POINT) {
-                        // Target is AP
-                        this.deauthController.openPanel(node.mac);
-                        this.console.log(`Deauth panel opened for AP: ${node.mac}`, "warning");
+                        // Target is AP - Pass channel if available
+                        this.deauthController.openPanel(node.mac, null, node.channel);
+                        this.console.log(`Deauth panel opened for AP: ${node.mac} (Ch: ${node.channel || 'Auto'})`, "warning");
                     } else if (group === NodeGroups.STATION || group === NodeGroups.CLIENT || group === NodeGroups.STA) {
                         // Target is Client (Station)
-                        // Try to find connected AP
+                        // Try to find connected AP to get channel
                         let connectedAP = null;
+                        let channel = null;
                         const connectedIds = this.network.getConnectedNodes(nodeId);
 
                         if (connectedIds && connectedIds.length > 0) {
@@ -177,13 +178,17 @@ class App {
                                 const cNode = this.nodes.get(cid);
                                 if (cNode && (cNode.group === NodeGroups.AP || cNode.group === NodeGroups.ACCESS_POINT)) {
                                     connectedAP = cNode.mac; // Use lowercase mac
+                                    channel = cNode.channel;
                                     break;
                                 }
                             }
                         }
 
-                        this.deauthController.openPanel(connectedAP, node.mac);
-                        this.console.log(`Deauth panel opened for Station: ${node.mac} (Linked AP: ${connectedAP || 'None'})`, "warning");
+                        // If we didn't find AP channel, maybe the station has it (less likely to be authoritative but valid)
+                        if (!channel && node.channel) channel = node.channel;
+
+                        this.deauthController.openPanel(connectedAP, node.mac, channel);
+                        this.console.log(`Deauth panel opened for Station: ${node.mac} (Linked AP: ${connectedAP || 'None'}, Ch: ${channel || 'Auto'})`, "warning");
                     } else {
                         this.console.log(`Deauth not available for node type: ${node.group}`, "info");
                     }
@@ -247,8 +252,24 @@ class App {
             case 'graph':
                 this.updateGraph(payload);
                 break;
+            case 'alert':
+                this.handleAlert(payload);
+                break;
             default:
                 console.warn("Unknown WS message:", msg);
+        }
+    }
+
+    handleAlert(alert) {
+        if (alert.type === 'HANDSHAKE_CAPTURED') {
+            // Handshake Notification (Custom Warning style)
+            Notifications.show(`Handshake Captured! ${alert.details}`, 'warning');
+            this.console.log(`[HANDSHAKE] Captured for ${alert.details}`, "warning");
+        } else if (alert.type === 'ANOMALY') {
+            Notifications.show(`${alert.message}`, 'danger');
+            this.console.log(`[SECURITY] ${alert.message}`, "danger");
+        } else {
+            Notifications.show(`Alert: ${alert.message}`, 'info');
         }
     }
 
