@@ -25,3 +25,39 @@ select option {
 .text-warning {
     color: var(--warning-color);
 }
+
+/* Font Awesome Icon Fixes */
+/* Ensure Font Awesome icons render correctly */
+i.fas,
+i.far,
+i.fab,
+i.fa {
+    font-family: "Font Awesome 6 Free", "Font Awesome 6 Brands" !important;
+    font-style: normal;
+    font-variant: normal;
+    text-rendering: auto;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    display: inline-block;
+    font-weight: 900;
+}
+
+i.far {
+    font-weight: 400;
+}
+
+i.fab {
+    font-family: "Font Awesome 6 Brands" !important;
+    font-weight: 400;
+}
+
+/* Prevent button/input styles from affecting icons */
+button i,
+.icon-btn i,
+.zoom-btn i,
+.action-btn i,
+.action-btn-secondary i {
+    pointer-events: none;
+    line-height: 1;
+    vertical-align: middle;
+}

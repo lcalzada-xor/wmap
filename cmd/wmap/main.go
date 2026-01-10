@@ -11,11 +11,14 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
 
 	"github.com/lcalzada-xor/wmap/geo"
+	"github.com/lcalzada-xor/wmap/internal/adapters/attack"
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer"
+	"github.com/lcalzada-xor/wmap/internal/adapters/storage"
 	"github.com/lcalzada-xor/wmap/internal/adapters/web"
 	"github.com/lcalzada-xor/wmap/internal/config"
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
@@ -151,23 +154,47 @@ func main() {
 	// 3. Initialize Persistence Manager (Start with no storage, SessionManager will set it)
 	persistence := services.NewPersistenceManager(nil, 10000)
 
-	// 4. Initialize Session Manager
-	// Use XDG compliant path: ~/.local/share/wmap/sessions
+	// 4. Initialize Workspace Manager (formerly Session Manager)
+	// Use XDG compliant path: ~/.local/share/wmap/workspaces
 	home, err := os.UserHomeDir()
 	if err != nil {
 		log.Fatalf("Failed to resolve home directory: %v", err)
 	}
-	sessionDir := filepath.Join(home, ".local", "share", "wmap", "sessions")
-	log.Printf("Session Storage Path: %s", sessionDir)
+	workspaceDir := filepath.Join(home, ".local", "share", "wmap", "workspaces")
+	log.Printf("Workspace Storage Path: %s", workspaceDir)
 
-	sessionManager, err := services.NewSessionManager(sessionDir, persistence, registry)
+	workspaceManager, err := services.NewWorkspaceManager(workspaceDir, persistence, registry)
 	if err != nil {
-		log.Fatalf("Failed to initialize Session Manager: %v", err)
+		log.Fatalf("Failed to initialize Workspace Manager: %v", err)
 	}
-	defer sessionManager.Close()
+	defer workspaceManager.Close()
 
-	// 5. Initialize Network Service (Orchestrator)
-	networkService := services.NewNetworkService(registry, security, persistence, runnable)
+	// 5. Initialize System Services (DB, Auth, Audit)
+	systemDBPath := filepath.Join(home, ".local", "share", "wmap", "system.db")
+	os.MkdirAll(filepath.Dir(systemDBPath), 0755)
+
+	systemStore, err := storage.NewSQLiteAdapter(systemDBPath)
+	if err != nil {
+		log.Fatalf("Failed to init system DB: %v", err)
+	}
+
+	auditService := services.NewAuditService(systemStore)
+	authService := services.NewAuthService(systemStore)
+
+	// Create default admin if not exists
+	if _, err := systemStore.GetByUsername("admin"); err != nil {
+		log.Println("Creating default admin user...")
+		err = authService.CreateUser(context.Background(), domain.User{
+			Username: "admin",
+			Role:     domain.RoleAdmin,
+		}, "changeit")
+		if err != nil {
+			log.Printf("Failed to create admin user: %v", err)
+		}
+	}
+
+	// 6. Initialize Network Service (Orchestrator)
+	networkService := services.NewNetworkService(registry, security, persistence, runnable, auditService)
 
 	// Initialize Deauth Engine
 	// Currently relying on the main SnifferManager which implements ChannelLocker
@@ -210,6 +237,11 @@ func main() {
 	deauthEngine := sniffer.NewDeauthEngine(injector, locker, 5)
 	networkService.SetDeauthEngine(deauthEngine)
 
+	// Initialize WPS Engine
+	// We create a new engine instance. It doesn't need external deps other than reaver in path
+	wpsEngine := attack.NewWPSEngine(registry)
+	networkService.SetWPSEngine(wpsEngine)
+
 	// Start Cleanup Loop: Remove devices unseen for 10m, check every 1m
 	networkService.StartCleanupLoop(ctx, 10*time.Minute, 1*time.Minute)
 
@@ -232,16 +264,17 @@ func main() {
 
 	// PUMP: Channel -> Service
 	// 6. Web Server (Create early to use in pump)
-	server := web.NewServer(cfg.Addr, networkService, sessionManager)
+	// PUMP: Channel -> Service
+	// 6. Web Server (Create early to use in pump)
+	server := web.NewServer(cfg.Addr, networkService, workspaceManager, authService, auditService)
 
 	// PUMP: Channel -> Service
+	// 1. Alert Pump (Dedicated)
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case d := <-sourceDeviceChan:
-				networkService.ProcessDevice(d)
 			case a := <-sourceAlertChan:
 				slog.Info("ALERT RECEIVED", "type", a.Type, "msg", a.Message)
 				server.BroadcastAlert(a)
@@ -249,8 +282,24 @@ func main() {
 		}
 	}()
 
+	// 2. Device Worker Pool (Parallel Processing)
+	numWorkers := runtime.NumCPU()
+	slog.Info("Starting packet processing worker pool", "workers", numWorkers)
+
+	for i := 0; i < numWorkers; i++ {
+		go func(id int) {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case d := <-sourceDeviceChan:
+					networkService.ProcessDevice(d)
+				}
+			}
+		}(i)
+	}
+
 	// Web Server
-	// Web Server (Already created)
 	// server := web.NewServer(cfg.Addr, networkService, sessionManager)
 
 	// Error channel to catch failures
@@ -272,6 +321,14 @@ func main() {
 			errChan <- err
 		}
 	}()
+
+	// Wire up WPS Engine callbacks to WebSockets
+	// Note: We do this after server is created but before attacks start
+	wpsEngine.SetCallbacks(
+		server.WSManager.BroadcastWPSLog,
+		server.WSManager.BroadcastWPSStatus,
+	)
+	wpsEngine.SetToolPaths(cfg.ReaverPath, cfg.PixiewpsPath)
 
 	// Start gRPC Server
 	go func() {

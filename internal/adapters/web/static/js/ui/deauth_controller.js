@@ -1,10 +1,13 @@
 import { NodeGroups } from '../core/constants.js';
+import { Notifications } from './notifications.js';
+import { DeauthTemplates } from './deauth_templates.js';
 
 // DeauthController - Manages deauth attack panel and operations
 export class DeauthController {
-    constructor(apiClient, nodes) {
+    constructor(apiClient, nodes, consoleManager = null) {
         this.apiClient = apiClient;
         this.nodes = nodes; // vis.DataSet
+        this.console = consoleManager; // ConsoleManager instance
         this.panel = document.getElementById('deauth-panel');
         this.targetSelect = document.getElementById('deauth-target');
         this.interfaceSelect = document.getElementById('deauth-interface');
@@ -129,9 +132,7 @@ export class DeauthController {
         if (!this.interfaceSelect) return;
 
         try {
-            const response = await fetch('/api/interfaces');
-            if (!response.ok) return;
-            const data = await response.json();
+            const data = await this.apiClient.getInterfaces();
 
             // Save current selection
             const currentSelection = this.interfaceSelect.value;
@@ -258,6 +259,7 @@ export class DeauthController {
     }
 
     async startAttack() {
+        console.log("[DEBUG] Start Attack Triggered"); // Debug Log
         const targetMAC = this.targetSelect.value;
         const attackType = document.getElementById('deauth-type').value;
         const clientMAC = document.getElementById('deauth-client-mac').value;
@@ -298,18 +300,8 @@ export class DeauthController {
         };
 
         try {
-            const response = await fetch('/api/deauth/start', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(config)
-            });
+            const result = await this.apiClient.startDeauthAttack(config);
 
-            if (!response.ok) {
-                const error = await response.text();
-                throw new Error(error);
-            }
-
-            const result = await response.json();
             this.showNotification(`Attack started: ${result.attack_id}`, 'success');
 
             // Add to active attacks
@@ -322,19 +314,23 @@ export class DeauthController {
             this.updateAttackList();
         } catch (error) {
             console.error('Failed to start attack:', error);
-            this.showNotification(`Failed to start attack: ${error.message}`, 'danger');
+
+            // Enhanced error handling
+            if (error.status === 403) {
+                this.showNotification('Insufficient permissions for deauth attacks', 'danger');
+            } else if (error.status === 429) {
+                this.showNotification('Rate limit exceeded. Please wait before retrying.', 'warning');
+            } else if (error.isNetworkError) {
+                this.showNotification('Network error. Check your connection.', 'danger');
+            } else {
+                this.showNotification(`Failed to start attack: ${error.message}`, 'danger');
+            }
         }
     }
 
     async stopAttack(attackId) {
         try {
-            const response = await fetch(`/api/deauth/stop?id=${attackId}`, {
-                method: 'POST'
-            });
-
-            if (!response.ok) {
-                throw new Error('Failed to stop attack');
-            }
+            await this.apiClient.stopDeauthAttack(attackId);
 
             this.showNotification('Attack stopped', 'success');
             this.activeAttacks.delete(attackId);
@@ -347,22 +343,20 @@ export class DeauthController {
 
     async updateAttackList() {
         try {
-            const response = await fetch('/api/deauth/list');
-            if (!response.ok) return;
-
-            const data = await response.json();
+            const data = await this.apiClient.listDeauthAttacks();
             const attacks = data.attacks || [];
 
             if (attacks.length === 0) {
-                this.attackList.innerHTML = `
-                    <div style="text-align: center; opacity: 0.6; padding: 20px; font-size: 0.85em;">
-                        No active attacks
-                    </div>
-                `;
+                this.attackList.innerHTML = DeauthTemplates.emptyList();
                 return;
             }
 
-            this.attackList.innerHTML = attacks.map(attack => this.renderAttackItem(attack)).join('');
+            this.attackList.innerHTML = attacks.map(attack => {
+                const duration = attack.end_time
+                    ? this.formatDuration(new Date(attack.end_time) - new Date(attack.start_time))
+                    : this.formatDuration(Date.now() - new Date(attack.start_time).getTime());
+                return DeauthTemplates.renderAttackItem(attack, duration);
+            }).join('');
 
             // Add event listeners to stop buttons
             this.attackList.querySelectorAll('.btn-stop-attack').forEach(btn => {
@@ -376,38 +370,7 @@ export class DeauthController {
         }
     }
 
-    renderAttackItem(attack) {
-        const duration = attack.end_time
-            ? this.formatDuration(new Date(attack.end_time) - new Date(attack.start_time))
-            : this.formatDuration(Date.now() - new Date(attack.start_time).getTime());
-
-        const statusClass = attack.status.toLowerCase();
-        const interfaceInfo = attack.config.interface ? `<br><strong>Interface:</strong> ${attack.config.interface}` : '';
-
-        return `
-            <div class="attack-item">
-                <div class="attack-header">
-                    <span class="attack-id">${attack.id.substring(0, 8)}...</span>
-                    <span class="attack-status ${statusClass}">${attack.status}</span>
-                </div>
-                <div style="font-size: 0.85em; margin: 6px 0;">
-                    <strong>Target:</strong> ${attack.config.target_mac}<br>
-                    <strong>Type:</strong> ${attack.config.attack_type}${interfaceInfo}
-                </div>
-                <div class="attack-metrics">
-                    <span><i class="fas fa-paper-plane"></i> ${attack.packets_sent} packets</span>
-                    <span><i class="fas fa-clock"></i> ${duration}</span>
-                </div>
-                ${attack.status === 'running' ? `
-                    <div class="attack-controls">
-                        <button class="btn-stop btn-stop-attack" data-attack-id="${attack.id}">
-                            <i class="fas fa-stop"></i> Stop
-                        </button>
-                    </div>
-                ` : ''}
-            </div>
-        `;
-    }
+    // renderAttackItem moved to templates
 
     formatDuration(ms) {
         const seconds = Math.floor(ms / 1000);
@@ -433,17 +396,12 @@ export class DeauthController {
     }
 
     showNotification(message, type = 'info') {
-        // Use existing notification system
-        if (window.notify) {
-            window.notify(message, type);
-        } else if (typeof Notifications !== 'undefined') {
-            // Fallback if imported
-            Notifications.show(message, type);
-        }
+        // Use Notifications module
+        Notifications.show(message, type);
 
-        // Log to Global Console
-        if (window.Console) {
-            window.Console.log(message, type);
+        // Log to Console if available
+        if (this.console) {
+            this.console.log(message, type);
         } else {
             console.log(`[${type.toUpperCase()}] ${message}`);
         }

@@ -20,8 +20,7 @@ func TestHandlePacket(t *testing.T) {
 	// staMac must be unicast (LSB of first byte == 0). 0x11 is multicast!
 	staMac := net.HardwareAddr{0x00, 0x22, 0x33, 0x44, 0x55, 0x66}
 
-	mockLoc := MockGeo{}
-	handler := NewPacketHandler(mockLoc, true, nil, nil)
+	// handler creation moved inside loop to reset cache
 
 	tests := []struct {
 		name         string
@@ -101,6 +100,8 @@ func TestHandlePacket(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			mockLoc := MockGeo{}
+			handler := NewPacketHandler(mockLoc, true, nil, nil)
 			pb := tt.packetFunc()
 			packet := pb.Build()
 			if packet == nil {

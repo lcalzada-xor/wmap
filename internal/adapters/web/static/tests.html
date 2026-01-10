@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>WMAP Frontend Tests</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #1c1c1e;
+            color: #fff;
+            padding: 20px;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+            font-weight: 300;
+        }
+
+        #test-summary {
+            font-size: 1.2em;
+            margin-bottom: 20px;
+            padding: 10px;
+            background: #2c2c2e;
+            border-radius: 8px;
+        }
+
+        .success {
+            color: #30D158;
+        }
+
+        .danger {
+            color: #FF453A;
+        }
+
+        .suite-header {
+            margin-top: 20px;
+            padding: 10px;
+            background: #2c2c2e;
+            border-left: 4px solid #0A84FF;
+            font-weight: bold;
+        }
+
+        .test-result {
+            padding: 8px 10px;
+            margin: 2px 0;
+            display: flex;
+            align-items: center;
+            border-bottom: 1px solid #3a3a3c;
+        }
+
+        .test-result.pass .icon {
+            color: #30D158;
+            margin-right: 10px;
+        }
+
+        .test-result.fail .icon {
+            color: #FF453A;
+            margin-right: 10px;
+        }
+
+        .test-result .error-msg {
+            margin-left: 20px;
+            color: #FF453A;
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>WMAP Frontend Tests</h1>
+    <div id="test-summary">Running tests...</div>
+    <div id="test-results"></div>
+
+    <!-- Mocks for DOM elements required by modules -->
+    <div style="display:none;">
+        <input id="node-search">
+        <div id="search-suggestions"></div>
+        <div id="filter-tags"></div>
+        <div id="preset-buttons"></div>
+        <!-- Audit Manager Mocks (created dynamically in test or added here) -->
+        <button id="btn-show-audit"></button>
+        <button id="btn-close-audit"></button>
+        <button id="btn-refresh-audit"></button>
+        <div id="audit-loading"></div>
+        <tbody id="audit-list"></tbody>
+    </div>
+
+    <script type="module">
+        // Global variables required by some modules (vis.js) if not mocked?
+        // Most modules I touched are decoupled.
+        window.vis = { DataSet: class { }, Network: class { } }; // Minimal mock if needed
+
+        import { runTests } from './js/tests/suite.js';
+
+        // Run
+        runTests().then(() => {
+            console.log("Tests Completed");
+        });
+    </script>
+</body>
+
+</html>

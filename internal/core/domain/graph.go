@@ -42,7 +42,8 @@ type GraphNode struct {
 	AnomalyScore   float64 `json:"anomalyScore,omitempty"`
 	ActiveHours    []int   `json:"activeHours,omitempty"`
 
-	Title string `json:"title,omitempty"` // Tooltip/Popup content
+	Title   string `json:"title,omitempty"` // Tooltip/Popup content
+	IsStale bool   `json:"is_stale,omitempty"`
 }
 
 // GraphEdge represents a connection between two nodes.
@@ -52,6 +53,7 @@ type GraphEdge struct {
 	Dashed bool   `json:"dashed,omitempty"`
 	Type   string `json:"type,omitempty"`  // "connection", "probe", "correlation"
 	Label  string `json:"label,omitempty"` // For display
+	Color  string `json:"color,omitempty"` // Hex or rgba for dynamic override
 }
 
 // GraphData allows sending the whole graph state to the frontend

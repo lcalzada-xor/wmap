@@ -3,19 +3,22 @@
  * Facade for specific modal modules.
  */
 
-import { SessionModal } from './modals/session_modal.js';
+import { WorkspaceModal } from './modals/workspace_modal.js';
 import { ChannelModal } from './modals/channel_modal.js';
 
 export const Modals = {
-    // Session Modal
-    initSessionModal(onSuccess) {
-        SessionModal.init(onSuccess);
+    // Workspace Modal
+    initWorkspaceModal(onSuccess) {
+        WorkspaceModal.init(onSuccess);
     },
 
     // Channel Config Modal
     initChannelModal() {
         ChannelModal.init();
     },
+
+    // WPS Modal - DEPRECATED (Moved to WPSController)
+    // openWPSModal(mac, bssid, channel) { ... }
 
     // Generic Input Modal (Alias)
     prompt(title, callback) {

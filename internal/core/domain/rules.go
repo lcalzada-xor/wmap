@@ -33,4 +33,13 @@ type Alert struct {
 	Timestamp time.Time `json:"timestamp"`
 	Message   string    `json:"message"`
 	Details   string    `json:"details,omitempty"`
+	Severity  string    `json:"severity"` // "critical", "high", "medium", "low", "info"
 }
+
+const (
+	SeverityCritical = "critical"
+	SeverityHigh     = "high"
+	SeverityMedium   = "medium"
+	SeverityLow      = "low"
+	SeverityInfo     = "info"
+)

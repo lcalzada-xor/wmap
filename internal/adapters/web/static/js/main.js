@@ -1,13 +1,16 @@
 /**
  * WMAP Main Entry
+ * Refactored to coordinate Managers (Data, UI, Socket).
  */
 
 import { API } from './core/api.js';
 import { State } from './core/state.js';
 import { SocketClient } from './core/socket.js';
-import { NodeGroups, Events } from './core/constants.js';
+import { Events, NodeGroups } from './core/constants.js';
+import { EventBus } from './core/event_bus.js';
 
-import { DataManager } from './graph/data.js';
+import { DataManager } from './core/data_manager.js';
+import { UIManager } from './ui/ui_manager.js';
 
 import { Compositor } from './render/compositor.js';
 import { GridRenderer } from './render/grid.js';
@@ -18,51 +21,124 @@ import { Notifications } from './ui/notifications.js';
 import { Modals } from './ui/modals.js';
 import { HUD } from './ui/hud.js';
 import { ConsoleManager } from './ui/console.js';
-
 import { ContextMenu } from './ui/context_menu.js';
 import { GraphConfig } from './ui/graph_config.js';
-import { DeauthController } from './ui/deauth_controller.js';
 import { StartupVerifier } from './core/startup.js';
 
-// Vis.js Global because it's loaded via script tag (UMD)
+// Vis.js Global
 const vis = window.vis;
 
 class App {
     constructor() {
-        this.nodes = new vis.DataSet([]);
-        this.edges = new vis.DataSet([]);
-        this.nodesView = new vis.DataView(this.nodes, { filter: (n) => DataManager.filter(n) });
+        // 1. Managers
+        this.console = new ConsoleManager();
+        this.dataManager = new DataManager();
+        this.uiManager = new UIManager(API, this.console, this.dataManager);
 
+        // 2. Core Components
         this.container = document.getElementById('mynetwork');
         this.network = null;
-
         this.compositor = new Compositor();
 
-        // Console Manager
-        this.console = new ConsoleManager();
+        this.socket = null;
+        this.initialDataLoaded = false;
     }
 
     init() {
         this.initGraph();
         this.initRenderers();
-        this.initUI();
 
-        // Start Flow
-        this.checkSession();
+        // Initialize UI Manager (Controllers, DOM, Events)
+        // Pass contextMenu created in initGraph
+        this.uiManager.init(this.contextMenu).then(() => {
+            this.bindAppEvents();
+        });
 
-        // Initial System Log
-        this.console.log("WMAP Kernel Initialized", "system");
+        this.console.init();
+
+        // Verify authentication
+        this.loadUser().then(() => {
+            this.checkWorkspace();
+            this.console.log("WMAP Kernel Initialized", "system");
+        }).catch((error) => {
+            console.error("Auth failed:", error);
+            // Redirect handled by API
+        });
     }
 
-    checkSession() {
+    initGraph() {
+        const data = { nodes: this.dataManager.nodesView, edges: this.dataManager.edges };
+        this.network = new vis.Network(this.container, data, GraphConfig);
+
+        // Context Menu
+        this.contextMenu = new ContextMenu(this.network, this.dataManager.nodes);
+        this.contextMenu.init();
+
+        // Interaction Events
+        this.network.on("click", (p) => {
+            if (p.nodes.length > 0) {
+                const nodeId = p.nodes[0];
+                const node = this.dataManager.nodes.get(nodeId);
+                this.network.selectNodes([nodeId]);
+                if (node) {
+                    HUD.showDetails(node);
+                }
+            } else {
+                HUD.hideDetails();
+            }
+        });
+    }
+
+    initRenderers() {
+        this.compositor.addRenderer(new GridRenderer(this.network));
+        this.compositor.addRenderer(new HeatmapRenderer(this.network, this.dataManager.nodesView));
+        this.compositor.addRenderer(new TrailsRenderer(this.network, () => this.dataManager.nodesView.getIds()));
+        this.compositor.start();
+    }
+
+    bindAppEvents() {
+        // App-level event handling bridging Managers
+
+        // Graph Refresh
+        EventBus.on('graph:refresh', () => this.dataManager.refreshView());
+
+        // UI Physics Toggle
+        EventBus.on('ui:physics', (enabled) => {
+            this.network.setOptions({ physics: { enabled } });
+        });
+
+        // UI Compositor Refresh
+        EventBus.on('ui:refresh_compositor', () => {
+            this.compositor.refresh();
+        });
+
+        // Initialize FilterUI listeners (lazy load handling)
+        this.initFilterEvents();
+    }
+
+    async initFilterEvents() {
+        const { FilterUI } = await import('./ui/filter_ui.js');
+        FilterUI.init(this.dataManager.nodes);
+
+        EventBus.on(Events.SEARCH, () => this.dataManager.refreshView());
+        EventBus.on(Events.VENDOR, () => {
+            FilterUI.populateVendorDropdown();
+            this.dataManager.refreshView();
+        });
+        EventBus.on(Events.CHANNELS, () => {
+            FilterUI.populateChannelDropdown();
+            this.dataManager.refreshView();
+        });
+    }
+
+    checkWorkspace() {
         Notifications.setStatus("CONNECTING...", "info");
-        // Always enforce session selection on entry
-        Modals.initSessionModal(() => this.startStreaming());
+        Modals.initWorkspaceModal(() => this.startStreaming());
     }
 
     startStreaming() {
         this.socket = new SocketClient(
-            (data) => this.handleData(data),
+            (data) => this.handleSocketData(data),
             (status, type) => {
                 Notifications.setStatus(status, type);
                 this.console.log(`Socket Status: ${status}`, type === 'danger' ? 'danger' : 'info');
@@ -71,183 +147,27 @@ class App {
         this.socket.connect();
 
         API.getConfig().then(cfg => {
-            // Sync config
             if (cfg.persistenceEnabled !== undefined) {
                 State.filters.persistFindings = cfg.persistenceEnabled;
-                // HUD needs to update DOM, assuming init sets them
             }
         });
     }
 
-    initGraph() {
-        const data = { nodes: this.nodesView, edges: this.edges };
-
-        this.network = new vis.Network(this.container, data, GraphConfig);
-
-        // Init Context Menu
-        this.contextMenu = new ContextMenu(this.network, this.nodes);
-        this.contextMenu.init();
-
-        this.network.on("click", (p) => {
-            // Context menu close - handled by ContextMenu class globally now, 
-            // but we need to handle Details Panel logic specific to App or HUD.
-
-            // Click logic (Details panel)
-            if (p.nodes.length > 0) {
-                const nodeId = p.nodes[0];
-                const node = this.nodes.get(nodeId);
-                // Trigger detail view
-                this.network.selectNodes([nodeId]);
-
-                if (node) {
-                    HUD.showDetails(node);
-                }
-            } else {
-                // Clicked on empty space
-                HUD.hideDetails();
-            }
-        });
-    }
-
-    handleContextAction(action, nodeId) {
-        // Deprecated, logic moved to ContextMenu class
-    }
-
-    initRenderers() {
-        this.compositor.addRenderer(new GridRenderer(this.network));
-        this.compositor.addRenderer(new HeatmapRenderer(this.network, this.nodesView));
-        this.compositor.addRenderer(new TrailsRenderer(this.network, () => this.nodesView.getIds()));
-        this.compositor.start();
-    }
-
-    async initUI() {
-        // Initialize Console
-        this.console.init();
-
-        // Expose globally for convenience (and for other modules to log)
-        window.Console = this.console;
-
-        HUD.init((prop, val) => {
-            // Refresh Callback
-            if (prop === 'physics') {
-                this.network.setOptions({ physics: { enabled: val } });
-            } else {
-                this.nodesView.refresh();
-            }
-        });
-
-        // Initialize FilterUI with nodes dataset
-        const { FilterUI } = await import('./ui/filter_ui.js');
-        FilterUI.init((prop, val) => {
-            // Filter refresh callback
-            this.nodesView.refresh();
-
-            // Update vendor dropdown periodically
-            if (prop === Events.VENDOR || prop === Events.CHANNELS || !prop) {
-                FilterUI.populateVendorDropdown();
-                FilterUI.populateChannelDropdown();
-            }
-        }, this.nodes);
-
-        // Populate initially only when we have data - Moved to handleData
-
-
-        // Initialize Deauth Controller
-        try {
-            this.deauthController = new DeauthController(API, this.nodes);
-
-            // Add context menu item for deauth attack
-            this.contextMenu.addAction('deauth', 'Deauth Attack', (nodeId) => {
-                const node = this.nodes.get(nodeId);
-                if (node) {
-                    const group = (node.group || '').toLowerCase();
-
-                    if (group === NodeGroups.AP || group === NodeGroups.ACCESS_POINT) {
-                        // Target is AP - Pass channel if available
-                        this.deauthController.openPanel(node.mac, null, node.channel);
-                        this.console.log(`Deauth panel opened for AP: ${node.mac} (Ch: ${node.channel || 'Auto'})`, "warning");
-                    } else if (group === NodeGroups.STATION || group === NodeGroups.CLIENT || group === NodeGroups.STA) {
-                        // Target is Client (Station)
-                        // Try to find connected AP to get channel
-                        let connectedAP = null;
-                        let channel = null;
-                        const connectedIds = this.network.getConnectedNodes(nodeId);
-
-                        if (connectedIds && connectedIds.length > 0) {
-                            for (const cid of connectedIds) {
-                                const cNode = this.nodes.get(cid);
-                                if (cNode && (cNode.group === NodeGroups.AP || cNode.group === NodeGroups.ACCESS_POINT)) {
-                                    connectedAP = cNode.mac; // Use lowercase mac
-                                    channel = cNode.channel;
-                                    break;
-                                }
-                            }
-                        }
-
-                        // If we didn't find AP channel, maybe the station has it (less likely to be authoritative but valid)
-                        if (!channel && node.channel) channel = node.channel;
-
-                        this.deauthController.openPanel(connectedAP, node.mac, channel);
-                        this.console.log(`Deauth panel opened for Station: ${node.mac} (Linked AP: ${connectedAP || 'None'}, Ch: ${channel || 'Auto'})`, "warning");
-                    } else {
-                        this.console.log(`Deauth not available for node type: ${node.group}`, "info");
-                    }
-                }
-            });
-        } catch (err) {
-            console.error("Failed to initialize DeauthController", err);
-            this.console.log("Deauth Module Failed: " + err.message, "danger");
-        }
-
-        try {
-            Modals.initChannelModal();
-        } catch (err) {
-            console.error("Failed to initialize ChannelModal", err);
-        }
-
-        this.initSpatialTilt();
-    }
-
-    initSpatialTilt() {
-        // Spatial 3D Tilt Effect
-        const container = document.getElementById('mynetwork');
-        const heatmap = document.getElementById('heatmap-layer');
-        const radar = document.getElementById('radar-layer');
-
-        if (!container) return;
-
-        document.addEventListener('mousemove', (e) => {
-            const x = e.clientX / window.innerWidth;
-            const y = e.clientY / window.innerHeight;
-
-            // Subtle tilt: Reduced intensity
-            const tiltX = (y - 0.5) * 1;
-            const tiltY = (x - 0.5) * -1;
-
-            const transform = `perspective(1000px) rotateX(${tiltX}deg) rotateY(${tiltY}deg)`;
-
-            container.style.transform = transform;
-            if (heatmap) heatmap.style.transform = transform;
-            if (radar) radar.style.transform = transform;
-        });
-    }
-
-    handleData(msg) {
-        // Handle new envelope format
+    handleSocketData(msg) {
         let payload = msg;
-        let type = 'graph'; // Assume graph if no type (legacy/fallback)
+        let type = 'graph';
 
         if (msg.type && msg.payload) {
             type = msg.type;
             payload = msg.payload;
         } else if (msg.nodes && msg.edges) {
-            // direct graph data
             type = 'graph';
         }
 
         switch (type) {
             case 'log':
                 this.console.log(payload.message, payload.level);
+                EventBus.emit(Events.LOG, payload);
                 break;
             case 'graph':
                 this.updateGraph(payload);
@@ -255,14 +175,34 @@ class App {
             case 'alert':
                 this.handleAlert(payload);
                 break;
+            case 'wps.log':
+                EventBus.emit('wps:log', payload);
+                break;
+            case 'wps.status':
+                EventBus.emit('wps:status', payload);
+                break;
             default:
                 console.warn("Unknown WS message:", msg);
         }
     }
 
+    updateGraph(payload) {
+        // Update Data
+        this.dataManager.update(payload);
+
+        // Update Stats
+        const stats = this.dataManager.getStats();
+        HUD.updateStats(stats.apCount, stats.staCount);
+
+        // Initial Load Hook
+        if (!this.initialDataLoaded && payload.nodes.length > 0) {
+            this.initialDataLoaded = true;
+            this.onInitialData();
+        }
+    }
+
     handleAlert(alert) {
         if (alert.type === 'HANDSHAKE_CAPTURED') {
-            // Handshake Notification (Custom Warning style)
             Notifications.show(`Handshake Captured! ${alert.details}`, 'warning');
             this.console.log(`[HANDSHAKE] Captured for ${alert.details}`, "warning");
         } else if (alert.type === 'ANOMALY') {
@@ -273,54 +213,32 @@ class App {
         }
     }
 
-    updateGraph(data) {
-        // Stats
-        const apCount = data.nodes.filter(n => n.group === NodeGroups.AP).length;
-        const staCount = data.nodes.filter(n => n.group === NodeGroups.STATION).length;
-        HUD.updateStats(apCount, staCount);
-
-        // Process
-        const processedNodes = DataManager.processNodes(data.nodes);
-        const processedEdges = DataManager.processEdges(data.edges, this.nodes);
-
-        // Update
-        // Note: Vis.js is smart enough to update diffs if ID matches
-        this.nodes.update(processedNodes);
-        this.edges.update(processedEdges);
-
-        // Initial Data Hook
-        if (!this.initialDataLoaded && data.nodes.length > 0) {
-            this.initialDataLoaded = true;
-            this.onInitialData();
+    async loadUser() {
+        try {
+            const user = await API.getMe();
+            this.uiManager.updateUserUI(user);
+        } catch (err) {
+            console.error("Failed to load user", err);
         }
     }
 
     async onInitialData() {
         this.console.log("Initial Graph Data Received. Hydrating UI...", "system");
 
-        // Lazy load FilterUI if not already (it should be init by now but safe to check)
-        // We can access the module via the instance if we stored it, 
-        // OR re-import since ES modules are cached.
         const { FilterUI } = await import('./ui/filter_ui.js');
-
         FilterUI.populateVendorDropdown();
         FilterUI.populateChannelDropdown();
+
+        EventBus.emit('graph:refresh');
     }
 }
 
-// --- Startup Verification & Bootstrap ---
-
-// --- Startup Verification & Bootstrap ---
-
-// Bootstrap with Safety Harness
+// Bootstrap
 document.addEventListener('DOMContentLoaded', async () => {
     try {
         await StartupVerifier.verify();
-
-        // Initialize App
         window.wmapApp = new App();
         window.wmapApp.init();
-
     } catch (err) {
         StartupVerifier.reportError(err.message || err);
     }

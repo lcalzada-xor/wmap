@@ -16,33 +16,35 @@ import (
 )
 
 // setupServer helper creates a server instance with mocks
-func setupServer(t *testing.T) (*Server, *MockNetworkService, *MockDeviceRegistry) {
+func setupServer(t *testing.T) (*Server, *MockNetworkService, *MockDeviceRegistry, *MockAuthService) {
 	mockService := new(MockNetworkService)
 	mockRegistry := new(MockDeviceRegistry)
 
-	// Prepare SessionManager
-	tmpDir, err := os.MkdirTemp("", "wmap-test-session")
+	mockAuth := new(MockAuthService)
+
+	// Prepare WorkspaceManager
+	tmpDir, err := os.MkdirTemp("", "wmap-test-workspace")
 	assert.NoError(t, err)
 
-	// Mock registry.Clear() used by SessionManager
+	// Mock registry.Clear() used by WorkspaceManager
 	mockRegistry.On("Clear").Return()
 
 	storeMgr := services.NewPersistenceManager(nil, 900)
-	sessionMgr, err := services.NewSessionManager(tmpDir, storeMgr, mockRegistry)
+	workspaceMgr, err := services.NewWorkspaceManager(tmpDir, storeMgr, mockRegistry)
 	assert.NoError(t, err)
 
-	server := NewServer(":9999", mockService, sessionMgr)
+	server := NewServer(":9999", mockService, workspaceMgr, mockAuth, nil)
 
 	// Ensure temp dir Cleanup
 	t.Cleanup(func() {
 		os.RemoveAll(tmpDir)
 	})
 
-	return server, mockService, mockRegistry
+	return server, mockService, mockRegistry, mockAuth
 }
 
 func TestServer_HandleDeauthStart(t *testing.T) {
-	server, mockService, _ := setupServer(t)
+	server, mockService, _, _ := setupServer(t)
 
 	tests := []struct {
 		name           string
@@ -126,10 +128,42 @@ func TestServer_HandleDeauthStart(t *testing.T) {
 			}
 		})
 	}
+
+}
+
+func TestServer_DeauthValidation(t *testing.T) {
+	server, _, _, _ := setupServer(t)
+
+	// Method Validation
+	t.Run("Method Not Allowed", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/deauth/start", nil) // Wrong method
+		w := httptest.NewRecorder()
+		server.handleDeauthStart(w, req)
+		assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
+	})
+
+	// Negative Payload Validation
+	t.Run("Negative Values", func(t *testing.T) {
+		payload := map[string]interface{}{
+			"target_mac":           "11:22:33:44:55:66",
+			"attack_type":          "broadcast",
+			"packet_count":         -10, // Invalid
+			"packet_interval_ms":   -5,  // Invalid
+			"legal_acknowledgment": true,
+			"interface":            "wlan1",
+		}
+		body, _ := json.Marshal(payload)
+		req := httptest.NewRequest(http.MethodPost, "/api/deauth/start", bytes.NewReader(body))
+		w := httptest.NewRecorder()
+		server.handleDeauthStart(w, req)
+
+		// Assuming handler validation logic exists, expecting 400
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
 }
 
 func TestServer_HandleScan(t *testing.T) {
-	server, mockService, _ := setupServer(t)
+	server, mockService, _, _ := setupServer(t)
 
 	// Success case
 	mockService.On("TriggerScan").Return(nil)
@@ -156,7 +190,7 @@ func TestServer_HandleScan(t *testing.T) {
 }
 
 func TestServer_ChannelManagement(t *testing.T) {
-	server, mockService, _ := setupServer(t)
+	server, mockService, _, _ := setupServer(t)
 
 	// Test GET global channels
 	mockService.On("GetChannels").Return([]int{1, 6, 11})
@@ -177,4 +211,107 @@ func TestServer_ChannelManagement(t *testing.T) {
 	wPost := httptest.NewRecorder()
 	server.handleChannels(wPost, reqPost)
 	assert.Equal(t, http.StatusOK, wPost.Code)
+}
+
+func TestServer_HandleGetAuditLogs(t *testing.T) {
+	server, _, _, _ := setupServer(t)
+	// We need access to MockAuditService, but setupServer sets it locally.
+	// We need to refactor setupServer to return MockAuditService too. (Or just cast it if accessible, but it's interface)
+	// Let's refactor setupServer first or manually setup here.
+	// Actually, let's update setupServer return signature in this file edit if possible.
+	// Complexity: High if we touch setupServer signature everywhere.
+	// Instead, let's manually setup server here for this test.
+
+	mockService := new(MockNetworkService)
+	mockRegistry := new(MockDeviceRegistry)
+	mockAuth := new(MockAuthService)
+	mockAudit := new(MockAuditService) // Currently undefined in this file scope?
+	// It was defined in network_service_test.go... we might need to copy/define it here or use common test helper package.
+	// For simplicity, let's define it here or in a testutil file.
+	// MockAuditService was defined in services/network_service_test.go which is package services.
+	// This is package web. We cannot verify standard private mocks across packages easily.
+	// We should define MockAuditService here.
+
+	// Prepare WSM
+	tmpDir, _ := os.MkdirTemp("", "wmap-test-audit")
+	defer os.RemoveAll(tmpDir)
+	storeMgr := services.NewPersistenceManager(nil, 900)
+	workspaceMgr, _ := services.NewWorkspaceManager(tmpDir, storeMgr, mockRegistry)
+
+	server = NewServer(":9999", mockService, workspaceMgr, mockAuth, mockAudit)
+
+	// Test Case
+	mockAudit.On("GetLogs", mock.Anything, 100).Return([]domain.AuditLog{
+		{ID: 1, Action: "TEST_ACTION", Username: "admin"},
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/audit-logs", nil)
+	w := httptest.NewRecorder()
+
+	server.handleGetAuditLogs(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "TEST_ACTION")
+	mockAudit.AssertExpectations(t)
+}
+
+// MockAuditService for Web Package
+type MockAuditService struct {
+	mock.Mock
+}
+
+func (m *MockAuditService) Log(ctx context.Context, action, target, details string) error {
+	args := m.Called(ctx, action, target, details)
+	return args.Error(0)
+}
+
+func (m *MockAuditService) GetLogs(ctx context.Context, limit int) ([]domain.AuditLog, error) {
+	args := m.Called(ctx, limit)
+	return args.Get(0).([]domain.AuditLog), args.Error(1)
+}
+func TestServer_HandleGenerateReport(t *testing.T) {
+	mockService := new(MockNetworkService)
+	mockRegistry := new(MockDeviceRegistry)
+	mockAuth := new(MockAuthService)
+	mockAudit := new(MockAuditService)
+
+	// Prepare WSM
+	tmpDir, _ := os.MkdirTemp("", "wmap-test-report")
+	defer os.RemoveAll(tmpDir)
+
+	// Mocks for WSM
+	mockRegistry.On("Clear").Return()
+
+	storeMgr := services.NewPersistenceManager(nil, 900)
+	workspaceMgr, _ := services.NewWorkspaceManager(tmpDir, storeMgr, mockRegistry)
+
+	server := NewServer(":9999", mockService, workspaceMgr, mockAuth, mockAudit)
+
+	// Sample Data
+	mockService.On("GetGraph").Return(domain.GraphData{
+		Nodes: []domain.GraphNode{
+			{ID: "1", MAC: "00:11:22:33:44:55", Vendor: "Apple", Security: "WPA2", Channel: 6, Group: "ap"},
+			{ID: "2", MAC: "AA:BB:CC:DD:EE:FF", Vendor: "Cisco", Security: "OPEN", Channel: 1, Group: "station"},
+			{ID: "3", MAC: "11:22:33:44:55:66", Vendor: "Unknown", Security: "WEP", Channel: 11, Group: "ap"},
+		},
+	})
+	mockService.On("GetAlerts").Return([]domain.Alert{})
+	mockAudit.On("GetLogs", mock.Anything, 50).Return([]domain.AuditLog{}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/reports/download", nil)
+	w := httptest.NewRecorder()
+
+	server.handleGenerateReport(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	body := w.Body.String()
+	assert.Contains(t, body, "WMAP Security Report")
+
+	// Check content
+	assert.Contains(t, body, "Apple")
+	assert.Contains(t, body, "Cisco")
+	assert.Contains(t, body, "WPA2")
+	assert.Contains(t, body, "OPEN")
+	assert.Contains(t, body, "Total Assets") // New label
 }

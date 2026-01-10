@@ -44,10 +44,15 @@ type Sniffer struct {
 	Hopper     *ChannelHopper
 	pcapWriter *pcapgo.Writer
 	pcapFile   *os.File
-	// Capability caching
+	handle     *pcap.Handle // Expose handle to get stats
+
 	// Capability caching
 	capabilitiesCache *domain.InterfaceCapabilities
 	capsCacheMu       sync.RWMutex
+
+	// Metrics state
+	metrics   domain.InterfaceMetrics
+	metricsMu sync.RWMutex
 
 	// Locking state
 	hopperPaused bool
@@ -101,8 +106,12 @@ func (s *Sniffer) Start(ctx context.Context) error {
 	}
 	defer handle.Close()
 
+	// Store handle for metrics collection
+	s.handle = handle
+
 	// Set filter
-	if err := handle.SetBPFFilter("type mgt subtype probe-req or type mgt subtype beacon or type data"); err != nil {
+	// Optimization: Exclude Control Frames (ACK/RTS/CTS) but allow ALL Mgmt (Deauth/Assoc) and Data
+	if err := handle.SetBPFFilter("type mgt or type data"); err != nil {
 		return err
 	}
 
@@ -130,16 +139,16 @@ func (s *Sniffer) Start(ctx context.Context) error {
 
 	log.Printf("Starting Enterprise Sniffer on %s...", s.Config.Interface)
 
+	// Optimization: Direct loop without intermediate channel
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
-	// Use a buffer for the packet channel to absorb bursts
-	packets := packetSource.Packets()
 
 	// Worker Pool setup
 	numWorkers := runtime.NumCPU()
 	if numWorkers < 2 {
 		numWorkers = 2
 	}
-	packetChan := make(chan gopacket.Packet, 1000)
+	// Optimization: Queue Size 1000 -> 5000 to absorb bursts
+	packetChan := make(chan gopacket.Packet, 5000)
 	var wg sync.WaitGroup
 
 	log.Printf("Starting %d packet processing workers", numWorkers)
@@ -148,38 +157,53 @@ func (s *Sniffer) Start(ctx context.Context) error {
 		go s.worker(ctx, &wg, packetChan)
 	}
 
+	// Start metrics collection ticker
+	go s.collectMetrics(ctx)
+
 	// Packet dispatcher loop
+	// Optimization 2: Non-blocking dispatch
+	var packet gopacket.Packet
 	for {
+		// Check context cancellation
 		select {
 		case <-ctx.Done():
 			log.Println("Sniffer stopping...")
 			close(packetChan)
 			wg.Wait()
 			return nil
-		case packet, ok := <-packets:
-			if !ok {
-				close(packetChan)
-				wg.Wait()
-				return nil
-			}
+		default:
+			// Continue
+		}
 
-			// Save to PCAP synchronously to preserve order in file (optional, could be async too but simpler here)
-			if s.pcapWriter != nil {
-				// We ignore errors here to keep flow going
-				_ = s.pcapWriter.WritePacket(packet.Metadata().CaptureInfo, packet.Data())
+		// Read packet directly (blocking read from handle)
+		// This uses the underlying handle which blocks until a packet arrives
+		// or timeout (we used BlockForever/large timeout).
+		packet, err = packetSource.NextPacket()
+		if err != nil {
+			// This usually happens when handle is closed or EOF
+			if err == pcap.NextErrorTimeoutExpired {
+				continue
 			}
+			log.Printf("Sniffer stopped reading: %v", err)
+			close(packetChan)
+			wg.Wait()
+			return nil
+		}
 
-			// Non-blocking send or drop if full?
-			// Blocking is safer for memory, dropping is better for real-time.
-			// Let's block for now as we want to capture everything if possible,
-			// but we check context to avoid deadlocks on exit.
-			select {
-			case packetChan <- packet:
-			case <-ctx.Done():
-				close(packetChan)
-				wg.Wait()
-				return nil
-			}
+		// Save to PCAP synchronously to preserve order
+		if s.pcapWriter != nil {
+			_ = s.pcapWriter.WritePacket(packet.Metadata().CaptureInfo, packet.Data())
+		}
+
+		// Non-blocking send
+		select {
+		case packetChan <- packet:
+			// Dispatched successfully
+		default:
+			// Channel buffer full - drop packet to avoid blocking the kernel read
+			s.metricsMu.Lock()
+			s.metrics.AppPacketsDropped++
+			s.metricsMu.Unlock()
 		}
 	}
 }
@@ -195,8 +219,8 @@ func (s *Sniffer) worker(ctx context.Context, wg *sync.WaitGroup, packets <-chan
 					log.Printf("Recovered from panic in packet worker: %v", r)
 				}
 			}()
-
 			device, alert := s.handler.HandlePacket(p)
+
 			if device != nil {
 				select {
 				case s.Output <- *device:
@@ -311,6 +335,11 @@ func (s *Sniffer) GetInterfaceDetails() []domain.InterfaceInfo {
 		return "Unknown"
 	}
 
+	// Get current metrics
+	s.metricsMu.RLock()
+	currentMetrics := s.metrics
+	s.metricsMu.RUnlock()
+
 	// Check cache first
 	s.capsCacheMu.RLock()
 	if s.capabilitiesCache != nil {
@@ -321,6 +350,7 @@ func (s *Sniffer) GetInterfaceDetails() []domain.InterfaceInfo {
 			MAC:             getMAC(s.Config.Interface),
 			Capabilities:    caps,
 			CurrentChannels: s.GetChannels(),
+			Metrics:         currentMetrics,
 		}}
 	}
 	s.capsCacheMu.RUnlock()
@@ -334,6 +364,7 @@ func (s *Sniffer) GetInterfaceDetails() []domain.InterfaceInfo {
 			Name:            s.Config.Interface,
 			MAC:             getMAC(s.Config.Interface),
 			CurrentChannels: s.GetChannels(),
+			Metrics:         currentMetrics,
 		}}
 	}
 
@@ -357,6 +388,7 @@ func (s *Sniffer) GetInterfaceDetails() []domain.InterfaceInfo {
 		MAC:             getMAC(s.Config.Interface),
 		Capabilities:    caps,
 		CurrentChannels: s.GetChannels(),
+		Metrics:         currentMetrics,
 	}}
 }
 
@@ -418,5 +450,33 @@ func (s *Sniffer) Unlock(iface string) error {
 func (s *Sniffer) PauseHopper(duration time.Duration) {
 	if s.Hopper != nil {
 		s.Hopper.Pause(duration)
+	}
+}
+
+// collectMetrics periodically collects packet capture statistics.
+func (s *Sniffer) collectMetrics(ctx context.Context) {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if s.handle != nil {
+				stats, err := s.handle.Stats()
+				if err != nil {
+					log.Printf("Failed to get pcap stats: %v", err)
+					continue
+				}
+
+				s.metricsMu.Lock()
+				s.metrics.PacketsReceived = int64(stats.PacketsReceived)
+				s.metrics.PacketsDropped = int64(stats.PacketsDropped)
+				s.metrics.PacketsIfDropped = int64(stats.PacketsIfDropped)
+				// AppPacketsDropped is updated in the loop
+				s.metricsMu.Unlock()
+			}
+		}
 	}
 }

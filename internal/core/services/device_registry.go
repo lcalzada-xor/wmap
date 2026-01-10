@@ -1,10 +1,7 @@
 package services
 
 import (
-	"encoding/hex"
 	"fmt"
-	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -26,7 +23,11 @@ type DeviceRegistry struct {
 	ssids        map[string]bool
 	ssidSecurity map[string]string
 	ssidsMu      sync.RWMutex
-	discoCache   map[string]string // MAC -> Last processed Signature
+	discoCache   map[string]string
+
+	// Services
+	BehaviorEngine *BehaviorEngine
+	// MAC -> Last processed Signature
 	discoCacheMu sync.RWMutex
 	sigMatcher   ports.SignatureMatcher
 }
@@ -34,11 +35,12 @@ type DeviceRegistry struct {
 // NewDeviceRegistry creates a new sharded registry.
 func NewDeviceRegistry(sigMatcher ports.SignatureMatcher) *DeviceRegistry {
 	r := &DeviceRegistry{
-		shards:       make([]*deviceShard, numShards),
-		ssids:        make(map[string]bool),
-		ssidSecurity: make(map[string]string),
-		discoCache:   make(map[string]string),
-		sigMatcher:   sigMatcher,
+		shards:         make([]*deviceShard, numShards),
+		ssids:          make(map[string]bool),
+		ssidSecurity:   make(map[string]string),
+		discoCache:     make(map[string]string),
+		BehaviorEngine: NewBehaviorEngine(),
+		sigMatcher:     sigMatcher,
 	}
 
 	for i := 0; i < numShards; i++ {
@@ -258,6 +260,38 @@ func (r *DeviceRegistry) PruneOldDevices(ttl time.Duration) int {
 	return deletedCount
 }
 
+// CleanupStaleConnections degrades connections to "disconnected" if silent for too long.
+func (r *DeviceRegistry) CleanupStaleConnections(timeout time.Duration) int {
+	threshold := time.Now().Add(-timeout)
+	count := 0
+
+	for _, shard := range r.shards {
+		shard.mu.Lock()
+		for mac, d := range shard.devices {
+			// Only check active connections
+			if d.ConnectionState == domain.StateConnected || d.ConnectionState == domain.StateHandshake || d.ConnectionState == domain.StateAssociating {
+				if d.LastPacketTime.Before(threshold) {
+					// Downgrade state
+					d.ConnectionState = domain.StateDisconnected
+					d.ConnectionTarget = ""
+					// We keep ConnectedSSID as "last known" or clear it?
+					// Ideally we keep it for implicit history until they move.
+					// But for graph cleanliness, maybe valid to keep it but state=disconnected prevents line drawing?
+					// GraphBuilder checks: if ConnectionState != Disconnected -> draw line.
+					// So clearing ConnectedSSID isn't strictly necessary if strict state check is used,
+					// but let's clear it to be consistent with "Clean" disconnection.
+					d.ConnectedSSID = ""
+
+					shard.devices[mac] = d
+					count++
+				}
+			}
+		}
+		shard.mu.Unlock()
+	}
+	return count
+}
+
 // Clear wipes all in-memory state.
 func (r *DeviceRegistry) Clear() {
 	for _, shard := range r.shards {
@@ -325,77 +359,15 @@ func (r *DeviceRegistry) updateBehavioralProfile(shard *deviceShard, device doma
 		}
 	}
 
-	if device.Type == "station" || device.Type == "" {
-		hour := device.LastPacketTime.Hour()
-		exists := false
-		for _, h := range profile.ActiveHours {
-			if h == hour {
-				exists = true
-				break
-			}
-		}
-		if !exists {
-			profile.ActiveHours = append(profile.ActiveHours, hour)
-		}
-
-		isProbe := false
-		for _, cap := range device.Capabilities {
-			if cap == "Probe" {
-				isProbe = true
-				break
-			}
-		}
-
-		if isProbe {
-			if !profile.LastProbeTime.IsZero() {
-				interval := device.LastPacketTime.Sub(profile.LastProbeTime)
-				if interval > 0 {
-					if profile.ProbeFrequency == 0 {
-						profile.ProbeFrequency = interval
-					} else {
-						profile.ProbeFrequency = time.Duration(float64(profile.ProbeFrequency)*0.7 + float64(interval)*0.3)
-					}
-				}
-			}
-			profile.LastProbeTime = device.LastPacketTime
-		}
-	}
-
-	profile.UniqueSSIDs = len(device.ProbedSSIDs)
-	profile.SSIDSignature = r.generateSSIDSignature(device.ProbedSSIDs)
-	if len(device.IETags) > 0 {
-		profile.IETags = device.IETags
-	}
-	profile.LastUpdated = time.Now()
-	shard.profiles[device.MAC] = profile
-}
-
-func (r *DeviceRegistry) generateSSIDSignature(probes map[string]time.Time) string {
-	if len(probes) == 0 {
-		return ""
-	}
-	ssids := make([]string, 0, len(probes))
-	for s := range probes {
-		ssids = append(ssids, s)
-	}
-	sort.Strings(ssids)
-	return strings.Join(ssids, ",")
+	// Delegate logic to BehaviorEngine
+	updatedProfile := r.BehaviorEngine.UpdateProfile(profile, device)
+	shard.profiles[device.MAC] = updatedProfile
 }
 
 func (r *DeviceRegistry) correlateMAC(newDevice domain.Device) (string, float64) {
 	// Only correlate randomized MACs
-	// A simple check for randomized MAC (locally administered bit)
-	if len(newDevice.MAC) < 2 {
-		return "", 0
-	}
-	firstByte, _ := hex.DecodeString(newDevice.MAC[0:2])
-	if len(firstByte) > 0 && (firstByte[0]&0x02) == 0 {
+	if !r.BehaviorEngine.IsRandomizedMAC(newDevice.MAC) {
 		// Not a randomized MAC
-		return "", 0
-	}
-
-	newSig := r.generateSSIDSignature(newDevice.ProbedSSIDs)
-	if newSig == "" {
 		return "", 0
 	}
 
@@ -405,34 +377,9 @@ func (r *DeviceRegistry) correlateMAC(newDevice domain.Device) (string, float64)
 	for _, shard := range r.shards {
 		shard.mu.RLock()
 		for mac, p := range shard.profiles {
-			if p.SSIDSignature == "" {
-				continue
-			}
+			// Skip correlation with itself? (though MACs are different)
 
-			// Score based on SSID signature similarity
-			score := 0.0
-			if p.SSIDSignature == newSig {
-				score = 0.8
-			} else if strings.Contains(p.SSIDSignature, newSig) || strings.Contains(newSig, p.SSIDSignature) {
-				score = 0.4
-			}
-
-			// Add IE tag similarity if available
-			if len(p.IETags) > 0 && len(newDevice.IETags) > 0 {
-				ieMatch := 0
-				minLen := len(p.IETags)
-				if len(newDevice.IETags) < minLen {
-					minLen = len(newDevice.IETags)
-				}
-				for i := 0; i < minLen; i++ {
-					if p.IETags[i] == newDevice.IETags[i] {
-						ieMatch++
-					}
-				}
-				ieScore := float64(ieMatch) / float64(minLen)
-				score = (score * 0.6) + (ieScore * 0.4)
-			}
-
+			score := r.BehaviorEngine.CalculateMatchScore(p, newDevice)
 			if score > maxScore {
 				maxScore = score
 				bestMAC = mac

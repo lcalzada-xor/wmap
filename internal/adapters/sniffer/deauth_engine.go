@@ -71,15 +71,19 @@ func (e *DeauthEngine) log(message string, level string) {
 
 // StartAttack initiates a new deauth attack
 func (e *DeauthEngine) StartAttack(config domain.DeauthAttackConfig) (string, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	// Cleanup finished attacks to prevent reaching limit with stale "stopped" attacks
+	// Note: CleanupFinished takes its own lock
+	e.CleanupFinished()
 
-	// Check concurrent attack limit
+	// 1. Check concurrent limits (Short Lock)
+	e.mu.Lock()
 	if len(e.activeAttacks) >= e.maxConcurrent {
+		e.mu.Unlock()
 		return "", fmt.Errorf("maximum concurrent attacks (%d) reached", e.maxConcurrent)
 	}
+	e.mu.Unlock()
 
-	// Validate configuration
+	// 2. Validate configuration (No Lock)
 	if config.TargetMAC == "" {
 		return "", fmt.Errorf("target MAC is required")
 	}
@@ -93,7 +97,7 @@ func (e *DeauthEngine) StartAttack(config domain.DeauthAttackConfig) (string, er
 	// Generate unique attack ID
 	attackID := uuid.New().String()
 
-	// Handle Interface Selection
+	// 3. Handle Interface Selection & Injector Creation (No Lock, possibly slow I/O)
 	var attackInjector *Injector = e.injector // Default to shared injector
 	var dedicatedInjector *Injector = nil
 
@@ -111,6 +115,15 @@ func (e *DeauthEngine) StartAttack(config domain.DeauthAttackConfig) (string, er
 				} else {
 					e.log(fmt.Sprintf("Set channel %d on %s", config.Channel, config.Interface), "info")
 				}
+
+				// LOCK CHANNEL: Prevent hopper from changing channel during attack
+				if e.locker != nil {
+					if err := e.locker.Lock(config.Interface, config.Channel); err != nil {
+						e.log(fmt.Sprintf("Warning: Failed to lock channel on %s: %v", config.Interface, err), "warning")
+					} else {
+						e.log(fmt.Sprintf("Channel %d locked on %s for attack", config.Channel, config.Interface), "info")
+					}
+				}
 			}
 
 			// Create a new injector for this specific interface
@@ -123,7 +136,7 @@ func (e *DeauthEngine) StartAttack(config domain.DeauthAttackConfig) (string, er
 		}
 	}
 
-	// Create attack controller
+	// 4. Create and Register Controller (Short Lock)
 	ctx, cancel := context.WithCancel(context.Background())
 	statusCh := make(chan domain.DeauthAttackStatus, 10)
 
@@ -142,9 +155,11 @@ func (e *DeauthEngine) StartAttack(config domain.DeauthAttackConfig) (string, er
 		},
 	}
 
+	e.mu.Lock()
 	e.activeAttacks[attackID] = controller
+	e.mu.Unlock()
 
-	// Start the attack in a goroutine
+	// 5. Start the attack (No Lock)
 	go e.runAttack(ctx, controller, attackInjector)
 
 	e.log(fmt.Sprintf("Started attack %s: Type=%s Target=%s Interface=%s",
@@ -156,6 +171,21 @@ func (e *DeauthEngine) StartAttack(config domain.DeauthAttackConfig) (string, er
 // runAttack executes the attack logic
 func (e *DeauthEngine) runAttack(ctx context.Context, controller *AttackController, injector *Injector) {
 	defer func() {
+		// Ensure channel is unlocked when attack finishes (Burst or Stopped)
+		if e.locker != nil && controller.Config.Interface != "" {
+			// We can safely call Unlock multiple times (idempotent)
+			e.locker.Unlock(controller.Config.Interface)
+		}
+
+		// Close dedicated injector to avoid leakage
+		// We lock to prevent race with StopAttack
+		controller.mu.Lock()
+		if controller.injector != nil {
+			controller.injector.Close()
+			// We don't set to nil here to avoid race, but Close() is effectively final
+		}
+		controller.mu.Unlock()
+
 		if r := recover(); r != nil {
 			log.Printf("[DEAUTH] Attack %s panicked: %v", controller.ID, r)
 			controller.mu.Lock()
@@ -246,7 +276,7 @@ func (e *DeauthEngine) runAttack(ctx context.Context, controller *AttackControll
 					return
 				}
 				if event == "probe" {
-					e.log(fmt.Sprintf("Target %s sent Probe Request", config.TargetMAC), "info")
+					e.log(fmt.Sprintf("Target %s sent Probe Request - CONFIRMED DISCONNECTION", config.TargetMAC), "success")
 				}
 			}
 		}
@@ -386,8 +416,6 @@ func (e *DeauthEngine) ListActiveAttacks() []domain.DeauthAttackStatus {
 // CleanupFinished removes finished attacks from the active list
 func (e *DeauthEngine) CleanupFinished() int {
 	e.mu.Lock()
-	defer e.mu.Unlock()
-
 	removed := 0
 	for id, controller := range e.activeAttacks {
 		controller.mu.RLock()
@@ -400,6 +428,7 @@ func (e *DeauthEngine) CleanupFinished() int {
 			removed++
 		}
 	}
+	e.mu.Unlock() // Unlock BEFORE logging
 
 	if removed > 0 {
 		e.log(fmt.Sprintf("Cleaned up %d finished attacks", removed), "system")

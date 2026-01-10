@@ -39,7 +39,7 @@ type NetworkService interface {
 	GetAlerts() []domain.Alert
 	SetPersistenceEnabled(enabled bool)
 	IsPersistenceEnabled() bool
-	ResetSession()
+	ResetWorkspace()
 	SetChannels(channels []int)
 	GetChannels() []int
 	// Multi-Interface Support
@@ -53,4 +53,12 @@ type NetworkService interface {
 	StopDeauthAttack(id string) error
 	GetDeauthStatus(id string) (domain.DeauthAttackStatus, error)
 	ListDeauthAttacks() []domain.DeauthAttackStatus
+
+	// WPS Attack Methods
+	StartWPSAttack(config domain.WPSAttackConfig) (string, error)
+	StopWPSAttack(id string) error
+	GetWPSStatus(id string) (domain.WPSAttackStatus, error)
+
+	// Intelligence
+	GetSystemStats() domain.SystemStats
 }

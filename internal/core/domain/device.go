@@ -2,7 +2,6 @@ package domain
 
 import "time"
 
-// Device represents a WiFi device detected via Probe Request.
 // Device represents a WiFi device/entity detected.
 type Device struct {
 	MAC          string   `json:"mac"`
@@ -48,4 +47,18 @@ type Device struct {
 
 	// Behavioral Intelligence (Phase A)
 	Behavioral *BehavioralProfile `json:"behavioral,omitempty"`
+
+	// Connection State (Logic 2.0)
+	ConnectionState  string `json:"connection_state,omitempty"`  // "disconnected", "associating", "handshake", "connected"
+	ConnectionTarget string `json:"connection_target,omitempty"` // BSSID of the AP
+	ConnectionError  string `json:"connection_error,omitempty"`  // e.g. "auth_failed"
 }
+
+// Connection States
+const (
+	StateDisconnected   = "disconnected"
+	StateAuthenticating = "authenticating"
+	StateAssociating    = "associating"
+	StateHandshake      = "handshake"
+	StateConnected      = "connected"
+)

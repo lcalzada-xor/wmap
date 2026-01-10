@@ -26,6 +26,13 @@ func (b *GraphBuilder) BuildGraph() domain.GraphData {
 
 	// Devices - First pass to collect SSID info from APs
 	devices := b.registry.GetAllDevices()
+
+	// properties for O(1) lookup
+	deviceMap := make(map[string]*domain.Device)
+	for i := range devices {
+		deviceMap[devices[i].MAC] = &devices[i]
+	}
+
 	ssidInfo := make(map[string]*domain.GraphNode)
 
 	for _, device := range devices {
@@ -131,7 +138,7 @@ func (b *GraphBuilder) BuildGraph() domain.GraphData {
 			// to keep the graph cleaner.
 			skipSSIDLink := false
 			if device.ConnectedSSID != "" {
-				if ap, ok := b.registry.GetDevice(device.ConnectedSSID); ok {
+				if ap, ok := deviceMap[device.ConnectedSSID]; ok {
 					if ap.SSID == device.SSID {
 						skipSSIDLink = true
 					}
@@ -159,7 +166,52 @@ func (b *GraphBuilder) BuildGraph() domain.GraphData {
 		}
 
 		// AP Connection Edges (Physical/Link Layer Connection)
-		if device.ConnectedSSID != "" {
+		if device.ConnectionTarget != "" && device.ConnectionState != domain.StateDisconnected {
+			edgeType := "connection"
+			isDashed := false
+			edgeLabel := ""
+
+			if device.ConnectionState == domain.StateAssociating {
+				isDashed = true
+				edgeLabel = "associating"
+			} else if device.ConnectionState == domain.StateHandshake {
+				edgeLabel = "handshake"
+			}
+
+			// Auth Failure Override
+			if device.ConnectionError == "auth_failed" {
+				isDashed = true
+				edgeLabel = "auth failed"
+				// Red color will be handled by setting Color explicitly
+			}
+
+			var edgeColor string
+			// Dynamic RSSI Coloring for active connections
+			if device.ConnectionState == domain.StateConnected || device.ConnectionState == domain.StateHandshake {
+				if device.RSSI > -65 {
+					edgeColor = "#32d74b" // Green (Excellent)
+				} else if device.RSSI > -80 {
+					edgeColor = "#ffcc00" // Yellow (Fair)
+				} else {
+					edgeColor = "#ff453a" // Red (Poor)
+				}
+			}
+
+			// Auth Failure Red Override
+			if device.ConnectionError == "auth_failed" {
+				edgeColor = "#ff453a" // Red
+			}
+
+			edges = append(edges, domain.GraphEdge{
+				From:   "dev_" + device.MAC,
+				To:     "dev_" + device.ConnectionTarget,
+				Type:   edgeType,
+				Dashed: isDashed,
+				Label:  edgeLabel,
+				Color:  edgeColor,
+			})
+		} else if device.ConnectedSSID != "" {
+			// Legacy/Fallback for devices without precise state yet
 			edges = append(edges, domain.GraphEdge{
 				From: "dev_" + device.MAC,
 				To:   "dev_" + device.ConnectedSSID,
@@ -167,7 +219,7 @@ func (b *GraphBuilder) BuildGraph() domain.GraphData {
 			})
 		} else if device.Behavioral != nil && device.Behavioral.LinkedMAC != "" {
 			// INFERRED CONNECTION: Check if the linked device has a connection
-			if linked, ok := b.registry.GetDevice(device.Behavioral.LinkedMAC); ok {
+			if linked, ok := deviceMap[device.Behavioral.LinkedMAC]; ok {
 				if linked.ConnectedSSID != "" {
 					edges = append(edges, domain.GraphEdge{
 						From:   "dev_" + device.MAC,
@@ -188,6 +240,30 @@ func (b *GraphBuilder) BuildGraph() domain.GraphData {
 				Dashed: true,
 				Type:   "correlation",
 				Label:  "correlated",
+			})
+		}
+	}
+
+	// STUB NODES: Check for referenced edges to missing nodes
+	referenced := make(map[string]bool)
+	for _, e := range edges {
+		// We only care about connection targets (dev_ to dev_)
+		if len(e.To) > 4 && e.To[:4] == "dev_" {
+			mac := e.To[4:]
+			referenced[mac] = true
+		}
+	}
+
+	for mac := range referenced {
+		if _, exists := deviceMap[mac]; !exists {
+			// Create Stub Node
+			nodes = append(nodes, domain.GraphNode{
+				ID:      "dev_" + mac,
+				Label:   "Unknown AP\n" + mac,
+				Group:   "ap", // Assume AP if it's a target
+				MAC:     mac,
+				Vendor:  "Unknown",
+				IsStale: true, // Visual cue
 			})
 		}
 	}

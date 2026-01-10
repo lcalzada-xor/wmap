@@ -15,10 +15,10 @@ func TestParseWPSAttributes(t *testing.T) {
 
 	expected := "ACME Bot"
 	device := &domain.Device{}
-	got := parseWPSAttributes(data, device)
+	got := ParseWPSAttributes(data, device)
 
 	if got != expected {
-		t.Errorf("parseWPSAttributes() = %q, want %q", got, expected)
+		t.Errorf("ParseWPSAttributes() = %q, want %q", got, expected)
 	}
 }
 
@@ -29,10 +29,10 @@ func TestParseWPSAttributes_ModelOnly(t *testing.T) {
 
 	expected := "Bot"
 	device := &domain.Device{}
-	got := parseWPSAttributes(data, device)
+	got := ParseWPSAttributes(data, device)
 
 	if got != expected {
-		t.Errorf("parseWPSAttributes() = %q, want %q", got, expected)
+		t.Errorf("ParseWPSAttributes() = %q, want %q", got, expected)
 	}
 }
 
@@ -40,9 +40,9 @@ func TestParseWPSAttributes_Empty(t *testing.T) {
 	data := []byte{}
 	expected := ""
 	device := &domain.Device{}
-	got := parseWPSAttributes(data, device)
+	got := ParseWPSAttributes(data, device)
 
 	if got != expected {
-		t.Errorf("parseWPSAttributes() = %q, want %q", got, expected)
+		t.Errorf("ParseWPSAttributes() = %q, want %q", got, expected)
 	}
 }

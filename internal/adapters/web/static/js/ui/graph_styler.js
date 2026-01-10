@@ -84,6 +84,14 @@ export const GraphStyler = {
             width = 2;
         }
 
+        // Use backend provided color if available
+        if (e.color) {
+            color = e.color;
+            if (e.label === 'auth failed' || color === '#ff453a') {
+                width = 2; // Make red lines slightly thicker
+            }
+        }
+
         return {
             id: `${e.from}-${e.to}`,
             from: e.from,

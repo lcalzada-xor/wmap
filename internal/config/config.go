@@ -11,16 +11,18 @@ import (
 
 // Config holds all application configuration.
 type Config struct {
-	Interfaces []string
-	Addr       string
-	Latitude   float64
-	Longitude  float64
-	MockMode   bool
-	DBPath     string
-	PcapPath   string
-	GRPCPort   int
-	Debug      bool
-	DwellTime  int // in milliseconds
+	Interfaces   []string
+	Addr         string
+	Latitude     float64
+	Longitude    float64
+	MockMode     bool
+	DBPath       string
+	PcapPath     string
+	GRPCPort     int
+	Debug        bool
+	DwellTime    int // in milliseconds
+	ReaverPath   string
+	PixiewpsPath string
 }
 
 // Load parses command line flags and environment variables to populate Config.
@@ -48,6 +50,8 @@ func Load() *Config {
 	flag.IntVar(&cfg.GRPCPort, "grpc", cfg.GRPCPort, "gRPC Server Port")
 	flag.BoolVar(&cfg.Debug, "debug", false, "Enable verbose debug logging")
 	flag.IntVar(&cfg.DwellTime, "dwell", 300, "Channel dwell time in milliseconds")
+	flag.StringVar(&cfg.ReaverPath, "reaver-path", "reaver", "Path to reaver binary")
+	flag.StringVar(&cfg.PixiewpsPath, "pixiewps-path", "pixiewps", "Path to pixiewps binary")
 
 	flag.Parse()
 

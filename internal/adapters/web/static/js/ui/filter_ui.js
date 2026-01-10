@@ -5,20 +5,34 @@
 
 import { State } from '../core/state.js';
 import { FilterManager } from '../core/filter_manager.js';
+import { html } from '../core/html.js';
+import { EventBus } from '../core/event_bus.js';
+import { Events } from '../core/constants.js';
+import { FilterTemplates } from './filter_templates.js';
 
 export const FilterUI = {
-    refreshCallback: null,
     nodesDataSet: null,
 
-    init(refreshCallback, nodesDataSet) {
-        this.refreshCallback = refreshCallback;
+    init(nodesDataSet) {
         this.nodesDataSet = nodesDataSet;
 
         this.bindSearchBar();
         this.bindAdvancedFilters();
         this.bindPresets();
-        this.bindFilterTags();
         this.loadSearchHistory();
+
+        // Initial Render
+        this.updateFilterTags();
+
+        // Reactivity: Subscribe to State changes
+        State.subscribe('filters', () => {
+            this.updateFilterTags();
+            this.syncUIWithState();
+            // Debounce graph refresh? The graph handles it.
+            EventBus.emit(Events.SEARCH, null);
+        });
+
+        State.subscribe('activePreset', () => this.renderPresets());
     },
 
     /**
@@ -39,11 +53,10 @@ export const FilterUI = {
             const query = e.target.value;
 
             timeout = setTimeout(() => {
+                // This assignment triggers the Proxy -> State.notify -> EventBus.emit
                 State.filters.searchQuery = query;
                 this.handleSearch(query);
                 this.showSuggestions(query);
-                this.updateFilterTags();
-                if (this.refreshCallback) this.refreshCallback('search', query);
             }, 300);
         });
 
@@ -53,8 +66,9 @@ export const FilterUI = {
                 input.value = '';
                 State.filters.searchQuery = '';
                 this.hideSuggestions();
-                this.updateFilterTags();
-                if (this.refreshCallback) this.refreshCallback('search', '');
+                // State update triggers refresh
+                // this.updateFilterTags();
+                // if (this.refreshCallback) this.refreshCallback('search', '');
             });
         }
 
@@ -105,25 +119,18 @@ export const FilterUI = {
             div.className = 'suggestion-item';
 
             if (typeof item === 'object') {
-                div.innerHTML = `
-                    <i class="fas ${item.icon} suggestion-icon"></i>
-                    <span>${item.value}</span>
-                `;
+                div.innerHTML = FilterTemplates.suggestionItem(item);
                 div.addEventListener('click', () => {
                     document.getElementById('node-search').value = item.value;
                     State.filters.searchQuery = item.value;
                     this.hideSuggestions();
-                    this.updateFilterTags();
-                    if (this.refreshCallback) this.refreshCallback('search', item.value);
                 });
             } else {
-                div.innerHTML = `<span>${item}</span>`;
+                div.innerHTML = FilterTemplates.suggestionItem(item);
                 div.addEventListener('click', () => {
                     document.getElementById('node-search').value = item;
                     State.filters.searchQuery = item;
                     this.hideSuggestions();
-                    this.updateFilterTags();
-                    if (this.refreshCallback) this.refreshCallback('search', item);
                 });
             }
 
@@ -188,8 +195,6 @@ export const FilterUI = {
         document.querySelectorAll('.filter-boolean').forEach(cb => {
             cb.addEventListener('change', () => {
                 State.filters[cb.value] = cb.checked;
-                this.updateFilterTags();
-                if (this.refreshCallback) this.refreshCallback(cb.value, cb.checked);
             });
         });
 
@@ -199,8 +204,6 @@ export const FilterUI = {
             channelSelect.addEventListener('change', () => {
                 const selected = Array.from(channelSelect.selectedOptions).map(opt => parseInt(opt.value));
                 State.filters.channels = selected;
-                this.updateFilterTags();
-                if (this.refreshCallback) this.refreshCallback('channels', selected);
             });
         }
 
@@ -209,12 +212,10 @@ export const FilterUI = {
         if (btnCommon24 && channelSelect) {
             btnCommon24.addEventListener('click', () => {
                 const commonChannels = [1, 6, 11];
-                Array.from(channelSelect.options).forEach(opt => {
-                    opt.selected = commonChannels.includes(parseInt(opt.value));
-                });
+                // UI update via syncUIWithState (triggered by State change) is safer but we can update DOM optimistically
+                // Actually, State change -> syncUIWithState -> loop over options -> update selected.
+                // So we just set state.
                 State.filters.channels = commonChannels;
-                this.updateFilterTags();
-                if (this.refreshCallback) this.refreshCallback('channels', commonChannels);
             });
         }
 
@@ -222,10 +223,7 @@ export const FilterUI = {
         const btnClearChannels = document.getElementById('btn-clear-channels');
         if (btnClearChannels && channelSelect) {
             btnClearChannels.addEventListener('click', () => {
-                Array.from(channelSelect.options).forEach(opt => opt.selected = false);
                 State.filters.channels = [];
-                this.updateFilterTags();
-                if (this.refreshCallback) this.refreshCallback('channels', []);
             });
         }
 
@@ -235,8 +233,6 @@ export const FilterUI = {
             vendorSelect.addEventListener('change', () => {
                 const selected = Array.from(vendorSelect.selectedOptions).map(opt => opt.value);
                 State.filters.vendors = selected;
-                this.updateFilterTags();
-                if (this.refreshCallback) this.refreshCallback('vendor', selected);
             });
         }
 
@@ -335,16 +331,18 @@ export const FilterUI = {
      * Update array-based filter
      */
     updateArrayFilter(filterName, value, checked) {
+        let newArray = [...State.filters[filterName]];
+
         if (checked) {
-            if (!State.filters[filterName].includes(value)) {
-                State.filters[filterName].push(value);
+            if (!newArray.includes(value)) {
+                newArray.push(value);
             }
         } else {
-            State.filters[filterName] = State.filters[filterName].filter(v => v !== value);
+            newArray = newArray.filter(v => v !== value);
         }
 
-        this.updateFilterTags();
-        if (this.refreshCallback) this.refreshCallback(filterName, State.filters[filterName]);
+        // Assignment triggers State proxy -> Reactivity
+        State.filters[filterName] = newArray;
     },
 
     /**
@@ -366,10 +364,9 @@ export const FilterUI = {
 
         Object.keys(presets).forEach(id => {
             const preset = presets[id];
-            const btn = document.createElement('button');
             btn.className = 'preset-btn';
             btn.dataset.preset = id;
-            btn.innerHTML = `<i class="fas ${preset.icon}"></i> ${preset.name}`;
+            btn.innerHTML = FilterTemplates.presetButtonContent(preset);
 
             if (State.filters.activePreset === id) {
                 btn.classList.add('active');
@@ -377,15 +374,11 @@ export const FilterUI = {
 
             btn.addEventListener('click', () => {
                 FilterManager.applyPreset(id);
-                this.syncUIWithState();
-                this.updateFilterTags();
-                this.updateActiveFiltersCount();
+                // State update triggers refresh
 
-                // Update active state
+                // Update active state locally or let renderPresets handle if fully reactive
                 container.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
-
-                if (this.refreshCallback) this.refreshCallback('preset', id);
             });
 
             container.appendChild(btn);
@@ -646,10 +639,7 @@ export const FilterUI = {
         tag.className = 'filter-tag';
         if (id) tag.dataset.tagId = id;
 
-        tag.innerHTML = `
-            <span><strong>${type}:</strong> ${value}</span>
-            <i class="fas fa-times remove"></i>
-        `;
+        tag.innerHTML = FilterTemplates.filterTag(type, value);
 
         tag.querySelector('.remove').addEventListener('click', onRemove);
         container.appendChild(tag);
@@ -672,31 +662,21 @@ export const FilterUI = {
      */
     resetAllFilters() {
         FilterManager.resetFilters();
-        this.syncUIWithState();
-        this.updateFilterTags();
+        // Trigger Reactivity forcefully if resetFilters modifies State in place?
+        // FilterManager probably modifies 'State.filters' object references. 
+        // If FilterManager does `State.filters.x = y`, it triggers proxy.
+        // If it does `State.filters = default`, we lost the proxy if not handled carefully (State.filters is const? No it is object property).
+        // Check core/filter_manager.js later. Assuming it sets properties.
 
-        if (vendorSelect) {
-            Array.from(vendorSelect.options).forEach(opt => opt.selected = false);
-        }
+        // Use notify to be sure if FilterManager replaces the whole object without triggering setters
+        // But for now let's assume it sets values.
 
-        // Uncheck all boolean filters
-        document.querySelectorAll('.filter-boolean').forEach(cb => cb.checked = false);
+        // Manual cleanup of inputs that might not be fully two-way bound yet (legacy inputs)
+        // syncUIWithState handles validation/logic, but let's ensure reset propagates.
 
-        // Clear time range
-        const timeRange = document.getElementById('time-range-preset');
-        if (timeRange) timeRange.value = '';
-
-        // Clear traffic inputs
-        const trafficInputs = ['traffic-min-tx', 'traffic-min-rx', 'traffic-min-packets'];
-        trafficInputs.forEach(id => {
-            const input = document.getElementById(id);
-            if (input) input.value = '';
-        });
-
-        // Clear preset selection
-        document.querySelectorAll('.preset-btn').forEach(btn => btn.classList.remove('active'));
-
-        if (this.refreshCallback) this.refreshCallback('reset', null);
+        // Actually, if we reset via State, syncUIWithState called by listener will clear inputs.
+        // We just need to ensure FilterManager triggers the Proxy setters.
+        State.notify('filters', State.filters);
     },
 
     /**

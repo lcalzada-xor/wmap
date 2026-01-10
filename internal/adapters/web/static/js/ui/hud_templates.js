@@ -150,15 +150,33 @@ export const HUDTemplates = {
                     </div>
                 </div>
                 <div style="margin-top:10px;">
-                    <button class="action-btn-secondary" style="width:100%; font-size:0.9em" onclick="window.open('file:///home/llvch/.local/share/wmap/handshakes', '_blank')">
+                    <button class="action-btn-secondary" style="width:100%; font-size:0.9em" data-action="open-handshakes">
                         <i class="fas fa-folder-open"></i> Open Captures Folder
                     </button>
                 </div>
             </div>
             ` : ''}
 
+            ${node.wps_info ? `
+            <div style="margin-top:15px; padding-top:15px; border-top:1px solid var(--panel-border);">
+                <div style="font-size:0.8em; color:var(--text-secondary); margin-bottom:10px; font-weight:600; letter-spacing:1px;">WPS DETECTED</div>
+                <div class="detail-row" style="justify-content:space-between">
+                    <div class="detail-label">
+                        <i class="fas fa-lock-open" style="color: var(--warning-color); margin-right:5px;"></i>
+                        ${node.wps_info}
+                    </div>
+                </div>
+                <div style="margin-top:10px;">
+                    <button class="action-btn-secondary" style="width:100%; font-size:0.9em; border-color: var(--warning-color); color: var(--warning-color);" 
+                        data-action="wps-attack" data-mac="${node.mac}" data-channel="${node.channel || 0}">
+                        <i class="fas fa-magic"></i> Start Pixie Dust Attack
+                    </button>
+                </div>
+            </div>
+            ` : ''}
+
             <div style="margin-top:20px;">
-                <button class="action-btn-secondary" style="width:100%; font-size:0.9em" onclick="HUD.copyToClipboard('${node.mac || node.id}')">
+                <button class="action-btn-secondary" style="width:100%; font-size:0.9em" data-action="copy-id" data-text="${node.mac || node.id}">
                     <i class="far fa-copy"></i> Copy ID
                 </button>
             </div>

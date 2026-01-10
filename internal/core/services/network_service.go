@@ -3,9 +3,9 @@ package services
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
-	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer"
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
 	"github.com/lcalzada-xor/wmap/internal/core/ports"
 	"github.com/prometheus/client_golang/prometheus"
@@ -34,7 +34,14 @@ type NetworkService struct {
 	persistence  *PersistenceManager
 	sniffer      ports.Sniffer
 	graphBuilder *GraphBuilder
-	deauthEngine *sniffer.DeauthEngine
+	deauthEngine ports.DeauthService
+	wpsEngine    ports.WPSAttackService
+	auditService ports.AuditService
+
+	// Optimization: Graph Caching
+	cachedGraph     *domain.GraphData
+	lastGraphUpdate time.Time
+	graphMu         sync.RWMutex
 }
 
 // NewNetworkService creates a new orchestrator service.
@@ -43,31 +50,26 @@ func NewNetworkService(
 	security ports.SecurityEngine,
 	persistence *PersistenceManager,
 	sniffer ports.Sniffer,
+	auditService ports.AuditService,
 ) *NetworkService {
 	return &NetworkService{
 		registry:     registry,
 		security:     security,
 		persistence:  persistence,
 		sniffer:      sniffer,
+		auditService: auditService,
 		graphBuilder: NewGraphBuilder(registry),
 	}
-
-	// Initialize Deauth Engine
-	// We check if sniffer implements the Locker interface.
-	// Since ports.Sniffer is an interface, we might need to update ports.
-	// For now, let's assume valid injection.
-	// Actually, we need to update ports/ports.go to include Lock/Unlock or
-	// cast it here if we know the implementation.
-	// Better approach: Update ports.Sniffer to include ChannelLocker methods or
-	// check type assertion.
-
-	// Quick fix: Type assert if possible, or update ports.
-	// Let's assume we update ports.Sniffer.
 }
 
 // SetDeauthEngine injects the deauth engine dependency
-func (s *NetworkService) SetDeauthEngine(engine *sniffer.DeauthEngine) {
+func (s *NetworkService) SetDeauthEngine(engine ports.DeauthService) {
 	s.deauthEngine = engine
+}
+
+// SetWPSEngine injects the WPS engine dependency
+func (s *NetworkService) SetWPSEngine(engine ports.WPSAttackService) {
+	s.wpsEngine = engine
 }
 
 // SetDeauthLogger sets the logger for the deauth engine
@@ -110,7 +112,25 @@ func (s *NetworkService) ProcessDevice(newDevice domain.Device) {
 // GetGraph returns the graph projection for visualization.
 // GetGraph returns the graph projection for visualization.
 func (s *NetworkService) GetGraph() domain.GraphData {
-	return s.graphBuilder.BuildGraph()
+	s.graphMu.RLock()
+	if s.cachedGraph != nil && time.Since(s.lastGraphUpdate) < 2*time.Second {
+		defer s.graphMu.RUnlock()
+		return *s.cachedGraph
+	}
+	s.graphMu.RUnlock()
+
+	s.graphMu.Lock()
+	defer s.graphMu.Unlock()
+
+	// Double-check check optimization (standard pattern)
+	if s.cachedGraph != nil && time.Since(s.lastGraphUpdate) < 2*time.Second {
+		return *s.cachedGraph
+	}
+
+	g := s.graphBuilder.BuildGraph()
+	s.cachedGraph = &g
+	s.lastGraphUpdate = time.Now()
+	return g
 }
 
 // AddRule delegates to the Security Engine.
@@ -146,6 +166,15 @@ func (s *NetworkService) StartCleanupLoop(ctx context.Context, ttl time.Duration
 				if deleted > 0 {
 					devicesActive.Set(float64(s.registry.GetActiveCount()))
 				}
+
+				// Cleanup Stale Connections (Every 30s check, 2m threshold)
+				// We can re-use the ticker interval for now, or use a separate timer if needed.
+				// Assuming 'interval' is small enough (e.g. 5-30s).
+				// StartCleanupLoop is called in server.go with 30s usually.
+				cleaned := s.registry.CleanupStaleConnections(2 * time.Minute)
+				if cleaned > 0 {
+					// Optionally log or metric update
+				}
 			}
 		}
 	}()
@@ -166,8 +195,8 @@ func (s *NetworkService) IsPersistenceEnabled() bool {
 	return false
 }
 
-// ResetSession wipes the current in-memory discovery state.
-func (s *NetworkService) ResetSession() {
+// ResetWorkspace wipes the current in-memory discovery state.
+func (s *NetworkService) ResetWorkspace() {
 	s.registry.Clear()
 }
 
@@ -234,7 +263,11 @@ func (s *NetworkService) StartDeauthAttack(config domain.DeauthAttackConfig) (st
 		}
 	}
 
-	return s.deauthEngine.StartAttack(config)
+	id, err := s.deauthEngine.StartAttack(config)
+	if err == nil && s.auditService != nil {
+		s.auditService.Log(context.Background(), domain.ActionDeauthStart, config.TargetMAC, fmt.Sprintf("Type: %s, Ch: %d", config.AttackType, config.Channel))
+	}
+	return id, err
 }
 
 // StopDeauthAttack stops a running deauth attack
@@ -242,7 +275,11 @@ func (s *NetworkService) StopDeauthAttack(id string) error {
 	if s.deauthEngine == nil {
 		return fmt.Errorf("deauth engine not initialized")
 	}
-	return s.deauthEngine.StopAttack(id)
+	err := s.deauthEngine.StopAttack(id)
+	if err == nil && s.auditService != nil {
+		s.auditService.Log(context.Background(), domain.ActionDeauthStop, id, "Attack stopped by user")
+	}
+	return err
 }
 
 // GetDeauthStatus returns the status of a specific attack
@@ -259,4 +296,92 @@ func (s *NetworkService) ListDeauthAttacks() []domain.DeauthAttackStatus {
 		return []domain.DeauthAttackStatus{}
 	}
 	return s.deauthEngine.ListActiveAttacks()
+}
+
+// WPS Attack Methods
+
+// StartWPSAttack initiates a new WPS Pixie Dust attack
+func (s *NetworkService) StartWPSAttack(config domain.WPSAttackConfig) (string, error) {
+	if s.wpsEngine == nil {
+		return "", fmt.Errorf("WPS engine not initialized")
+	}
+
+	// Basic validation
+	if config.TargetBSSID == "" {
+		return "", fmt.Errorf("target BSSID is required")
+	}
+
+	// Auto-detect interface if not provided (fallback)
+	if config.Interface == "" {
+		// Use the first available interface from sniffer
+		if s.sniffer != nil {
+			interfaces := s.sniffer.GetInterfaces()
+			if len(interfaces) > 0 {
+				config.Interface = interfaces[0]
+			} else {
+				return "", fmt.Errorf("no interfaces available for attack")
+			}
+		} else {
+			return "", fmt.Errorf("sniffer not initialized, cannot auto-detect interface")
+		}
+	}
+
+	return s.wpsEngine.StartAttack(config)
+}
+
+// StopWPSAttack stops a running WPS attack
+func (s *NetworkService) StopWPSAttack(id string) error {
+	if s.wpsEngine == nil {
+		return fmt.Errorf("WPS engine not initialized")
+	}
+	return s.wpsEngine.StopAttack(id)
+}
+
+// GetWPSStatus returns the status of a specific attack
+func (s *NetworkService) GetWPSStatus(id string) (domain.WPSAttackStatus, error) {
+	if s.wpsEngine == nil {
+		return domain.WPSAttackStatus{}, fmt.Errorf("WPS engine not initialized")
+	}
+	return s.wpsEngine.GetStatus(id)
+}
+
+// GetSystemStats calculates aggregate intelligence metrics.
+func (s *NetworkService) GetSystemStats() domain.SystemStats {
+	devices := s.registry.GetAllDevices()
+	stats := domain.SystemStats{
+		DeviceCount:   len(devices),
+		AlertCount:    len(s.security.GetAlerts()),
+		VendorStats:   make(map[string]int),
+		SecurityStats: make(map[string]int),
+	}
+
+	var totalRetry float64
+	var packetDevices int
+
+	for _, d := range devices {
+		// Vendor
+		v := d.Vendor
+		if v == "" {
+			v = "Unknown"
+		}
+		stats.VendorStats[v]++
+
+		// Security (only for networks/APs usually, but keeping general)
+		if d.Security != "" {
+			stats.SecurityStats[d.Security]++
+		}
+
+		// Global Retry Rate
+		if d.PacketsCount > 0 {
+			rate := float64(d.RetryCount) / float64(d.PacketsCount)
+			totalRetry += rate
+			packetDevices++
+		}
+	}
+
+	if packetDevices > 0 {
+		stats.GlobalRetry = totalRetry / float64(packetDevices)
+	}
+
+	return stats
 }

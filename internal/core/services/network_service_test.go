@@ -2,10 +2,13 @@ package services
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
 // mockStorage implements ports.Storage for testing
@@ -65,7 +68,7 @@ func setupTestService() *NetworkService {
 	security := NewSecurityEngine(registry)
 	// Passing nil storage to persistence for simple tests that check in-memory state
 	persistence := NewPersistenceManager(nil, 100)
-	return NewNetworkService(registry, security, persistence, nil)
+	return NewNetworkService(registry, security, persistence, nil, nil)
 }
 
 func TestProcessDevice_NewDevice(t *testing.T) {
@@ -317,4 +320,86 @@ func TestBehavioralProfiling(t *testing.T) {
 	if len(node.ActiveHours) == 0 {
 		t.Error("Active hours should be populated")
 	}
+}
+
+// MockAuditService for testing
+type MockAuditService struct {
+	mock.Mock
+}
+
+func (m *MockAuditService) Log(ctx context.Context, action, target, details string) error {
+	args := m.Called(ctx, action, target, details)
+	return args.Error(0)
+}
+
+func (m *MockAuditService) GetLogs(ctx context.Context, limit int) ([]domain.AuditLog, error) {
+	args := m.Called(ctx, limit)
+	return args.Get(0).([]domain.AuditLog), args.Error(1)
+}
+
+// MockDeauthService for testing
+type MockDeauthService struct {
+	mock.Mock
+}
+
+func (m *MockDeauthService) StartAttack(config domain.DeauthAttackConfig) (string, error) {
+	args := m.Called(config)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockDeauthService) StopAttack(id string) error {
+	args := m.Called(id)
+	return args.Error(0)
+}
+
+func (m *MockDeauthService) GetAttackStatus(id string) (domain.DeauthAttackStatus, error) {
+	args := m.Called(id)
+	return args.Get(0).(domain.DeauthAttackStatus), args.Error(1)
+}
+
+func (m *MockDeauthService) ListActiveAttacks() []domain.DeauthAttackStatus {
+	args := m.Called()
+	return args.Get(0).([]domain.DeauthAttackStatus)
+}
+
+func (m *MockDeauthService) SetLogger(logger func(string, string)) {
+	m.Called(logger)
+}
+
+func TestStartDeauthAttack_AuditLog(t *testing.T) {
+	registry := NewDeviceRegistry(nil)
+	security := NewSecurityEngine(registry)
+	persistence := NewPersistenceManager(nil, 100)
+
+	mockAudit := new(MockAuditService)
+	mockDeauth := new(MockDeauthService)
+
+	svc := NewNetworkService(registry, security, persistence, nil, mockAudit)
+	svc.SetDeauthEngine(mockDeauth)
+
+	// Setup Device in Registry for auto-channel
+	registry.ProcessDevice(domain.Device{MAC: "TR:GT:00:00:00:01", Channel: 6})
+
+	config := domain.DeauthAttackConfig{
+		TargetMAC:  "TR:GT:00:00:00:01",
+		AttackType: domain.DeauthBroadcast,
+		Channel:    6,
+	}
+
+	// Expectations
+	mockDeauth.On("StartAttack", config).Return("job-1", nil)
+
+	// Use MatchedBy for details string
+	mockAudit.On("Log", mock.Anything, domain.ActionDeauthStart, "TR:GT:00:00:00:01", mock.MatchedBy(func(details string) bool {
+		return strings.Contains(details, "Ch: 6")
+	})).Return(nil)
+
+	// Execute
+	id, err := svc.StartDeauthAttack(config)
+
+	// Verify
+	assert.NoError(t, err)
+	assert.Equal(t, "job-1", id)
+	mockAudit.AssertExpectations(t)
+	mockDeauth.AssertExpectations(t)
 }

@@ -37,7 +37,8 @@ export const Events = {
     CHANNELS: 'channels',
     SEARCH: 'search',
     CLEAR: 'clear',
-    RESET: 'reset'
+    RESET: 'reset',
+    LOG: 'log'
 };
 
 export const Timeouts = {

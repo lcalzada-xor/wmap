@@ -13,7 +13,7 @@ func setupSignatureTestService(sigStore ports.SignatureMatcher) *NetworkService 
 	registry := NewDeviceRegistry(sigStore)
 	security := NewSecurityEngine(registry)
 	persistence := NewPersistenceManager(nil, 100)
-	return NewNetworkService(registry, security, persistence, nil)
+	return NewNetworkService(registry, security, persistence, nil, nil)
 }
 
 func TestSignatureMatching(t *testing.T) {

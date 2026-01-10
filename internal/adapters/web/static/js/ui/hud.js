@@ -6,15 +6,17 @@
 import { State } from '../core/state.js';
 import { API } from '../core/api.js';
 import { Notifications } from './notifications.js';
-import { NodeGroups, Colors } from '../core/constants.js';
 import { HUDTemplates } from './hud_templates.js';
+import { Utils } from '../core/utils.js';
 
 export const HUD = {
-    init(refreshCallback) {
+    init(refreshCallback, actionCallback) {
         this.refreshCallback = refreshCallback;
+        this.actionCallback = actionCallback;
         this.bindToggles();
         this.bindSearch();
         this.bindActionButtons();
+        this.bindDetailsEvents();
     },
 
     bindToggles() {
@@ -32,7 +34,25 @@ export const HUD = {
 
                 // Specific Logic
                 if (id === 'toggle-persist') { // Sync with backend
-                    fetch(`/api/config/persistence?enabled=${val}`, { method: 'POST' });
+                    API.request(`/api/config/persistence?enabled=${val}`, { method: 'POST' })
+                        .then(() => {
+                            Notifications.show('Persistence setting updated', 'success');
+                        })
+                        .catch(error => {
+                            console.error('Failed to update persistence:', error);
+
+                            // Revert UI state on failure
+                            el.checked = !val;
+                            State.filters.persistFindings = !val;
+
+                            if (error.status === 403) {
+                                Notifications.show('Insufficient permissions', 'danger');
+                            } else if (error.status === 401) {
+                                // Redirect handled by API wrapper
+                            } else {
+                                Notifications.show('Failed to update setting', 'danger');
+                            }
+                        });
                 }
 
                 if (this.refreshCallback) this.refreshCallback(prop, val);
@@ -72,12 +92,12 @@ export const HUD = {
     },
 
     bindActionButtons() {
-        const btnClear = document.getElementById('btn-clear-session');
+        const btnClear = document.getElementById('btn-clear-workspace');
         if (btnClear) {
             btnClear.onclick = () => {
-                if (confirm("Clear all session data? This cannot be undone.")) {
-                    API.clearSession().then(() => {
-                        Notifications.show("Session Cleared", "success");
+                if (confirm("Clear all workspace data? This cannot be undone.")) {
+                    API.clearWorkspace().then(() => {
+                        Notifications.show("Workspace Cleared", "success");
                         // Ideally trigger a graph clear here too
                         if (this.refreshCallback) this.refreshCallback('clear');
                     });
@@ -98,6 +118,26 @@ export const HUD = {
         // We can expose a method to register zoom handlers or pass them in init.
     },
 
+    bindDetailsEvents() {
+        const content = document.getElementById('details-content');
+        if (!content) return;
+
+        content.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-action]');
+            if (!btn) return;
+
+            const action = btn.dataset.action;
+            const data = { ...btn.dataset };
+            delete data.action; // Clean up
+
+            if (action === 'copy-id') {
+                this.copyToClipboard(data.text);
+            } else if (this.actionCallback) {
+                this.actionCallback(action, data);
+            }
+        });
+    },
+
     updateStats(apCount, staCount) {
         document.getElementById('stat-ap').innerText = apCount;
         document.getElementById('stat-sta').innerText = staCount;
@@ -115,8 +155,8 @@ export const HUD = {
 
         // Helper formatters passed to template
         const formatters = {
-            formatBytes: this.formatBytes,
-            timeAgo: this.timeAgo
+            formatBytes: Utils.formatBytes,
+            timeAgo: Utils.timeAgo
         };
 
         // Use Template
@@ -134,36 +174,5 @@ export const HUD = {
         navigator.clipboard.writeText(text).then(() => {
             Notifications.show("Copied to clipboard", "success");
         });
-    },
-
-    formatBytes(bytes, decimals = 2) {
-        if (!+bytes) return '0 B';
-        const k = 1024;
-        const dm = decimals < 0 ? 0 : decimals;
-        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
-    },
-
-    timeAgo(dateString) {
-        if (!dateString || dateString.startsWith('0001-01-01')) return 'Never';
-        const date = new Date(dateString);
-        if (isNaN(date.getTime())) return 'Unknown';
-
-        const seconds = Math.floor((new Date() - date) / 1000);
-        if (seconds < 60) return "Just now";
-
-        let interval = seconds / 31536000;
-        if (interval > 1) return Math.floor(interval) + " years ago";
-        interval = seconds / 2592000;
-        if (interval > 1) return Math.floor(interval) + " months ago";
-        interval = seconds / 86400;
-        if (interval > 1) return Math.floor(interval) + " days ago";
-        interval = seconds / 3600;
-        if (interval > 1) return Math.floor(interval) + " hours ago";
-        interval = seconds / 60;
-        if (interval > 1) return Math.floor(interval) + " mins ago";
-
-        return Math.floor(seconds) + " seconds ago";
     }
 };

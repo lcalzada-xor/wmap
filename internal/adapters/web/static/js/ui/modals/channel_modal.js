@@ -22,7 +22,7 @@ export class ChannelModal {
             return;
         }
 
-        console.log("ChannelModal: Initialized. Button:", btnOpen);
+
 
         // Inject Interface Selector if missing
         const modalContent = modal.querySelector('.modal-content');

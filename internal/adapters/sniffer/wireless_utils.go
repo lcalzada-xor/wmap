@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/lcalzada-xor/wmap/internal/core/domain"
 )
 
 // HardwareCapabilities defines what a WiFi card supports.
@@ -196,4 +198,168 @@ func RestoreNetworkServices() error {
 		}
 	}
 	return lastErr
+}
+
+// ParseIEs extracts information from 802.11 Information Elements.
+func ParseIEs(data []byte, device *domain.Device) {
+	offset := 0
+	limit := len(data)
+
+	// Defaults
+	device.Security = "OPEN"
+	device.Standard = "802.11g/a" // baseline
+
+	for offset < limit {
+		if offset+1 >= limit {
+			break
+		}
+		id := int(data[offset])
+		length := int(data[offset+1])
+		offset += 2
+
+		if offset+length > limit {
+			break
+		}
+		val := data[offset : offset+length]
+
+		device.IETags = append(device.IETags, id)
+
+		switch id {
+		case 0: // SSID
+			valStr := string(val)
+			// Check for Hidden SSID (Empty or Null bytes)
+			isHidden := len(val) == 0 || val[0] == 0x00
+
+			if isHidden {
+				device.SSID = "<HIDDEN>"
+			} else {
+				device.SSID = valStr
+			}
+		case 3: // DS Parameter Set (Channel)
+			if len(val) > 0 {
+				device.Channel = int(val[0])
+			}
+		case 48: // RSN (WPA2)
+			device.Security = "WPA2"
+		case 54: // Mobility Domain (802.11r)
+			device.Has11r = true
+			device.Capabilities = append(device.Capabilities, "11r")
+		case 70: // Radio Measurement (802.11k)
+			device.Has11k = true
+			device.Capabilities = append(device.Capabilities, "11k")
+		case 45: // HT Capabilities (802.11n)
+			device.Standard = "802.11n (WiFi 4)"
+		case 191: // VHT Capabilities (802.11ac)
+			device.Standard = "802.11ac (WiFi 5)"
+		case 255: // Extension Tag (HE/EHT/etc)
+			if len(val) >= 1 {
+				extID := int(val[0])
+				switch extID {
+				case 35: // HE Capabilities (802.11ax)
+					device.Standard = "802.11ax (WiFi 6)"
+					device.IsWiFi6 = true
+				case 108: // EHT Capabilities (802.11be)
+					device.Standard = "802.11be (WiFi 7)"
+					device.IsWiFi7 = true
+					device.IsWiFi6 = true
+				}
+			}
+		case 127: // Extended Capabilities (often contains 802.11v)
+			// Check bit 19 for BSS Transition Management
+			if len(val) >= 3 {
+				if (val[2] & 0x08) != 0 {
+					device.Has11v = true
+					device.Capabilities = append(device.Capabilities, "11v")
+				}
+			}
+		case 221: // Vendor Specific
+			// Microsoft WPS check
+			if len(val) >= 4 && val[0] == 0x00 && val[1] == 0x50 && val[2] == 0xF2 && val[3] == 0x04 {
+				if model := ParseWPSAttributes(val[4:], device); model != "" {
+					device.Model = model
+				}
+			}
+		}
+
+		offset += length
+	}
+
+	// Compute Signature if we have tags
+	if len(device.IETags) > 0 {
+		device.Signature = computeSignature(device.IETags, nil)
+	}
+}
+
+// ParseWPSAttributes extracts Model/Manufacturer/State from WPS IEs
+// Returns "Manufacturer Model" string
+func ParseWPSAttributes(data []byte, device *domain.Device) string {
+	model := ""
+	manufacturer := ""
+	deviceName := ""
+	wpsState := ""
+
+	offset := 0
+	limit := len(data)
+
+	for offset < limit {
+		if offset+4 > limit {
+			break
+		}
+		attrType := (int(data[offset]) << 8) | int(data[offset+1])
+		attrLen := (int(data[offset+2]) << 8) | int(data[offset+3])
+		offset += 4
+
+		if offset+attrLen > limit {
+			break
+		}
+
+		valBytes := data[offset : offset+attrLen]
+		val := string(valBytes)
+
+		switch attrType {
+		case 0x1021: // Manufacturer
+			manufacturer = val
+		case 0x1023: // Model Name
+			model = val
+		case 0x1011: // Device Name
+			deviceName = val
+		case 0x1044: // WPS State
+			if len(valBytes) > 0 {
+				switch valBytes[0] {
+				case 0x01:
+					wpsState = "Unconfigured"
+				case 0x02:
+					wpsState = "Configured"
+				}
+			}
+		case 0x104A: // WPS Version
+			if len(valBytes) > 0 {
+				ver := valBytes[0]
+				if ver == 0x10 {
+					wpsState += " (WPS 1.0)"
+				} else if ver >= 0x20 {
+					wpsState += " (WPS 2.0)"
+				}
+			}
+		}
+
+		offset += attrLen
+	}
+
+	if wpsState != "" {
+		device.WPSInfo = wpsState
+	}
+
+	// Fallback to DeviceName if Model is empty
+	if model == "" && deviceName != "" {
+		model = deviceName
+	}
+
+	if model != "" {
+		if manufacturer != "" {
+			return manufacturer + " " + model
+		}
+		return model
+	}
+	return ""
 }

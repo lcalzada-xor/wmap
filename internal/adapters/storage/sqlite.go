@@ -82,7 +82,7 @@ func NewSQLiteAdapter(path string) (*SQLiteAdapter, error) {
 	}
 
 	// Auto Migrate
-	if err := db.AutoMigrate(&DeviceModel{}, &ProbeModel{}); err != nil {
+	if err := db.AutoMigrate(&DeviceModel{}, &ProbeModel{}, &domain.User{}, &domain.AuditLog{}); err != nil {
 		return nil, err
 	}
 

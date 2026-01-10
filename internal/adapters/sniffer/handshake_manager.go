@@ -24,8 +24,9 @@ const (
 type HandshakeManager struct {
 	mu           sync.RWMutex
 	baseDir      string
-	bssidToEssid map[string]string
+	bssidToEssid map[string]string // Kept as map protected by RWMutex for now, but usage optimized
 	sessions     map[string]*HandshakeSession
+	saveQueue    chan *HandshakeSession
 }
 
 // HandshakeSession represents a capture session for a specific BSSID+Station pair.
@@ -50,10 +51,13 @@ func NewHandshakeManager(baseDir string) *HandshakeManager {
 		baseDir:      baseDir,
 		bssidToEssid: make(map[string]string),
 		sessions:     make(map[string]*HandshakeSession),
+		saveQueue:    make(chan *HandshakeSession, 100),
 	}
 
 	// Start cleanup routine
 	go hm.startCleanupRoutine()
+	// Start save routine
+	go hm.saveLoop()
 
 	return hm
 }
@@ -62,6 +66,12 @@ func (hm *HandshakeManager) startCleanupRoutine() {
 	ticker := time.NewTicker(cleanupInterval)
 	for range ticker.C {
 		hm.CleanupSessions()
+	}
+}
+
+func (hm *HandshakeManager) saveLoop() {
+	for session := range hm.saveQueue {
+		hm.saveSession(session)
 	}
 }
 
@@ -97,9 +107,16 @@ func (hm *HandshakeManager) ProcessFrame(packet gopacket.Packet) bool {
 			// Extract SSID from IEs
 			essid := getSSIDFromPacket(packet)
 			if essid != "" && essid != "<HIDDEN>" {
-				hm.mu.Lock()
-				hm.bssidToEssid[bssid] = essid
-				hm.mu.Unlock()
+				// Optimization: Check with Read Lock first
+				hm.mu.RLock()
+				existing, ok := hm.bssidToEssid[bssid]
+				hm.mu.RUnlock()
+
+				if !ok || existing != essid {
+					hm.mu.Lock()
+					hm.bssidToEssid[bssid] = essid
+					hm.mu.Unlock()
+				}
 			}
 		}
 		return false
@@ -202,8 +219,34 @@ func (hm *HandshakeManager) handleEAPOL(packet gopacket.Packet, dot11 *layers.Do
 		// This prevents replacing a 4-way with a 2-way in the same session.
 		currentCount := len(session.Captured)
 		if currentCount > session.SavedCount {
-			hm.saveSession(session)
+			// Async Save
+			// Deep copy session for safety in async worker
+			sessionCopy := &HandshakeSession{
+				BSSID:      session.BSSID,
+				StationMAC: session.StationMAC,
+				ESSID:      session.ESSID,
+				LastUpdate: session.LastUpdate,
+				Captured:   make(map[uint8]bool),
+				SavedCount: currentCount, // Update count in copy not relevant, but good for completeness
+			}
+			// Copy map
+			for k, v := range session.Captured {
+				sessionCopy.Captured[k] = v
+			}
+			// Copy frames
+			sessionCopy.Frames = make([]gopacket.Packet, len(session.Frames))
+			copy(sessionCopy.Frames, session.Frames)
+
+			// Update main session saved count
 			session.SavedCount = currentCount
+
+			// Send to queue (non-blocking if full to avoid stalling main capture)
+			select {
+			case hm.saveQueue <- sessionCopy:
+			default:
+				log.Printf("Warning: Handshake save queue full, dropping save for %s", session.BSSID)
+			}
+
 			return true
 		}
 	}

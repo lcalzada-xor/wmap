@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
@@ -155,14 +156,22 @@ func TestHandshakeManager_ProcessFrame(t *testing.T) {
 	sanitizedBssid := "00_11_22_33_44_55"
 	sanitizedClient := "aa_bb_cc_dd_ee_ff"
 	expectedFile := filepath.Join(tmpDir, sanitizedBssid+"_"+essid+"_"+sanitizedClient+".pcap")
-	if _, err := os.Stat(expectedFile); os.IsNotExist(err) {
-		t.Errorf("Pcap file not created: %s", expectedFile)
+
+	waitForFile := func(path string) {
+		for i := 0; i < 10; i++ {
+			if _, err := os.Stat(path); err == nil {
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		t.Errorf("Pcap file not created after timeout: %s", path)
 		// List dir contents for debug
 		files, _ := os.ReadDir(tmpDir)
 		for _, f := range files {
 			t.Logf("Found file: %s", f.Name())
 		}
 	}
+	waitForFile(expectedFile)
 
 	// 4. Test Overwrite Logic
 	// Send M3. Should NOT overwrite because logic says M1+M2 count is same/less than what we just did?

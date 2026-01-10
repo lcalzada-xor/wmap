@@ -21,6 +21,9 @@ type DeviceRegistry interface {
 	// PruneOldDevices removes devices inactive for more than the given TTL.
 	PruneOldDevices(ttl time.Duration) int
 
+	// CleanupStaleConnections degrades connections to "disconnected" if silent for too long.
+	CleanupStaleConnections(timeout time.Duration) int
+
 	// GetActiveCount returns the number of devices currently in the registry.
 	GetActiveCount() int
 

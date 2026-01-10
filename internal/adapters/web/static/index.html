@@ -14,9 +14,7 @@
         rel="stylesheet">
 
     <!-- Icons & Libs -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css"
-        integrity="sha512-z3gLpd7yknf1YoNbCzqRKc4qyor8gaKU1qmn+CShxbuBusANI9QpRohGBreCFkKxLhei6S9CQXFEbbKuqLg0DA=="
-        crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="fontawesome-css/all.min.css">
     <script type="text/javascript" src="js/vis-network.min.js"></script>
 
     <!-- App Styles -->
@@ -38,6 +36,29 @@
                 <span id="status">INITIALIZING...</span>
             </div>
         </div>
+    </div>
+
+    <!-- User Controls -->
+    <div id="user-controls"
+        style="position: absolute; top: 20px; right: 20px; z-index: 1000; display: flex; gap: 12px; align-items: center;">
+
+        <!-- User Badge -->
+        <span id="current-user" class="glass"
+            style="height: 40px; padding: 0 16px; border-radius: 20px; font-size: 0.9em; color: var(--accent-color); border: 1px solid rgba(0, 240, 255, 0.2); display: flex; align-items: center; gap: 8px;">
+            <i class="fas fa-user-circle"></i> <span id="username-display" style="font-weight: 600;">Loading...</span>
+        </span>
+
+        <!-- Audit Log Button -->
+        <button id="btn-show-audit" class="glass" title="Audit Logs"
+            style="width: 40px; height: 40px; padding: 0; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.2); color: #fff; cursor: pointer; backdrop-filter: blur(10px); background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center;">
+            <i class="fas fa-history"></i>
+        </button>
+
+        <!-- Logout Button -->
+        <button id="btn-logout" class="glass" title="Logout"
+            style="width: 40px; height: 40px; padding: 0; border-radius: 50%; border: 1px solid rgba(255, 59, 48, 0.4); color: #ff3b30; cursor: pointer; backdrop-filter: blur(10px); background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center;">
+            <i class="fas fa-sign-out-alt"></i>
+        </button>
     </div>
 
     <!-- Main HUD Panel -->
@@ -216,11 +237,21 @@
             <div style="margin-top: 20px; border-top: 1px solid var(--panel-border); padding-top: 15px;">
                 <h4
                     style="font-size: 0.75em; color:var(--text-secondary); margin-bottom: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
-                    SESSION MGMT</h4>
-                <button id="btn-clear-session" class="action-btn-secondary"
-                    style="width:100%; padding:10px; cursor:pointer; font-size:0.9em;">
-                    <i class="fas fa-trash-alt"></i> Clear Map / Flush
-                </button>
+                    WORKSPACE MGMT</h4>
+                <div style="display:flex; gap:10px; margin-bottom:10px;">
+                    <button id="btn-health-monitor" class="action-btn-secondary"
+                        style="flex:1; padding:10px; cursor:pointer; font-size:0.9em;">
+                        <i class="fas fa-heartbeat"></i> Health
+                    </button>
+                    <button id="btn-export-report" class="action-btn-secondary"
+                        style="flex:1; padding:10px; cursor:pointer; font-size:0.9em;">
+                        <i class="fas fa-file-contract"></i> Reports
+                    </button>
+                    <button id="btn-clear-workspace" class="action-btn-secondary"
+                        style="flex:1; padding:10px; cursor:pointer; font-size:0.9em; color: var(--danger-color); border-color: rgba(255, 59, 48, 0.3);">
+                        <i class="fas fa-trash-alt"></i> Clear
+                    </button>
+                </div>
             </div>
 
             <!-- Channel Selection Button -->
@@ -236,6 +267,14 @@
                 <button id="btn-toggle-deauth" class="action-btn-secondary"
                     style="width:100%; padding:10px; cursor:pointer; font-size:0.9em; background: rgba(255, 69, 58, 0.15); border: 1px solid rgba(255, 69, 58, 0.3); color: var(--danger-color);">
                     <i class="fas fa-bolt"></i> Deauth Visualizer
+                </button>
+            </div>
+
+            <!-- WPS Pixie Dust Toggle -->
+            <div style="margin-top: 5px;">
+                <button id="btn-toggle-wps" class="action-btn-secondary"
+                    style="width:100%; padding:10px; cursor:pointer; font-size:0.9em; background: rgba(255, 179, 0, 0.15); border: 1px solid rgba(255, 179, 0, 0.3); color: var(--warning-color);">
+                    <i class="fas fa-magic"></i> Pixie Dust Attack
                 </button>
             </div>
 
@@ -283,24 +322,24 @@
         </div>
     </div>
 
-    <!-- Session Selection Modal -->
-    <div id="session-modal" class="custom-modal" style="background: rgba(0,0,0,0.85); backdrop-filter: blur(10px);">
+    <!-- Workspace Selection Modal -->
+    <div id="workspace-modal" class="custom-modal" style="background: rgba(0,0,0,0.85); backdrop-filter: blur(10px);">
         <div class="modal-content"
             style="border: 1px solid var(--accent-color); box-shadow: 0 0 20px rgba(0, 240, 255, 0.2);">
             <h3
                 style="margin-bottom: 20px; color: var(--accent-color); font-family: var(--font-head); letter-spacing: 1px;">
-                <i class="fas fa-database"></i> SELECT SESSION
+                <i class="fas fa-database"></i> SELECT WORKSPACE
             </h3>
 
             <div style="margin-bottom: 25px;">
                 <label style="display:block; margin-bottom:10px; font-size:0.9em; color:var(--text-secondary);">Load
-                    Existing Session</label>
+                    Existing Workspace</label>
                 <div style="display: flex; gap: 10px;">
-                    <select id="session-select"
+                    <select id="workspace-select"
                         style="flex: 1; padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid var(--panel-border); color: white; border-radius: 6px;">
-                        <option value="">-- Select Session --</option>
+                        <option value="">-- Select Workspace --</option>
                     </select>
-                    <button id="btn-session-load" class="action-btn" style="padding: 10px 20px;">LOAD</button>
+                    <button id="btn-workspace-load" class="action-btn" style="padding: 10px 20px;">LOAD</button>
                 </div>
             </div>
 
@@ -311,11 +350,11 @@
 
             <div>
                 <label style="display:block; margin-bottom:10px; font-size:0.9em; color:var(--text-secondary);">Create
-                    New Session</label>
+                    New Workspace</label>
                 <div style="display: flex; gap: 10px;">
-                    <input type="text" id="session-new-name" placeholder="Enter session name..."
+                    <input type="text" id="workspace-new-name" placeholder="Enter workspace name..."
                         style="flex: 1; padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid var(--panel-border); color: white; border-radius: 6px;">
-                    <button id="btn-session-create" class="action-btn-secondary"
+                    <button id="btn-workspace-create" class="action-btn-secondary"
                         style="padding: 10px 20px; background: var(--success-color); color: black; border: none;">CREATE</button>
                 </div>
             </div>
@@ -407,10 +446,107 @@
         <div class="menu-item" data-action="copy"><i class="fas fa-copy"></i> Copy MAC</div>
         <div class="menu-item" data-action="details"><i class="fas fa-info-circle"></i> Details</div>
         <div class="menu-item" data-action="deauth"><i class="fas fa-bolt"></i> Deauth Attack</div>
+        <div class="menu-item" data-action="wps-attack"><i class="fas fa-magic"></i> Pixie Dust Attack</div>
     </div>
 
     <!-- App Logic -->
-    <script type="module" src="js/main.js"></script>
+    <script src="js/auth.js?v=2"></script>
+    <script type="module" src="js/main.js?v=2"></script>
+
+    <!-- Audit Logs Modal -->
+    <div id="audit-modal" class="custom-modal">
+        <div class="modal-content" style="max-width: 900px; max-height: 80vh; overflow-y: auto;">
+            <h3 style="margin-bottom: 20px; color: var(--accent-color);">
+                <i class="fas fa-history"></i> System Audit Logs
+            </h3>
+
+            <div id="audit-loading" style="text-align: center; padding: 20px; display: none;">
+                <i class="fas fa-spinner fa-spin fa-2x"></i>
+            </div>
+
+            <div class="table-container" style="overflow-x: auto;">
+                <table id="audit-table" style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                    <thead>
+                        <tr style="border-bottom: 1px solid var(--panel-border); text-align: left;">
+                            <th style="padding: 10px;">Timestamp</th>
+                            <th style="padding: 10px;">User</th>
+                            <th style="padding: 10px;">Action</th>
+                            <th style="padding: 10px;">Target</th>
+                            <th style="padding: 10px;">Details</th>
+                        </tr>
+                    </thead>
+                    <tbody id="audit-list">
+                        <!-- Populated via JS -->
+                    </tbody>
+                </table>
+            </div>
+
+            <button id="btn-refresh-audit" class="action-btn-secondary" style="margin-right: 10px;">
+                <i class="fas fa-sync"></i> Refresh
+            </button>
+            <button id="btn-close-audit" class="action-btn-secondary"
+                style="background: rgba(255,255,255,0.1);">Close</button>
+        </div>
+    </div>
+
+    <!-- WPS Pixie Dust Panel -->
+    <div id="wps-panel" class="hud-panel wps-panel glass">
+        <h3><i class="fas fa-magic"></i> Pixie Dust Attack <i class="fas fa-times" id="btn-close-wps"
+                style="float:right; cursor:pointer; opacity:0.6; font-size:0.8em"></i></h3>
+
+        <!-- Legal Warning -->
+        <div class="legal-warning"
+            style="background: rgba(255, 179, 0, 0.15); border: 1px solid rgba(255, 179, 0, 0.5); padding: 12px; margin: 10px 0; border-radius: 8px;">
+            <strong style="color: var(--warning-color);">⚠️ LEGAL WARNING</strong>
+            <p style="font-size: 0.85em; margin: 8px 0 0 0; color: var(--text-secondary);">
+                Unauthorized WPS PIN cracking is illegal. Ensure you have permission to audit this AP.
+            </p>
+        </div>
+
+        <!-- Attack Configuration -->
+        <div class="attack-config" style="margin-top: 20px;">
+            <h4 style="font-size: 0.85em; color: var(--accent-color); margin-bottom: 15px; font-weight: 600;">
+                <i class="fas fa-cog"></i> Configuration
+            </h4>
+
+            <div class="form-group" style="margin-bottom: 12px;">
+                <label style="display: block; color: #fff; font-size: 0.85em; margin-bottom: 5px;">Target BSSID:</label>
+                <input type="text" id="wps-target" readonly
+                    style="width: 100%; padding: 8px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: var(--text-secondary);">
+            </div>
+
+            <div class="form-group" style="margin-bottom: 12px;">
+                <label style="display: block; color: #fff; font-size: 0.85em; margin-bottom: 5px;">Channel:</label>
+                <input type="text" id="wps-channel" readonly
+                    style="width: 100%; padding: 8px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: var(--text-secondary);">
+            </div>
+
+            <div class="form-group" style="margin-bottom: 15px;">
+                <label style="display: block; color: #fff; font-size: 0.85em; margin-bottom: 5px;">Timeout
+                    (Seconds):</label>
+                <input type="number" id="wps-timeout" value="120" min="30" max="600"
+                    style="width: 100%; padding: 8px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: #fff;">
+            </div>
+
+            <button id="btn-start-wps" class="action-btn"
+                style="width: 100%; margin-top: 10px; background: linear-gradient(135deg, #ffb300, #ffca28); color: black; padding: 12px 24px; border: none; border-radius: 8px; cursor: pointer; font-weight: 700;">
+                <i class="fas fa-bolt"></i> Launch Attack
+            </button>
+        </div>
+
+        <!-- Active Attacks (WPS Status) -->
+        <div class="active-attacks"
+            style="margin-top: 25px; border-top: 1px solid var(--panel-border); padding-top: 20px;">
+            <h4 style="font-size: 0.85em; color: var(--accent-color); margin-bottom: 15px; font-weight: 600;">
+                <i class="fas fa-list"></i> Active Process
+            </h4>
+            <div id="wps-status-list" style="max-height: 300px; overflow-y: auto;">
+                <div style="text-align: center; opacity: 0.6; padding: 20px; font-size: 0.85em;">
+                    Ready to launch
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- Deauth Attack Panel -->
     <div id="deauth-panel" class="hud-panel deauth-panel glass">

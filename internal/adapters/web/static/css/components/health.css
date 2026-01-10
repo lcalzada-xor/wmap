@@ -1,0 +1,228 @@
+/* Health Monitor Popup Styles */
+
+.health-popup {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 90%;
+    max-width: 600px;
+    max-height: 80vh;
+    background: rgba(20, 20, 30, 0.95);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    z-index: 10000;
+    overflow: hidden;
+    animation: healthPopupFadeIn 0.3s ease-out;
+}
+
+.health-popup.hidden {
+    display: none;
+}
+
+@keyframes healthPopupFadeIn {
+    from {
+        opacity: 0;
+        transform: translate(-50%, -45%);
+    }
+
+    to {
+        opacity: 1;
+        transform: translate(-50%, -50%);
+    }
+}
+
+.health-popup-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    background: rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.health-popup-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #fff;
+    letter-spacing: 0.5px;
+}
+
+.health-close-btn {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 28px;
+    cursor: pointer;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+}
+
+.health-close-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+.health-popup-body {
+    padding: 20px 24px;
+    max-height: calc(80vh - 80px);
+    overflow-y: auto;
+}
+
+.health-loading,
+.health-empty,
+.health-error {
+    text-align: center;
+    padding: 40px 20px;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 14px;
+}
+
+.health-error {
+    color: #ff6b6b;
+}
+
+.health-interface-card {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+    transition: all 0.2s ease;
+}
+
+.health-interface-card:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.health-interface-card:last-child {
+    margin-bottom: 0;
+}
+
+.health-interface-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.health-interface-name {
+    font-size: 16px;
+    font-weight: 600;
+    color: #4fc3f7;
+}
+
+.health-interface-mac {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.5);
+    font-family: 'Courier New', monospace;
+}
+
+.health-metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+}
+
+.health-metric {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.health-metric-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: rgba(255, 255, 255, 0.5);
+    font-weight: 500;
+}
+
+.health-metric-value {
+    font-size: 18px;
+    font-weight: 600;
+    color: #fff;
+    font-family: 'Courier New', monospace;
+}
+
+.health-metric-value.health-warning {
+    color: #ffb74d;
+}
+
+.health-metric-value.health-critical {
+    color: #ff453a;
+}
+
+.health-metric-value.health-good {
+    color: #32d74b;
+}
+
+/* Queue Health Visual Bar */
+.health-queue-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.health-queue-bar {
+    flex: 1;
+    height: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.health-queue-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+.health-queue-fill.health-good {
+    background: linear-gradient(90deg, #32d74b, #30d158);
+}
+
+.health-queue-fill.health-warning {
+    background: linear-gradient(90deg, #ffb74d, #ffa726);
+}
+
+.health-queue-fill.health-critical {
+    background: linear-gradient(90deg, #ff453a, #ff3b30);
+}
+
+.health-queue-container .health-metric-value {
+    font-size: 14px;
+    min-width: 50px;
+    text-align: right;
+}
+
+/* Scrollbar styling */
+.health-popup-body::-webkit-scrollbar {
+    width: 8px;
+}
+
+.health-popup-body::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+}
+
+.health-popup-body::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+}
+
+.health-popup-body::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+}

@@ -4,12 +4,23 @@
  */
 
 export const Notifications = {
-    container: document.getElementById('notification-area'),
-    statusEl: document.getElementById('status'),
-    islandEl: document.getElementById('dynamic-island'),
+    // DOM Elements (Cached)
+    container: null,
+    statusEl: null,
+    islandEl: null,
+
+    init() {
+        this.container = document.getElementById('notification-area');
+        this.statusEl = document.getElementById('status');
+        this.islandEl = document.getElementById('dynamic-island');
+    },
 
     show(message, type = 'info') {
-        if (!this.container) return;
+        if (!this.container) this.init(); // Lazy init
+        if (!this.container) {
+            console.warn("Notification container not found, logging to console:", message);
+            return;
+        }
 
         const note = document.createElement('div');
         note.className = `notification ${type}`;
@@ -37,6 +48,8 @@ export const Notifications = {
     },
 
     setStatus(text, type = 'info') {
+        if (!this.statusEl) this.init(); // Lazy init
+
         if (this.statusEl) {
             this.statusEl.innerText = text;
             this.statusEl.style.color = type === 'danger' ? 'var(--danger-color)' :

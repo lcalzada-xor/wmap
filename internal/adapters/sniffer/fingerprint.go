@@ -4,6 +4,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"sort"
 	"strings"
 
@@ -19,6 +20,16 @@ type SignatureStore struct {
 // NewSignatureStore creates a new store.
 func NewSignatureStore(sigs []domain.DeviceSignature) *SignatureStore {
 	return &SignatureStore{Signatures: sigs}
+}
+
+// FingerprintEngine handles device identification logic.
+type FingerprintEngine struct {
+	Store *SignatureStore
+}
+
+// NewFingerprintEngine creates a new engine.
+func NewFingerprintEngine(store *SignatureStore) *FingerprintEngine {
+	return &FingerprintEngine{Store: store}
 }
 
 // MatchSignature attempts to find the best match for a device.
@@ -70,6 +81,59 @@ func (s *SignatureStore) MatchSignature(device domain.Device) *domain.SignatureM
 	}
 
 	return bestMatch
+}
+
+// AnalyzeRandomization checks for Locally Administered Address
+func (fe *FingerprintEngine) AnalyzeRandomization(mac net.HardwareAddr, device *domain.Device) {
+	if len(mac) > 0 && (mac[0]&0x02) != 0 {
+		device.IsRandomized = true
+		device.Vendor = "Randomized"
+		// Future: Use Signature to guess vendor even if randomized
+	}
+}
+
+// FingerprintDevice attempts to identify OS based on IE patterns
+func (fe *FingerprintEngine) FingerprintDevice(data []byte, device *domain.Device) {
+	// Simple heuristic: specific vendor IEs
+	// Apple Vendor OUI: 00:17:F2
+	// Microsoft Vendor OUI: 00:50:F2
+
+	hasApple := false
+	hasMSFT := false
+	offset := 0
+	limit := len(data)
+
+	for offset < limit {
+		if offset+1 >= limit {
+			break
+		}
+		id := int(data[offset])
+		length := int(data[offset+1])
+		offset += 2
+		if offset+length > limit {
+			break
+		}
+		val := data[offset : offset+length]
+
+		if id == 221 && length >= 3 {
+			if val[0] == 0x00 && val[1] == 0x17 && val[2] == 0xF2 {
+				hasApple = true
+			}
+			if val[0] == 0x00 && val[1] == 0x50 && val[2] == 0xF2 {
+				hasMSFT = true
+			}
+		}
+		offset += length
+	}
+
+	if hasApple {
+		device.OS = "iOS/macOS"
+		if device.IsRandomized {
+			device.Vendor = "Apple (Randomized)"
+		}
+	} else if hasMSFT {
+		device.OS = "Windows"
+	}
 }
 
 // generateIESignature creates a hash based on the ordered list of IE tags and their specific values.

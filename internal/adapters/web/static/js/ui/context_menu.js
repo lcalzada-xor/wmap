@@ -47,7 +47,7 @@ export class ContextMenu {
     }
 
     addAction(actionName, label, callback) {
-        console.log(`[ContextMenu] Registering action: ${actionName}`);
+
         this.customActions.set(actionName, callback);
         // We assume the HTML element already exists or we might need to dynamically create it?
         // For now, the 'deauth' item is already in HTML.

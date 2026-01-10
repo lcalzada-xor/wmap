@@ -56,12 +56,43 @@ export const State = {
     clusteringEnabled: false,
 
     // Methods
+    listeners: {},
+
+    subscribe(key, callback) {
+        if (!this.listeners[key]) {
+            this.listeners[key] = [];
+        }
+        this.listeners[key].push(callback);
+    },
+
+    notify(key, value) {
+        if (this.listeners[key]) {
+            this.listeners[key].forEach(cb => cb(value));
+        }
+        // Also notify wildcard listeners if any (optional)
+    },
+
     setAlias(mac, alias) {
         this.aliases[mac] = alias;
         localStorage.setItem('wmap_aliases', JSON.stringify(this.aliases));
+        this.notify('aliases', this.aliases);
     },
 
     getAlias(mac) {
         return this.aliases[mac] || null;
     }
 };
+
+// Make filters reactive using Proxy
+const filtersProxy = new Proxy(State.filters, {
+    set(target, property, value) {
+        target[property] = value;
+        // Notify listeners of specific property change
+        State.notify(property, value); // e.g. notify('searchQuery', 'test')
+        State.notify('filters', target); // Notify generic 'filters' change
+        return true;
+    }
+});
+
+// Replace original filters with proxy
+State.filters = filtersProxy;

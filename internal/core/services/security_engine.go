@@ -153,13 +153,13 @@ func (e *SecurityEngine) validateOUI(device domain.Device) {
 func (e *SecurityEngine) checkRetryRate(device domain.Device) {
 	if device.PacketsCount > 20 {
 		rate := float64(device.RetryCount) / float64(device.PacketsCount)
-		if rate > 0.4 {
+		if rate > 0.2 {
 			e.addAlert(domain.Alert{
 				Type:      domain.AlertAnomaly,
 				Subtype:   "HIGH_RETRY_RATE",
 				DeviceMAC: device.MAC,
 				Timestamp: time.Now(),
-				Message:   fmt.Sprintf("High Retry Rate detected: %.2f%%. Possible jamming or extreme interference.", rate*100),
+				Message:   fmt.Sprintf("High Retry Rate detected: %.2f%%. Possible jamming or interference.", rate*100),
 			})
 			device.Behavioral.AnomalyDetails["HIGH_RETRY_RATE"] = 0.3
 		}
