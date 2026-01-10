@@ -17,6 +17,9 @@ import (
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
 )
 
+// Internal variable for testing
+var channelSetter = SetInterfaceChannel
+
 // SnifferConfig holds configuration for the Sniffer.
 type SnifferConfig struct {
 	Interface string
@@ -32,6 +35,7 @@ type SnifferConfig struct {
 type ChannelLocker interface {
 	Lock(iface string, channel int) error
 	Unlock(iface string) error
+	ExecuteWithLock(ctx context.Context, iface string, channel int, action func() error) error
 }
 
 // Sniffer handles packet capture and parsing.
@@ -57,6 +61,8 @@ type Sniffer struct {
 	// Locking state
 	hopperPaused bool
 	lockMu       sync.Mutex
+	lockCount    int // Reference counting for channel locking
+	lockChannel  int // The channel currently locked
 }
 
 // New creates a new Sniffer instance.
@@ -398,25 +404,43 @@ func (s *Sniffer) Lock(iface string, channel int) error {
 	defer s.lockMu.Unlock()
 
 	if s.Config.Interface != iface {
-		// If we manage multiple sniffers/interfaces in future this might need change.
-		// For now, if the requested interface is not ours, we can try to just set channel blindly
-		// via utils, but we can't control the hopper.
-		// If it IS ours, we stop hopper.
-		return SetInterfaceChannel(iface, channel)
+		return channelSetter(iface, channel)
 	}
 
+	// Reference Counting Logic
 	if s.hopperPaused {
-		// Already locked, just switch channel
-		return SetInterfaceChannel(iface, channel)
+		// Already locked.
+		if s.lockChannel == channel {
+			// Same channel, increment ref count
+			s.lockCount++
+			log.Printf("[SNIFFER] Lock ref count incremented (count=%d) for channel %d", s.lockCount, channel)
+			return nil
+		}
+		// Different channel! Busy.
+		return fmt.Errorf("interface busy: locked on channel %d (ref count: %d)", s.lockChannel, s.lockCount)
 	}
 
+	// Not locked yet. Lock it.
 	if s.Hopper != nil {
 		log.Printf("[SNIFFER] Pausing hopper on %s to lock channel %d", iface, channel)
 		s.Hopper.Stop()
-		s.hopperPaused = true
 	}
 
-	return SetInterfaceChannel(iface, channel)
+	if err := channelSetter(iface, channel); err != nil {
+		// Failed to set channel, rollback (resume hopper if needed) could go here
+		// But usually we want to retry or just fail.
+		// If we resume hopper here, we must be careful.
+		if s.Hopper != nil {
+			go s.Hopper.Start()
+		}
+		return err
+	}
+
+	s.hopperPaused = true
+	s.lockChannel = channel
+	s.lockCount = 1
+
+	return nil
 }
 
 // Unlock resumes channel hopping if it was paused.
@@ -432,8 +456,15 @@ func (s *Sniffer) Unlock(iface string) error {
 		return nil
 	}
 
+	s.lockCount--
+	if s.lockCount > 0 {
+		log.Printf("[SNIFFER] Unlock called (remaining ref count: %d)", s.lockCount)
+		return nil
+	}
+
+	// Count reached 0, fully unlock
+	log.Printf("[SNIFFER] Unlock releasing interface %s (resuming hopper)", iface)
 	if len(s.Config.Channels) > 0 {
-		log.Printf("[SNIFFER] Resuming hopper on %s", iface)
 		dwell := time.Duration(s.Config.DwellTime) * time.Millisecond
 		if dwell == 0 {
 			dwell = 300 * time.Millisecond
@@ -443,7 +474,25 @@ func (s *Sniffer) Unlock(iface string) error {
 	}
 
 	s.hopperPaused = false
+	s.lockChannel = 0
 	return nil
+}
+
+// ExecuteWithLock runs an action while holding a channel lock
+func (s *Sniffer) ExecuteWithLock(ctx context.Context, iface string, channel int, action func() error) error {
+	if err := s.Lock(iface, channel); err != nil {
+		return err
+	}
+	defer s.Unlock(iface)
+
+	// We can check context before running action
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	return action()
 }
 
 // PauseHopper pauses the channel hopper for a duration.

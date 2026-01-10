@@ -152,6 +152,14 @@ func (r *DeviceRegistry) mergeDeviceData(existing *domain.Device, newDevice doma
 		existing.Vendor = newDevice.Vendor
 	}
 
+	// Merge Type - APs take precedence over stations
+	// A device might first be seen as a station (probe) but later broadcast beacons (AP)
+	if newDevice.Type != "" {
+		if newDevice.Type == "ap" || existing.Type == "" {
+			existing.Type = newDevice.Type
+		}
+	}
+
 	if newDevice.Signature != "" {
 		existing.Signature = newDevice.Signature
 		existing.IETags = newDevice.IETags
@@ -177,6 +185,22 @@ func (r *DeviceRegistry) mergeDeviceData(existing *domain.Device, newDevice doma
 		existing.HasHandshake = true
 	}
 
+	// Merge Channel - keep current channel info
+	if newDevice.Channel > 0 {
+		existing.Channel = newDevice.Channel
+	}
+
+	// Protocol capabilities - once detected, always true (like HasHandshake)
+	if newDevice.Has11k {
+		existing.Has11k = true
+	}
+	if newDevice.Has11v {
+		existing.Has11v = true
+	}
+	if newDevice.Has11r {
+		existing.Has11r = true
+	}
+
 	existing.DataTransmitted += newDevice.DataTransmitted
 	existing.DataReceived += newDevice.DataReceived
 	existing.PacketsCount += newDevice.PacketsCount
@@ -197,6 +221,16 @@ func (r *DeviceRegistry) mergeDeviceData(existing *domain.Device, newDevice doma
 	}
 	if newDevice.ConnectedSSID != "" {
 		existing.ConnectedSSID = newDevice.ConnectedSSID
+	}
+
+	// Connection State Fields (Critical for Graph)
+	// Always update these fields as they represent the most current connection state
+	// When ConnectionState is set, we also update Target and Error (even if empty)
+	// to allow clearing these fields on disconnect
+	if newDevice.ConnectionState != "" {
+		existing.ConnectionState = newDevice.ConnectionState
+		existing.ConnectionTarget = newDevice.ConnectionTarget
+		existing.ConnectionError = newDevice.ConnectionError
 	}
 }
 

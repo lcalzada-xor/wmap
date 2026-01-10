@@ -334,6 +334,16 @@ func (m *SnifferManager) Unlock(iface string) error {
 	return nil
 }
 
+// ExecuteWithLock delegates to the appropriate sniffer.
+func (m *SnifferManager) ExecuteWithLock(ctx context.Context, iface string, channel int, action func() error) error {
+	for _, s := range m.Sniffers {
+		if s.Config.Interface == iface {
+			return s.ExecuteWithLock(ctx, iface, channel, action)
+		}
+	}
+	return fmt.Errorf("interface %s not found in manager", iface)
+}
+
 // GetInjector returns the injector for a specific interface if managed.
 func (m *SnifferManager) GetInjector(iface string) *Injector {
 	for _, s := range m.Sniffers {

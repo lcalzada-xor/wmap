@@ -7,6 +7,12 @@ import (
 )
 
 // Sniffer defines the interface for packet capture adapters.
+type ChannelLocker interface {
+	Lock(iface string, channel int) error
+	Unlock(iface string) error
+	ExecuteWithLock(ctx context.Context, iface string, channel int, action func() error) error
+}
+
 type Sniffer interface {
 	// Run starts the capture process. It should be blocking or respect context.
 	// For this phase, we keep it simple conform to existing Run() error signature.
@@ -50,13 +56,13 @@ type NetworkService interface {
 
 	// Deauth Attack Methods
 	StartDeauthAttack(config domain.DeauthAttackConfig) (string, error)
-	StopDeauthAttack(id string) error
+	StopDeauthAttack(id string, force bool) error
 	GetDeauthStatus(id string) (domain.DeauthAttackStatus, error)
 	ListDeauthAttacks() []domain.DeauthAttackStatus
 
 	// WPS Attack Methods
 	StartWPSAttack(config domain.WPSAttackConfig) (string, error)
-	StopWPSAttack(id string) error
+	StopWPSAttack(id string, force bool) error
 	GetWPSStatus(id string) (domain.WPSAttackStatus, error)
 
 	// Intelligence

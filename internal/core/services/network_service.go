@@ -263,6 +263,33 @@ func (s *NetworkService) StartDeauthAttack(config domain.DeauthAttackConfig) (st
 		}
 	}
 
+	// Auto-detect interface if not provided (fallback)
+	if config.Interface == "" {
+		if s.sniffer != nil {
+			interfaces := s.sniffer.GetInterfaces()
+			if len(interfaces) > 0 {
+				// Strategy: Find interface that already has this channel, or fallback to first
+				found := false
+				for _, iface := range interfaces {
+					chans := s.sniffer.GetInterfaceChannels(iface)
+					for _, ch := range chans {
+						if ch == config.Channel {
+							config.Interface = iface
+							found = true
+							break
+						}
+					}
+					if found {
+						break
+					}
+				}
+				if !found {
+					config.Interface = interfaces[0]
+				}
+			}
+		}
+	}
+
 	id, err := s.deauthEngine.StartAttack(config)
 	if err == nil && s.auditService != nil {
 		s.auditService.Log(context.Background(), domain.ActionDeauthStart, config.TargetMAC, fmt.Sprintf("Type: %s, Ch: %d", config.AttackType, config.Channel))
@@ -271,13 +298,17 @@ func (s *NetworkService) StartDeauthAttack(config domain.DeauthAttackConfig) (st
 }
 
 // StopDeauthAttack stops a running deauth attack
-func (s *NetworkService) StopDeauthAttack(id string) error {
+func (s *NetworkService) StopDeauthAttack(id string, force bool) error {
 	if s.deauthEngine == nil {
 		return fmt.Errorf("deauth engine not initialized")
 	}
-	err := s.deauthEngine.StopAttack(id)
+	err := s.deauthEngine.StopAttack(id, force)
 	if err == nil && s.auditService != nil {
-		s.auditService.Log(context.Background(), domain.ActionDeauthStop, id, "Attack stopped by user")
+		msg := "Attack stopped by user"
+		if force {
+			msg += " (forced)"
+		}
+		s.auditService.Log(context.Background(), domain.ActionDeauthStop, id, msg)
 	}
 	return err
 }
@@ -311,13 +342,41 @@ func (s *NetworkService) StartWPSAttack(config domain.WPSAttackConfig) (string, 
 		return "", fmt.Errorf("target BSSID is required")
 	}
 
+	// Auto-detect channel if not specified
+	if config.Channel == 0 {
+		device, exists := s.registry.GetDevice(config.TargetBSSID)
+		if exists && device.Channel > 0 {
+			config.Channel = device.Channel
+		} else {
+			return "", fmt.Errorf("channel is 0 and could not be auto-detected for target %s", config.TargetBSSID)
+		}
+	}
+
 	// Auto-detect interface if not provided (fallback)
 	if config.Interface == "" {
-		// Use the first available interface from sniffer
 		if s.sniffer != nil {
 			interfaces := s.sniffer.GetInterfaces()
 			if len(interfaces) > 0 {
-				config.Interface = interfaces[0]
+				// Strategy: Find interface that already has this channel, or fallback to first
+				found := false
+				if config.Channel > 0 {
+					for _, iface := range interfaces {
+						chans := s.sniffer.GetInterfaceChannels(iface)
+						for _, ch := range chans {
+							if ch == config.Channel {
+								config.Interface = iface
+								found = true
+								break
+							}
+						}
+						if found {
+							break
+						}
+					}
+				}
+				if !found {
+					config.Interface = interfaces[0]
+				}
 			} else {
 				return "", fmt.Errorf("no interfaces available for attack")
 			}
@@ -330,11 +389,11 @@ func (s *NetworkService) StartWPSAttack(config domain.WPSAttackConfig) (string, 
 }
 
 // StopWPSAttack stops a running WPS attack
-func (s *NetworkService) StopWPSAttack(id string) error {
+func (s *NetworkService) StopWPSAttack(id string, force bool) error {
 	if s.wpsEngine == nil {
 		return fmt.Errorf("WPS engine not initialized")
 	}
-	return s.wpsEngine.StopAttack(id)
+	return s.wpsEngine.StopAttack(id, force)
 }
 
 // GetWPSStatus returns the status of a specific attack

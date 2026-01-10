@@ -29,6 +29,12 @@ export class DataManager {
      * @param {Object} data - { nodes: [], edges: [] }
      */
     update(data) {
+        // Debug logging to trace data flow
+        console.log('[DataManager] Received update:', {
+            nodes: data.nodes?.length || 0,
+            edges: data.edges?.length || 0
+        });
+
         // 1. Process Nodes
         const paramNodes = data.nodes || [];
         const updates = [];
@@ -52,12 +58,35 @@ export class DataManager {
         }
 
         // 2. Process Edges
-        // Edges are usually complete snapshots or incremental?
-        // Let's assume snapshot for now but update safely.
+        // Graph data from backend is a complete snapshot, not incremental
+        // We need to REPLACE all edges, not merge them
         const paramEdges = data.edges || [];
+
+        // Debug: Log sample edges and breakdown by type
+        if (paramEdges.length > 0) {
+            console.log('[DataManager] Sample edges (first 5):', paramEdges.slice(0, 5));
+            const connectionEdges = paramEdges.filter(e => e.type === 'connection');
+            const probeEdges = paramEdges.filter(e => e.type === 'probe');
+            console.log('[DataManager] Edge breakdown:', {
+                total: paramEdges.length,
+                connection: connectionEdges.length,
+                probe: probeEdges.length
+            });
+            if (connectionEdges.length > 0) {
+                console.log('[DataManager] Connection edges:', connectionEdges);
+            }
+        }
+
         const edgeUpdates = paramEdges.map(e => GraphStyler.styleEdge(e));
+
+        console.log('[DataManager] Styled edges (first 3):', edgeUpdates.slice(0, 3));
+
+        // Full sync: clear old edges and add new ones
+        this.edges.clear();
         if (edgeUpdates.length > 0) {
-            this.edges.update(edgeUpdates);
+            this.edges.add(edgeUpdates);
+            console.log('[DataManager] Added', edgeUpdates.length, 'edges to graph');
+            console.log('[DataManager] Current edge count in dataset:', this.edges.length);
         }
 
         return {

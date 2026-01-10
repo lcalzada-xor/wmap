@@ -76,13 +76,21 @@ export const GraphFilter = {
 
         // New Boolean Filters
         if (State.filters.hasHandshake && !node.has_handshake) return false;
-        if (State.filters.hiddenSSID && node.ssid !== "") return false; // Assuming hidden SSID is empty string
-        // Check for WPS - checking capabilities or specific field if available
+
+        // Hidden SSID: SSID is empty, null, or undefined
+        if (State.filters.hiddenSSID) {
+            const ssid = node.ssid || '';
+            if (ssid.trim() !== '') return false; // Only show nodes with empty SSID
+        }
+
+        // WPS Active: Check wps_info or capabilities
         if (State.filters.wpsActive) {
-            const hasWPS = (node.wps_info && node.wps_info !== "") ||
-                (node.capabilities && node.capabilities.includes("WPS"));
+            const hasWPS = (node.wps_info && node.wps_info !== '') ||
+                (node.capabilities && Array.isArray(node.capabilities) && node.capabilities.includes('WPS')) ||
+                (typeof node.capabilities === 'string' && node.capabilities.includes('WPS'));
             if (!hasWPS) return false;
         }
+
         if (State.filters.randomizedMac && !node.is_randomized) return false;
 
         return true;
@@ -131,13 +139,15 @@ export const GraphFilter = {
 
     /**
      * Security type filter
+     * Only filters nodes that HAVE security info
      */
     filterBySecurity(node) {
         if (!State.filters.security || State.filters.security.length === 0) {
             return true;
         }
 
-        if (!node.security) return false;
+        // If node doesn't have security info, show it (don't filter unknown)
+        if (!node.security) return true;
 
         return State.filters.security.includes(node.security);
     },
@@ -158,13 +168,15 @@ export const GraphFilter = {
 
     /**
      * Frequency filter (2.4GHz / 5GHz)
+     * Only filters nodes that HAVE frequency info
      */
     filterByFrequency(node) {
         if (!State.filters.frequency || State.filters.frequency.length === 0) {
             return true;
         }
 
-        if (!node.frequency && !node.freq) return false;
+        // If node doesn't have frequency info, show it (don't filter unknown)
+        if (!node.frequency && !node.freq) return true;
 
         const freq = node.frequency || node.freq;
         const freqGHz = freq / 1000; // Convert MHz to GHz
@@ -182,26 +194,30 @@ export const GraphFilter = {
 
     /**
      * Channel filter
+     * Only filters nodes that HAVE channel info
      */
     filterByChannel(node) {
         if (!State.filters.channels || State.filters.channels.length === 0) {
             return true;
         }
 
-        if (!node.channel) return false;
+        // If node doesn't have channel info, show it (don't filter unknown)
+        if (!node.channel) return true;
 
         return State.filters.channels.includes(node.channel);
     },
 
     /**
      * Vendor filter
+     * Only filters nodes that HAVE vendor info
      */
     filterByVendor(node) {
         if (!State.filters.vendors || State.filters.vendors.length === 0) {
             return true;
         }
 
-        if (!node.vendor) return false;
+        // If node doesn't have vendor info, show it (don't filter unknown)
+        if (!node.vendor) return true;
 
         return State.filters.vendors.includes(node.vendor);
     },

@@ -149,3 +149,9 @@ func (s *MockSniffer) Unlock(iface string) error {
 	log.Printf("[MOCK] Unlocking %s", iface)
 	return nil
 }
+
+// ExecuteWithLock is a no-op wrapper for mock.
+func (s *MockSniffer) ExecuteWithLock(ctx context.Context, iface string, channel int, action func() error) error {
+	log.Printf("[MOCK] ExecuteWithLock on %s:%d", iface, channel)
+	return action()
+}

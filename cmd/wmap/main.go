@@ -240,6 +240,9 @@ func main() {
 	// Initialize WPS Engine
 	// We create a new engine instance. It doesn't need external deps other than reaver in path
 	wpsEngine := attack.NewWPSEngine(registry)
+	if locker != nil {
+		wpsEngine.SetChannelLocker(locker)
+	}
 	networkService.SetWPSEngine(wpsEngine)
 
 	// Start Cleanup Loop: Remove devices unseen for 10m, check every 1m

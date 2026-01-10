@@ -24,6 +24,7 @@ import { ConsoleManager } from './ui/console.js';
 import { ContextMenu } from './ui/context_menu.js';
 import { GraphConfig } from './ui/graph_config.js';
 import { StartupVerifier } from './core/startup.js';
+import { VulnerabilityPanel } from './ui/vulnerability_panel.js';
 
 // Vis.js Global
 const vis = window.vis;
@@ -34,6 +35,7 @@ class App {
         this.console = new ConsoleManager();
         this.dataManager = new DataManager();
         this.uiManager = new UIManager(API, this.console, this.dataManager);
+        this.vulnPanel = new VulnerabilityPanel();
 
         // 2. Core Components
         this.container = document.getElementById('mynetwork');
@@ -114,6 +116,12 @@ class App {
 
         // Initialize FilterUI listeners (lazy load handling)
         this.initFilterEvents();
+
+        // Vuln Panel Toggle
+        const vulnBtn = document.getElementById('btn-show-vulns');
+        if (vulnBtn) {
+            vulnBtn.onclick = () => this.vulnPanel.toggle();
+        }
     }
 
     async initFilterEvents() {
@@ -193,6 +201,9 @@ class App {
         // Update Stats
         const stats = this.dataManager.getStats();
         HUD.updateStats(stats.apCount, stats.staCount);
+
+        // Update Vulnerability Panel
+        this.vulnPanel.render(this.dataManager.nodes.get());
 
         // Initial Load Hook
         if (!this.initialDataLoaded && payload.nodes.length > 0) {

@@ -52,6 +52,9 @@ export const DeauthTemplates = {
                         <button class="btn-stop btn-stop-attack" data-attack-id="${attack.id}">
                             <i class="fas fa-stop"></i> Stop
                         </button>
+                        <button class="btn-stop btn-force-stop-attack" data-attack-id="${attack.id}" style="background: var(--danger-color); margin-left: 5px;">
+                            <i class="fas fa-skull"></i> Force
+                        </button>
                     </div>
                 ` : ''}
             </div>

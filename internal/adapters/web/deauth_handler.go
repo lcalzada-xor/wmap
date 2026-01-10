@@ -44,6 +44,11 @@ func (s *Server) handleDeauthStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.PacketCount < 0 || req.PacketIntervalMs < 0 {
+		http.Error(w, "Packet count and interval must be non-negative", http.StatusBadRequest)
+		return
+	}
+
 	// Convert attack type
 	var attackType domain.DeauthType
 	switch req.AttackType {
@@ -101,7 +106,9 @@ func (s *Server) handleDeauthStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.Service.StopDeauthAttack(attackID); err != nil {
+	force := r.URL.Query().Get("force") == "true"
+
+	if err := s.Service.StopDeauthAttack(attackID, force); err != nil {
 		log.Printf("[DEAUTH API] Failed to stop attack %s: %v", attackID, err)
 		http.Error(w, "Failed to stop attack: "+err.Error(), http.StatusInternalServerError)
 		return

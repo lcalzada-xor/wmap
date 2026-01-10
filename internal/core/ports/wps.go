@@ -6,10 +6,8 @@ import "github.com/lcalzada-xor/wmap/internal/core/domain"
 type WPSAttackService interface {
 	// StartAttack initiates a new Pixie Dust attack
 	StartAttack(config domain.WPSAttackConfig) (string, error)
-
-	// StopAttack forces a stop of the attack with the given ID
-	StopAttack(id string) error
-
-	// GetStatus returns the current status of the attack
+	// StopAttack stops an active attack. Force stops it immediately.
+	StopAttack(id string, force bool) error
+	// GetStatus returns the status of an attack
 	GetStatus(id string) (domain.WPSAttackStatus, error)
 }

@@ -48,6 +48,12 @@
             <i class="fas fa-user-circle"></i> <span id="username-display" style="font-weight: 600;">Loading...</span>
         </span>
 
+        <!-- Vulnerability Panel Button -->
+        <button id="btn-show-vulns" class="glass" title="Vulnerabilities"
+            style="width: 40px; height: 40px; padding: 0; border-radius: 50%; border: 1px solid rgba(255, 149, 0, 0.4); color: #ff9500; cursor: pointer; backdrop-filter: blur(10px); background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center;">
+            <i class="fas fa-shield-virus"></i>
+        </button>
+
         <!-- Audit Log Button -->
         <button id="btn-show-audit" class="glass" title="Audit Logs"
             style="width: 40px; height: 40px; padding: 0; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.2); color: #fff; cursor: pointer; backdrop-filter: blur(10px); background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center;">
@@ -130,6 +136,25 @@
                 <div class="checkbox-group">
                     <label><input type="checkbox" class="filter-frequency" value="2.4"> 2.4 GHz</label>
                     <label><input type="checkbox" class="filter-frequency" value="5"> 5 GHz</label>
+                </div>
+            </div>
+
+            <!-- Channel Filter -->
+            <div class="filter-section">
+                <h4><i class="fas fa-hashtag"></i> Channels</h4>
+                <select id="filter-channels" multiple class="multi-select"
+                    style="width: 100%; min-height: 80px; padding: 8px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: #fff;">
+                    <!-- Populated dynamically from detected channels -->
+                </select>
+                <div style="display: flex; gap: 8px; margin-top: 8px;">
+                    <button id="btn-select-common-24" class="action-btn-secondary"
+                        style="flex: 1; padding: 6px; font-size: 0.8em;">
+                        <i class="fas fa-check"></i> 1,6,11
+                    </button>
+                    <button id="btn-clear-channels" class="action-btn-secondary"
+                        style="flex: 1; padding: 6px; font-size: 0.8em;">
+                        <i class="fas fa-times"></i> Clear
+                    </button>
                 </div>
             </div>
 

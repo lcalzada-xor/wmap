@@ -347,8 +347,8 @@ func (m *MockDeauthService) StartAttack(config domain.DeauthAttackConfig) (strin
 	return args.String(0), args.Error(1)
 }
 
-func (m *MockDeauthService) StopAttack(id string) error {
-	args := m.Called(id)
+func (m *MockDeauthService) StopAttack(id string, force bool) error {
+	args := m.Called(id, force)
 	return args.Error(0)
 }
 

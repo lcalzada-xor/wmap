@@ -364,6 +364,7 @@ export const FilterUI = {
 
         Object.keys(presets).forEach(id => {
             const preset = presets[id];
+            const btn = document.createElement('button');
             btn.className = 'preset-btn';
             btn.dataset.preset = id;
             btn.innerHTML = FilterTemplates.presetButtonContent(preset);
@@ -418,6 +419,22 @@ export const FilterUI = {
         const rssiMax = document.getElementById('rssi-max');
         if (rssiMin) rssiMin.value = State.filters.signalRange.min;
         if (rssiMax) rssiMax.value = State.filters.signalRange.max;
+
+        // Update channel multi-select
+        const channelSelect = document.getElementById('filter-channels');
+        if (channelSelect) {
+            Array.from(channelSelect.options).forEach(opt => {
+                opt.selected = State.filters.channels.includes(parseInt(opt.value));
+            });
+        }
+
+        // Update vendor multi-select
+        const vendorSelect = document.getElementById('filter-vendor');
+        if (vendorSelect) {
+            Array.from(vendorSelect.options).forEach(opt => {
+                opt.selected = State.filters.vendors.includes(opt.value);
+            });
+        }
     },
 
     /**

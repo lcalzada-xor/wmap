@@ -328,11 +328,11 @@ export class DeauthController {
         }
     }
 
-    async stopAttack(attackId) {
+    async stopAttack(attackId, force = false) {
         try {
-            await this.apiClient.stopDeauthAttack(attackId);
+            await this.apiClient.stopDeauthAttack(attackId, force);
 
-            this.showNotification('Attack stopped', 'success');
+            this.showNotification(`Attack attached (Force: ${force}) stopped`, 'success');
             this.activeAttacks.delete(attackId);
             this.updateAttackList();
         } catch (error) {
@@ -361,8 +361,18 @@ export class DeauthController {
             // Add event listeners to stop buttons
             this.attackList.querySelectorAll('.btn-stop-attack').forEach(btn => {
                 btn.addEventListener('click', (e) => {
-                    const attackId = e.target.dataset.attackId;
+                    const attackId = e.target.dataset.attackId || e.target.closest('.btn-stop-attack').dataset.attackId;
                     this.stopAttack(attackId);
+                });
+            });
+
+            // Add event listeners to force stop buttons
+            this.attackList.querySelectorAll('.btn-force-stop-attack').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const attackId = e.target.dataset.attackId || e.target.closest('.btn-force-stop-attack').dataset.attackId;
+                    if (confirm("Are you sure you want to FORCE stop this attack? This might leave the interface in an unstable state.")) {
+                        this.stopAttack(attackId, true);
+                    }
                 });
             });
         } catch (error) {

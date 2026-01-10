@@ -98,6 +98,10 @@ func (e *DeauthEngine) StartAttack(config domain.DeauthAttackConfig) (string, er
 	attackID := uuid.New().String()
 
 	// 3. Handle Interface Selection & Injector Creation (No Lock, possibly slow I/O)
+	if config.Interface == "" && e.injector != nil {
+		config.Interface = e.injector.Interface
+	}
+
 	var attackInjector *Injector = e.injector // Default to shared injector
 	var dedicatedInjector *Injector = nil
 
@@ -116,14 +120,6 @@ func (e *DeauthEngine) StartAttack(config domain.DeauthAttackConfig) (string, er
 					e.log(fmt.Sprintf("Set channel %d on %s", config.Channel, config.Interface), "info")
 				}
 
-				// LOCK CHANNEL: Prevent hopper from changing channel during attack
-				if e.locker != nil {
-					if err := e.locker.Lock(config.Interface, config.Channel); err != nil {
-						e.log(fmt.Sprintf("Warning: Failed to lock channel on %s: %v", config.Interface, err), "warning")
-					} else {
-						e.log(fmt.Sprintf("Channel %d locked on %s for attack", config.Channel, config.Interface), "info")
-					}
-				}
 			}
 
 			// Create a new injector for this specific interface
@@ -170,132 +166,124 @@ func (e *DeauthEngine) StartAttack(config domain.DeauthAttackConfig) (string, er
 
 // runAttack executes the attack logic
 func (e *DeauthEngine) runAttack(ctx context.Context, controller *AttackController, injector *Injector) {
-	defer func() {
-		// Ensure channel is unlocked when attack finishes (Burst or Stopped)
-		if e.locker != nil && controller.Config.Interface != "" {
-			// We can safely call Unlock multiple times (idempotent)
-			e.locker.Unlock(controller.Config.Interface)
-		}
+	// Wrapper implementation using ExecuteWithLock if locker exists
+	action := func() error {
+		defer func() {
+			// Close dedicated injector to avoid leakage
+			// We lock to prevent race with StopAttack
+			controller.mu.Lock()
+			if controller.injector != nil {
+				controller.injector.Close()
+				// We don't set to nil here to avoid race, but Close() is effectively final
+			}
+			controller.mu.Unlock()
 
-		// Close dedicated injector to avoid leakage
-		// We lock to prevent race with StopAttack
+			if r := recover(); r != nil {
+				log.Printf("[DEAUTH] Attack %s panicked: %v", controller.ID, r)
+				controller.mu.Lock()
+				controller.Status.Status = domain.AttackFailed
+				controller.Status.ErrorMessage = fmt.Sprintf("panic: %v", r)
+				now := time.Now()
+				controller.Status.EndTime = &now
+				controller.mu.Unlock()
+				e.log(fmt.Sprintf("Attack %s CRASHED: %v", controller.ID, r), "danger")
+			}
+		}()
+
+		// Update status to running
 		controller.mu.Lock()
-		if controller.injector != nil {
-			controller.injector.Close()
-			// We don't set to nil here to avoid race, but Close() is effectively final
-		}
+		controller.Status.Status = domain.AttackRunning
 		controller.mu.Unlock()
 
-		if r := recover(); r != nil {
-			log.Printf("[DEAUTH] Attack %s panicked: %v", controller.ID, r)
-			controller.mu.Lock()
-			controller.Status.Status = domain.AttackFailed
-			controller.Status.ErrorMessage = fmt.Sprintf("panic: %v", r)
-			now := time.Now()
-			controller.Status.EndTime = &now
-			controller.mu.Unlock()
-			e.log(fmt.Sprintf("Attack %s CRASHED: %v", controller.ID, r), "danger")
+		config := controller.Config
+
+		// Effectiveness Monitoring
+		monitorEvents := make(chan string, 10)
+		monitorCtx, monitorCancel := context.WithCancel(ctx)
+		defer monitorCancel()
+
+		// Check if injector is available
+		if injector == nil {
+			return fmt.Errorf("no injector available")
 		}
-	}()
 
-	// Update status to running
-	controller.mu.Lock()
-	controller.Status.Status = domain.AttackRunning
-	controller.mu.Unlock()
+		go injector.StartMonitor(monitorCtx, config.TargetMAC, monitorEvents)
 
-	config := controller.Config
-
-	// Effectiveness Monitoring
-	monitorEvents := make(chan string, 10)
-	monitorCtx, monitorCancel := context.WithCancel(ctx)
-	defer monitorCancel()
-
-	// Check if injector is available
-	if injector == nil {
-		e.log(fmt.Sprintf("Attack %s failed: No injector available", controller.ID), "error")
-		controller.mu.Lock()
-		controller.Status.Status = domain.AttackFailed
-		controller.Status.ErrorMessage = "No injector available (check interface configuration)"
-		controller.mu.Unlock()
-		return
-	}
-
-	go injector.StartMonitor(monitorCtx, config.TargetMAC, monitorEvents)
-
-	// Determine if continuous or burst
-	if config.PacketCount == 0 {
-		// Continuous attack
-		if err := injector.StartContinuousDeauth(ctx, config, controller.StatusCh); err != nil {
-			e.log(fmt.Sprintf("Continuous attack %s failed: %v", controller.ID, err), "danger")
-			controller.mu.Lock()
-			controller.Status.Status = domain.AttackFailed
-			controller.Status.ErrorMessage = err.Error()
-			controller.mu.Unlock()
-		}
-	} else {
-		// Burst attack
-		if err := injector.SendDeauthBurst(config); err != nil {
-			e.log(fmt.Sprintf("Burst attack %s failed: %v", controller.ID, err), "danger")
-			controller.mu.Lock()
-			controller.Status.Status = domain.AttackFailed
-			controller.Status.ErrorMessage = err.Error()
-			controller.mu.Unlock()
-		} else {
-			controller.mu.Lock()
-			controller.Status.PacketsSent = config.PacketCount
-			controller.Status.Status = domain.AttackStopped
-			controller.mu.Unlock()
-			e.log(fmt.Sprintf("Attack %s: Burst finished (%d packets)", controller.ID, config.PacketCount), "success")
-		}
-	}
-
-	// Wait for monitoring events for a short period if burst finished quickly?
-	// Or run monitoring in parallel with attack loop...
-	// Actually, we need to restructure runAttack to be selecting on both attack progression and monitoring.
-	// For continuous, StartContinuousDeauth blocks. We need to run it in goroutine or refactor it.
-	// For burst, it's blocking but short.
-
-	// Refactoring:
-	// We'll wrap the attack execution and monitoring in a select loop for handling events.
-	// But StartContinuousDeauth already has a loop.
-	// Let's just handle events asynchronously in a separate goroutine that updates status/cancels attack.
-
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case event := <-monitorEvents:
-				if event == "handshake" {
-					e.log(fmt.Sprintf("Handshake captured for attack %s! Stopping.", controller.ID), "success")
-					controller.mu.Lock()
-					controller.Status.HandshakeCaptured = true
-					controller.mu.Unlock()
-					// Stop the attack
-					controller.CancelFn()
+		// Start Monitoring Loop
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
 					return
-				}
-				if event == "probe" {
-					e.log(fmt.Sprintf("Target %s sent Probe Request - CONFIRMED DISCONNECTION", config.TargetMAC), "success")
+				case event := <-monitorEvents:
+					if event == "handshake" {
+						e.log(fmt.Sprintf("Handshake captured for attack %s! Stopping.", controller.ID), "success")
+						controller.mu.Lock()
+						controller.Status.HandshakeCaptured = true
+						controller.mu.Unlock()
+						// Stop the attack
+						controller.CancelFn()
+						return
+					}
+					if event == "probe" {
+						e.log(fmt.Sprintf("Target %s sent Probe Request - CONFIRMED DISCONNECTION", config.TargetMAC), "success")
+					}
 				}
 			}
+		}()
+
+		// Determine if continuous or burst
+		if config.PacketCount == 0 {
+			// Continuous attack
+			if err := injector.StartContinuousDeauth(ctx, config, controller.StatusCh); err != nil {
+				return err
+			}
+		} else {
+			// Burst attack
+			if err := injector.SendDeauthBurst(config); err != nil {
+				return err
+			} else {
+				controller.mu.Lock()
+				controller.Status.PacketsSent = config.PacketCount
+				controller.Status.Status = domain.AttackStopped
+				controller.mu.Unlock()
+				e.log(fmt.Sprintf("Attack %s: Burst finished (%d packets)", controller.ID, config.PacketCount), "success")
+			}
 		}
-	}()
 
-	// Mark as completed
-	controller.mu.Lock()
-	if controller.Status.Status == domain.AttackRunning {
-		controller.Status.Status = domain.AttackStopped
+		return nil
 	}
-	now := time.Now()
-	controller.Status.EndTime = &now
-	controller.mu.Unlock()
 
-	e.log(fmt.Sprintf("Attack %s completed", controller.ID), "info")
+	// Execution Logic
+	var err error
+	if e.locker != nil && controller.Config.Channel > 0 {
+		e.log(fmt.Sprintf("Channel %d locked on %s for attack", controller.Config.Channel, controller.Config.Interface), "info")
+		err = e.locker.ExecuteWithLock(ctx, controller.Config.Interface, controller.Config.Channel, action)
+	} else {
+		err = action()
+	}
+
+	if err != nil {
+		e.log(fmt.Sprintf("Attack %s failed: %v", controller.ID, err), "error")
+		controller.mu.Lock()
+		controller.Status.Status = domain.AttackFailed
+		controller.Status.ErrorMessage = err.Error()
+		controller.mu.Unlock()
+	} else {
+		// Mark as completed if not already failed/stopped
+		controller.mu.Lock()
+		if controller.Status.Status == domain.AttackRunning {
+			controller.Status.Status = domain.AttackStopped
+		}
+		now := time.Now()
+		controller.Status.EndTime = &now
+		controller.mu.Unlock()
+		e.log(fmt.Sprintf("Attack %s completed", controller.ID), "info")
+	}
 }
 
 // StopAttack stops a running attack
-func (e *DeauthEngine) StopAttack(id string) error {
+func (e *DeauthEngine) StopAttack(id string, force bool) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -307,7 +295,7 @@ func (e *DeauthEngine) StopAttack(id string) error {
 	controller.mu.Lock()
 	defer controller.mu.Unlock()
 
-	if controller.Status.Status != domain.AttackRunning && controller.Status.Status != domain.AttackPaused {
+	if !force && controller.Status.Status != domain.AttackRunning && controller.Status.Status != domain.AttackPaused {
 		return fmt.Errorf("attack %s is not active (status: %s)", id, controller.Status.Status)
 	}
 
@@ -319,16 +307,14 @@ func (e *DeauthEngine) StopAttack(id string) error {
 		controller.injector.Close()
 	}
 
-	// Unlock Channel
-	if e.locker != nil && controller.Config.Interface != "" {
-		e.locker.Unlock(controller.Config.Interface)
-	}
-
 	controller.Status.Status = domain.AttackStopped
 	now := time.Now()
 	controller.Status.EndTime = &now
+	if force {
+		controller.Status.ErrorMessage = "Force stopped by user"
+	}
 
-	e.log(fmt.Sprintf("Stopped attack %s", id), "warning")
+	e.log(fmt.Sprintf("Stopped attack %s (force=%v)", id, force), "warning")
 
 	return nil
 }
@@ -443,7 +429,7 @@ func (e *DeauthEngine) StopAll() {
 	defer e.mu.Unlock()
 
 	for id := range e.activeAttacks {
-		if err := e.StopAttack(id); err != nil {
+		if err := e.StopAttack(id, true); err != nil {
 			e.log(fmt.Sprintf("Failed to stop attack %s: %v", id, err), "error")
 		}
 	}

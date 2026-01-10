@@ -30,8 +30,9 @@ func (s *Server) handleStartWPSAttack(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleStopWPSAttack(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
+	force := r.URL.Query().Get("force") == "true"
 
-	if err := s.Service.StopWPSAttack(id); err != nil {
+	if err := s.Service.StopWPSAttack(id, force); err != nil {
 		http.Error(w, "Failed to stop attack: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

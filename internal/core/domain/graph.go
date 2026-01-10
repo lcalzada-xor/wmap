@@ -42,8 +42,9 @@ type GraphNode struct {
 	AnomalyScore   float64 `json:"anomalyScore,omitempty"`
 	ActiveHours    []int   `json:"activeHours,omitempty"`
 
-	Title   string `json:"title,omitempty"` // Tooltip/Popup content
-	IsStale bool   `json:"is_stale,omitempty"`
+	Title           string             `json:"title,omitempty"` // Tooltip/Popup content
+	IsStale         bool               `json:"is_stale,omitempty"`
+	Vulnerabilities []VulnerabilityTag `json:"vulnerabilities,omitempty"`
 }
 
 // GraphEdge represents a connection between two nodes.

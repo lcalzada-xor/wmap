@@ -69,6 +69,11 @@ func TestServer_HandleDeauthStart(t *testing.T) {
 						cfg.AttackType == domain.DeauthBroadcast &&
 						cfg.Interface == "wlan1"
 				})).Return("job-123", nil)
+				// The instruction implies adding or modifying StopDeauthAttack/StopWPSAttack mocks.
+				// As per the provided "Code Edit" snippet, it seems to be an attempt to add a StopDeauthAttack mock.
+				// The snippet was malformed, so I'm interpreting it as adding a new mock call.
+				// Assuming "test-id" is a placeholder for an attack ID and 'false' for force.
+				mockService.On("StopDeauthAttack", "test-id", false).Return(nil)
 			},
 			expectedStatus: http.StatusOK,
 			expectedID:     "job-123",

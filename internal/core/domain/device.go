@@ -52,6 +52,41 @@ type Device struct {
 	ConnectionState  string `json:"connection_state,omitempty"`  // "disconnected", "associating", "handshake", "connected"
 	ConnectionTarget string `json:"connection_target,omitempty"` // BSSID of the AP
 	ConnectionError  string `json:"connection_error,omitempty"`  // e.g. "auth_failed"
+	// Vulnerability Detection (Passive)
+	Vulnerabilities []VulnerabilityTag `json:"vulnerabilities,omitempty"`
+	RSNInfo         *RSNInfo           `json:"rsn_info,omitempty"`
+	WPSDetails      *WPSDetails        `json:"wps_details,omitempty"`
+}
+
+// RSNInfo contains parsed RSN IE details
+type RSNInfo struct {
+	Version         uint16          `json:"version"`
+	GroupCipher     string          `json:"group_cipher"`
+	PairwiseCiphers []string        `json:"pairwise_ciphers"`
+	AKMSuites       []string        `json:"akm_suites"`
+	Capabilities    RSNCapabilities `json:"capabilities"`
+}
+
+// RSNCapabilities represents RSN capability bits
+type RSNCapabilities struct {
+	PreAuth          bool  `json:"pre_auth"`
+	NoPairwise       bool  `json:"no_pairwise"`
+	PTKSAReplayCount uint8 `json:"ptksa_replay_count"`
+	GTKSAReplayCount uint8 `json:"gtksa_replay_count"`
+	MFPRequired      bool  `json:"mfp_required"`
+	MFPCapable       bool  `json:"mfp_capable"`
+	PeerKeyEnabled   bool  `json:"peer_key_enabled"`
+}
+
+// WPSDetails contains detailed WPS information
+type WPSDetails struct {
+	State         string   `json:"state"` // "Configured", "Unconfigured"
+	Version       string   `json:"version"`
+	Locked        bool     `json:"locked"`
+	ConfigMethods []string `json:"config_methods"`
+	Manufacturer  string   `json:"manufacturer"`
+	Model         string   `json:"model"`
+	DeviceName    string   `json:"device_name"`
 }
 
 // Connection States

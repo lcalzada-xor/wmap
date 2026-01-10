@@ -32,6 +32,24 @@ export class WPSController {
             this.startAttack();
         });
 
+        // Delegate event listeners for dynamic content
+        this.statusList.addEventListener('click', (e) => {
+            // Stop Button
+            const stopBtn = e.target.closest('.btn-wps-stop');
+            if (stopBtn) {
+                const id = stopBtn.dataset.id;
+                this.stopAttack(id);
+            }
+            // Force Stop Button
+            const forceBtn = e.target.closest('.btn-wps-force');
+            if (forceBtn) {
+                const id = forceBtn.dataset.id;
+                if (confirm("Force stop this attack?")) {
+                    this.stopAttack(id, true);
+                }
+            }
+        });
+
         // WebSocket Event Listeners
         EventBus.on('wps:log', (data) => {
             if (this.activeAttacks.has(data.attack_id)) {
@@ -140,6 +158,19 @@ export class WPSController {
         }
     }
 
+    async stopAttack(id, force = false) {
+        try {
+            await this.apiClient.request(`/api/wps/stop/${id}${force ? '?force=true' : ''}`, {
+                method: 'POST'
+            });
+            this.log(`Attack stop requested${force ? ' (forced)' : ''}`, "warning");
+            // Status update will come via websocket or we can optimistically update
+        } catch (error) {
+            console.error("Failed to stop WPS attack:", error);
+            this.log(`Failed to stop: ${error.message}`, "danger");
+        }
+    }
+
     handleStatusUpdate(status) {
         if (status.status === 'success') {
             this.finishAttack(status.id, 'success', status);
@@ -147,7 +178,14 @@ export class WPSController {
             this.finishAttack(status.id, 'error', status);
         } else {
             // Still running
-            this.renderStatus(`<i class="fas fa-circle-notch fa-spin"></i> Running... <br><span style="font-size:0.8em; opacity:0.7">${status.status}</span>`, 'warning');
+            this.renderStatus(`
+                <i class="fas fa-circle-notch fa-spin"></i> Running... <br>
+                <span style="font-size:0.8em; opacity:0.7">${status.status}</span>
+                <div style="margin-top: 10px;">
+                    <button class="btn-wps-stop" data-id="${status.id}" style="padding: 4px 8px; font-size: 0.8em; margin-right: 5px;">Stop</button>
+                    <button class="btn-wps-force" data-id="${status.id}" style="padding: 4px 8px; font-size: 0.8em; background: var(--danger-color);">Force</button>
+                </div>
+            `, 'warning');
         }
     }
 

@@ -151,6 +151,23 @@ func (h *PacketHandler) HandlePacket(packet gopacket.Packet) (*domain.Device, *d
 			}
 			return nil, alert
 		}
+
+		// Passive PMKID Detection
+		if isEAPOLKey(packet) {
+			if vuln := h.detectPMKID(packet); vuln != nil {
+				dot11 := packet.Layer(layers.LayerTypeDot11).(*layers.Dot11)
+				alert := &domain.Alert{
+					Type:      domain.AlertAnomaly,
+					Subtype:   "VULNERABILITY_DETECTED",
+					DeviceMAC: dot11.Address3.String(), // BSSID is the vulnerable entity
+					Timestamp: time.Now(),
+					Message:   "Vulnerability Detected: PMKID Exposure",
+					Details:   fmt.Sprintf("Device is broadcasting PMKID in EAPOL M1. Evidence: %s", vuln.Evidence[0]),
+					Severity:  domain.SeverityHigh, // Using string severity for Alert
+				}
+				return nil, alert
+			}
+		}
 	}
 
 	dot11Layer := packet.Layer(layers.LayerTypeDot11)
@@ -164,13 +181,15 @@ func (h *PacketHandler) HandlePacket(packet gopacket.Packet) (*domain.Device, *d
 
 	// Optimization: Packet Throttling
 	// Skip processing if we saw this device recently (< 500ms)
-	// EXCEPT for critical events (Deauth, Association, Handshake)
+	// EXCEPT for critical events (Deauth, Association, Handshake, Data frames)
+	// Data frames are critical because they contain connection state information
 	sourceMAC := dot11.Address2.String()
 	isCritical := dot11.Type == layers.Dot11TypeMgmtDeauthentication ||
 		dot11.Type == layers.Dot11TypeMgmtDisassociation ||
 		dot11.Type == layers.Dot11TypeMgmtAssociationReq ||
 		dot11.Type == layers.Dot11TypeMgmtReassociationReq ||
 		dot11.Type == layers.Dot11TypeMgmtAuthentication ||
+		dot11.Type.MainType() == layers.Dot11TypeData || // ← FIX: Data frames are critical for connection tracking
 		isEAPOLKey(packet)
 
 	if !isCritical {
@@ -225,8 +244,28 @@ func (h *PacketHandler) HandlePacket(packet gopacket.Packet) (*domain.Device, *d
 			alert.Subtype = "BROADCAST_DEAUTH"
 		}
 
-		// Update Device State
-		device.MAC = dot11.Address2.String()
+		// Logic Fix: Identify who is disconnecting
+		// Addr1: Dest, Addr2: Source, Addr3: BSSID
+		isAPKicking := dot11.Address2.String() == dot11.Address3.String()
+
+		targetMAC := ""
+		if isAPKicking {
+			// AP is kicking the Station. Update the Station (Dest).
+			targetMAC = dot11.Address1.String()
+			// Ignore Broadcast Deauths for specific device updates for now (or handle separately)
+			if targetMAC == "ff:ff:ff:ff:ff:ff" {
+				// Broadcast Deauth: AP is resetting everyone.
+				// We can't update a single device struct easily here without a robust storage update.
+				// Returning nil for now to avoid corrupting AP state.
+				return nil, alert // Alert is still valid
+			}
+		} else {
+			// Station is leaving. Update the Station (Source).
+			targetMAC = dot11.Address2.String()
+		}
+
+		// Update Device State for the Station
+		device.MAC = targetMAC
 		device.ConnectionState = domain.StateDisconnected
 		device.ConnectionTarget = ""
 		device.ConnectedSSID = ""
@@ -453,7 +492,7 @@ func (h *PacketHandler) handleMgmtFrame(packet gopacket.Packet, dot11 *layers.Do
 	}
 
 	// Only return if we actually classified it
-	if isBeacon || isProbe || device.ConnectionState == domain.StateAssociating || device.ConnectionState == domain.StateDisconnected {
+	if isBeacon || isProbe || device.ConnectionState == domain.StateAssociating || device.ConnectionState == domain.StateAuthenticating || device.ConnectionState == domain.StateDisconnected || device.ConnectionState == domain.StateConnected || device.ConnectionState == domain.StateHandshake {
 		return device
 	}
 	return nil
@@ -563,4 +602,71 @@ func isEAPOLKey(packet gopacket.Packet) bool {
 		}
 	}
 	return false
+}
+
+func hasPMKID(keyData []byte) bool {
+	offset := 0
+	for offset+6 <= len(keyData) {
+		// Look for PMKID KDE (Key Data Encapsulation)
+		// Type: 0xDD (Vendor Specific), OUI: 00-0F-AC, Type: 4 (PMKID)
+		if keyData[offset] == 0xDD && // Vendor Specific
+			offset+5 < len(keyData) &&
+			keyData[offset+2] == 0x00 && keyData[offset+3] == 0x0F && keyData[offset+4] == 0xAC && // OUI
+			keyData[offset+5] == 0x04 { // PMKID type
+			return true
+		}
+		// Move to next KDE
+		length := int(keyData[offset+1])
+		if length == 0 {
+			break
+		}
+		offset += 2 + length
+	}
+	return false
+}
+
+func (h *PacketHandler) detectPMKID(packet gopacket.Packet) *domain.VulnerabilityTag {
+	eapolLayer := packet.Layer(layers.LayerTypeEAPOL)
+	if eapolLayer == nil {
+		return nil
+	}
+
+	eapol, ok := eapolLayer.(*layers.EAPOL)
+	if !ok || eapol.Type != layers.EAPOLTypeKey {
+		return nil
+	}
+
+	// Parse EAPOL Key frame
+	payload := eapol.LayerPayload()
+	if len(payload) < 95 {
+		return nil
+	}
+
+	// Check for PMKID in Key Data (after offset 95)
+	keyDataLen := int(payload[93])<<8 | int(payload[94])
+	if keyDataLen == 0 || 95+keyDataLen > len(payload) {
+		return nil
+	}
+
+	keyData := payload[95 : 95+keyDataLen]
+
+	if hasPMKID(keyData) {
+		dot11Layer := packet.Layer(layers.LayerTypeDot11)
+		if dot11Layer == nil {
+			return nil
+		}
+		dot11 := dot11Layer.(*layers.Dot11)
+		return &domain.VulnerabilityTag{
+			Name:        "PMKID",
+			Severity:    domain.VulnSeverityHigh,
+			Confidence:  domain.ConfidenceConfirmed,
+			Evidence:    []string{"PMKID present in EAPOL M1", "BSSID: " + dot11.Address3.String()},
+			DetectedAt:  time.Now(),
+			Category:    "protocol",
+			Description: "PMKID exposed - allows offline PSK cracking without handshake",
+			Mitigation:  "Disable PMKID caching or use WPA3",
+		}
+	}
+
+	return nil
 }

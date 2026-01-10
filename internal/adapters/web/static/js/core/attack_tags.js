@@ -7,46 +7,72 @@ export const AttackTags = {
     /**
      * Analyzes node properties to determine potential attack vectors.
      * @param {Object} node - The node data object
-     * @returns {Array} Array of tag objects { label, color, desc }
+     * @returns {Array} Array of tag objects { label, color, desc, confidence, severity }
      */
     getTags(node) {
-        const tags = [];
+        let tags = [];
 
         // Safety check
         if (!node) return tags;
+
+        // 1. Prefer vulnerabilities from the backend (Passive Intelligence)
+        if (node.vulnerabilities && node.vulnerabilities.length > 0) {
+            tags = node.vulnerabilities.map(v => {
+                const confChar = v.confidence >= 0.8 ? '' : '?';
+                return {
+                    label: `${v.name}${confChar}`,
+                    color: this.getSeverityColor(v.severity),
+                    desc: v.description,
+                    confidence: v.confidence,
+                    severity: v.severity,
+                    backend: true
+                };
+            });
+        }
 
         const security = (node.security || '').toUpperCase();
         const wps = (node.wps_info || '').toLowerCase();
         const capabilities = node.capabilities || [];
 
-        // 1. WEP (The weakest)
+        const addTag = (tag) => {
+            if (!tags.some(t => t.label.startsWith(tag.label))) {
+                tags.push(tag);
+            }
+        };
+
+        // 2. WEP (The weakest)
         if (security.includes('WEP')) {
-            tags.push({ label: 'WEP', color: '#ff3b30', desc: 'Aircrack-ng / IVs' }); // Red
+            addTag({ label: 'WEP', color: '#ff3b30', desc: 'Aircrack-ng / IVs', severity: 10 });
         }
 
-        // 2. WPS (Pixie Dust / Brute Force)
-        // Check if explicitly configured/unconfigured OR just has WPS cap
-        if (wps.includes('configured') || capabilities.includes('WPS')) {
-            tags.push({ label: 'WPS', color: '#ff9500', desc: 'Pixie Dust / Reaver' }); // Orange
-        }
-
-        // 3. WPA2 + KRACK
-        // WPA2 is generally secure-ish but vulnerable to KRACK
-        if (security.includes('WPA2')) {
-            tags.push({ label: 'KRACK', color: '#ffcc00', desc: 'Key Reinstallation' }); // Yellow
+        // 3. WPS (Pixie Dust / Brute Force)
+        if (wps.includes('configured') || capabilities.includes('WPS') || node.wps_info) {
+            addTag({ label: 'WPS', color: '#ff9500', desc: 'Pixie Dust / Reaver', severity: 7 });
         }
 
         // 4. OPEN (No Encryption)
         if (security === 'OPEN' || security === '' || security === 'NONE') {
-            tags.push({ label: 'UNSECURE', color: '#ff3b30', desc: 'No Encryption' }); // Red
+            addTag({ label: 'UNSECURE', color: '#ff3b30', desc: 'No Encryption', severity: 10 });
         }
 
-        // 5. WPA3 (Dragonblood - specific conditions, but broadly relevant for research)
+        // 5. WPA3 (Dragonblood)
         if (security.includes('WPA3')) {
-            tags.push({ label: 'DRAGON', color: '#007aff', desc: 'Dragonblood / Downgrade' }); // Blue
+            addTag({ label: 'WPA3', color: '#007aff', desc: 'Dragonblood / Downgrade', severity: 2 });
         }
 
-        return tags;
+        // Sort tags by severity (highest first)
+        return tags.sort((a, b) => (b.severity || 0) - (a.severity || 0));
+    },
+
+    /**
+     * Maps severity score to color
+     */
+    getSeverityColor(severity) {
+        if (severity >= 9) return '#ff3b30'; // Critical (Red)
+        if (severity >= 7) return '#ff9500'; // High (Orange)
+        if (severity >= 5) return '#ffcc00'; // Medium (Yellow)
+        if (severity >= 3) return '#34c759'; // Low (Green)
+        return '#007aff'; // Info (Blue)
     },
 
     /**
@@ -58,11 +84,10 @@ export const AttackTags = {
     formatLabel(originalLabel, tags) {
         if (!tags || tags.length === 0) return originalLabel;
 
-        // Create a string of tags: [WEP] [WPS]
-        const tagString = tags.map(t => `[${t.label}]`).join(' ');
+        // Take top 3 tags to avoid clutter
+        const displayTags = tags.slice(0, 3);
+        const tagString = displayTags.map(t => `[${t.label}]`).join(' ');
 
-        // Return with newline so tags appear above or below the name
-        // Placing below the name for better readability of the ESSID
         return `${originalLabel}\n${tagString}`;
     }
 };

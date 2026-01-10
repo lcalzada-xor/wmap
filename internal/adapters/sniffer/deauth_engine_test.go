@@ -1,6 +1,7 @@
 package sniffer
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -14,6 +15,9 @@ type MockEngineLocker struct{}
 
 func (m *MockEngineLocker) Lock(iface string, channel int) error { return nil }
 func (m *MockEngineLocker) Unlock(iface string) error            { return nil }
+func (m *MockEngineLocker) ExecuteWithLock(ctx context.Context, iface string, channel int, action func() error) error {
+	return action()
+}
 
 func TestDeauthEngine_SequentialAttacks(t *testing.T) {
 	// Setup
@@ -69,4 +73,39 @@ func TestDeauthEngine_SequentialAttacks(t *testing.T) {
 
 	engine.CleanupFinished()
 	assert.Equal(t, 0, len(engine.activeAttacks))
+}
+
+func TestDeauthEngine_ForceStop(t *testing.T) {
+	locker := &MockEngineLocker{}
+	engine := NewDeauthEngine(nil, locker, 5)
+
+	// Start a fake attack (will fail async due to nil injector, but we intercept before cleanup)
+	config := domain.DeauthAttackConfig{TargetMAC: "00:11:22:33:44:55"}
+	id, err := engine.StartAttack(config)
+	require.NoError(t, err)
+
+	// Wait briefly for it to appear in map
+	time.Sleep(10 * time.Millisecond)
+
+	// Force Stop
+	err = engine.StopAttack(id, true)
+	assert.NoError(t, err)
+
+	// Verify status
+	status, _ := engine.GetAttackStatus(id)
+	assert.Equal(t, domain.AttackStopped, status.Status)
+	assert.Contains(t, status.ErrorMessage, "Force stopped")
+}
+
+func TestDeauthEngine_InterfaceAutoDetection(t *testing.T) {
+	locker := &MockEngineLocker{}
+	inj := &Injector{Interface: "wlan0mon"}
+	engine := NewDeauthEngine(inj, locker, 5)
+
+	config := domain.DeauthAttackConfig{TargetMAC: "00:11:22:33:44:55"} // Interface empty
+	id, err := engine.StartAttack(config)
+	require.NoError(t, err)
+
+	status, _ := engine.GetAttackStatus(id)
+	assert.Equal(t, "wlan0mon", status.Config.Interface, "Interface should be auto-detected from injector")
 }

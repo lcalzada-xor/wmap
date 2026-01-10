@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
+	"github.com/lcalzada-xor/wmap/internal/core/ports"    // Added ports
 	"github.com/lcalzada-xor/wmap/internal/core/services" // Added
 )
 
@@ -27,6 +28,7 @@ type WPSEngine struct {
 	reaverPath    string
 	pixiewpsPath  string
 	mu            sync.RWMutex
+	locker        ports.ChannelLocker // Added locker
 }
 
 // execCmd allows mocking exec.CommandContext in tests
@@ -46,6 +48,13 @@ func NewWPSEngine(registry *services.DeviceRegistry) *WPSEngine {
 	go engine.cleanupRoutine()
 
 	return engine
+}
+
+// SetChannelLocker injects a ChannelLocker
+func (s *WPSEngine) SetChannelLocker(locker ports.ChannelLocker) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.locker = locker
 }
 
 // SetCallbacks configures the event callbacks
@@ -142,18 +151,31 @@ func (s *WPSEngine) StartAttack(config domain.WPSAttackConfig) (string, error) {
 }
 
 // StopAttack stops an active attack
-func (s *WPSEngine) StopAttack(id string) error {
+func (s *WPSEngine) StopAttack(id string, force bool) error {
 	s.mu.Lock()
 	cancel, ok := s.cancelFuncs[id]
 	if ok {
 		cancel()
 		delete(s.cancelFuncs, id)
 	}
+
+	// If forced, ensure we clean it up even if it wasn't tracked properly
+	if force && !ok {
+		// Log that we are forcing a stop on potentially untracked or already stopped attack
+		// but since we rely on cancelFuncs, if it's not there, the context is already gone.
+		// However, we might want to ensure the status is definitely stopped.
+	}
+
 	// Update status
-	if status, exists := s.activeAttacks[id]; exists && status.Status == "running" {
-		status.Status = "stopped"
-		now := time.Now()
-		status.EndTime = &now
+	if status, exists := s.activeAttacks[id]; exists {
+		if status.Status == "running" || force {
+			status.Status = "stopped"
+			now := time.Now()
+			status.EndTime = &now
+			if force {
+				status.ErrorMessage = "Force stopped by user"
+			}
+		}
 	}
 	s.mu.Unlock()
 	return nil
@@ -214,126 +236,156 @@ func (s *WPSEngine) cleanupRoutine() {
 }
 
 func (s *WPSEngine) runAttack(ctx context.Context, id string, config domain.WPSAttackConfig) {
-	defer func() {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		if cancel, ok := s.cancelFuncs[id]; ok {
-			cancel() // cleanup
-			delete(s.cancelFuncs, id)
+	// Wrapper for channel locking
+	action := func() error {
+		defer func() {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if cancel, ok := s.cancelFuncs[id]; ok {
+				cancel() // cleanup
+				delete(s.cancelFuncs, id)
+			}
+			// If still running (natural completion), mark as failed/done?
+			// Actually natural completion is handled inside by reading stdout EOF
+		}()
+
+		// -K enables Pixie Dust mode
+		// -i interface, -b bssid, -c channel
+		// -v for verbose output
+		args := []string{
+			"-i", config.Interface,
+			"-b", config.TargetBSSID,
+			"-c", fmt.Sprintf("%d", config.Channel),
+			"-K",      // Pixie Dust Mode
+			"-v",      // Verbose
+			"-N",      // No Nacks (faster)
+			"-L",      // Ignore locked state
+			"-d", "0", // No delay
+			"-S", // Small DH keys
+			"-F", // Ignore FCS
 		}
-		// If still running (natural completion), mark as failed/done?
-		// Actually natural completion is handled inside by reading stdout EOF
-	}()
 
-	// -K enables Pixie Dust mode
-	// -i interface, -b bssid, -c channel
-	// -v for verbose output
-	args := []string{
-		"-i", config.Interface,
-		"-b", config.TargetBSSID,
-		"-c", fmt.Sprintf("%d", config.Channel),
-		"-K",      // Pixie Dust Mode
-		"-v",      // Verbose
-		"-N",      // No Nacks (faster)
-		"-L",      // Ignore locked state
-		"-d", "0", // No delay
-		"-S", // Small DH keys
-		"-F", // Ignore FCS
-	}
+		// Prepare command with process group for cleanup
+		cmd := execCmd(ctx, s.reaverPath, args...)
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			return err
+		}
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			return err
+		}
 
-	// Prepare command with process group for cleanup
-	cmd := execCmd(ctx, s.reaverPath, args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		s.updateStatus(id, "failed", err.Error())
-		return
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		s.updateStatus(id, "failed", err.Error())
-		return
-	}
+		if err := cmd.Start(); err != nil {
+			return fmt.Errorf("failed to start reaver: %v", err)
+		}
 
-	if err := cmd.Start(); err != nil {
-		s.updateStatus(id, "failed", fmt.Sprintf("Failed to start reaver: %v", err))
-		return
-	}
+		// Scanner to process output line by line (Merge readers)
+		// We use io.MultiReader but bufio.Scanner can only read one.
+		// We need to read them concurrently or merge them.
+		// For simplicity, launch a goroutine for stderr to append to logs as well.
 
-	// Scanner to process output line by line (Merge readers)
-	// We use io.MultiReader but bufio.Scanner can only read one.
-	// We need to read them concurrently or merge them.
-	// For simplicity, launch a goroutine for stderr to append to logs as well.
-
-	// Custom Split function to handle \r as well as \n
-	splitCRLF := func(data []byte, atEOF bool) (advance int, token []byte, err error) {
-		if atEOF && len(data) == 0 {
+		// Custom Split function to handle \r as well as \n
+		splitCRLF := func(data []byte, atEOF bool) (advance int, token []byte, err error) {
+			if atEOF && len(data) == 0 {
+				return 0, nil, nil
+			}
+			if i := bytes.IndexByte(data, '\n'); i >= 0 {
+				return i + 1, data[0:i], nil
+			}
+			if i := bytes.IndexByte(data, '\r'); i >= 0 {
+				return i + 1, data[0:i], nil
+			}
+			if atEOF {
+				return len(data), data, nil
+			}
 			return 0, nil, nil
 		}
-		if i := bytes.IndexByte(data, '\n'); i >= 0 {
-			return i + 1, data[0:i], nil
-		}
-		if i := bytes.IndexByte(data, '\r'); i >= 0 {
-			return i + 1, data[0:i], nil
-		}
-		if atEOF {
-			return len(data), data, nil
-		}
-		return 0, nil, nil
-	}
 
-	go func() {
-		scannerErr := bufio.NewScanner(stderr)
-		scannerErr.Split(splitCRLF)
-		for scannerErr.Scan() {
-			line := scannerErr.Text()
+		go func() {
+			scannerErr := bufio.NewScanner(stderr)
+			scannerErr.Split(splitCRLF)
+			for scannerErr.Scan() {
+				line := scannerErr.Text()
+				s.appendLog(id, line)
+			}
+		}()
+
+		scanner := bufio.NewScanner(stdout)
+		scanner.Split(splitCRLF)
+
+		pinRegex := regexp.MustCompile(`WPS PIN:\s*['"]?([0-9]+)['"]?`)
+		pskRegex := regexp.MustCompile(`WPA PSK:\s*['"]?([^'"]+)['"]?`)
+
+		fullLog := ""
+		foundPin := ""
+		foundPsk := ""
+
+		for scanner.Scan() {
+			line := scanner.Text()
+			fullLog += line + "\n"
 			s.appendLog(id, line)
-		}
-	}()
 
-	scanner := bufio.NewScanner(stdout)
-	scanner.Split(splitCRLF)
+			if matches := pinRegex.FindStringSubmatch(line); len(matches) > 1 {
+				foundPin = matches[1]
+			}
+			if matches := pskRegex.FindStringSubmatch(line); len(matches) > 1 {
+				foundPsk = matches[1]
+			}
 
-	pinRegex := regexp.MustCompile(`WPS PIN:\s*['"]?([0-9]+)['"]?`)
-	pskRegex := regexp.MustCompile(`WPA PSK:\s*['"]?([^'"]+)['"]?`)
-
-	fullLog := ""
-	foundPin := ""
-	foundPsk := ""
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		fullLog += line + "\n"
-		s.appendLog(id, line)
-
-		if matches := pinRegex.FindStringSubmatch(line); len(matches) > 1 {
-			foundPin = matches[1]
-		}
-		if matches := pskRegex.FindStringSubmatch(line); len(matches) > 1 {
-			foundPsk = matches[1]
+			// Check context cancellation
+			if ctx.Err() != nil {
+				break
+			}
 		}
 
-		// Check context cancellation
-		if ctx.Err() != nil {
-			break
+		// Wait for command to finish
+		err = cmd.Wait()
+
+		// Determine final status
+		if ctx.Err() == context.DeadlineExceeded {
+			s.updateStatus(id, "timeout", "Attack timed out")
+		} else if ctx.Err() == context.Canceled {
+			// Already handled in StopAttack, but double check
+			s.updateStatus(id, "stopped", "Stopped by user")
+		} else if foundPin != "" {
+			s.completeSuccess(id, foundPin, foundPsk)
+		} else if err != nil {
+			// Check if it was manually cancelled (sometimes cmd.Wait returns error on kill)
+			if ctx.Err() != nil {
+				// Ignore error if context was cancelled
+				return nil
+			}
+			s.updateStatus(id, "failed", fmt.Sprintf("Reaver exited with error: %v", err))
+		} else {
+			s.updateStatus(id, "failed", "Attack finished but no PIN found")
+		}
+
+		return nil
+	}
+
+	// Execute with lock
+	var err error
+	if s.locker != nil && config.Interface != "" {
+		err = s.locker.ExecuteWithLock(ctx, config.Interface, config.Channel, func() error {
+			// We need to adapt signature: action returns error.
+			// Our logic handles status updates inside action, so we return nil mostly.
+			if execErr := action(); execErr != nil {
+				// Handle startup errors
+				s.updateStatus(id, "failed", execErr.Error())
+			}
+			return nil
+		})
+	} else {
+		// Run without lock
+		if execErr := action(); execErr != nil {
+			s.updateStatus(id, "failed", execErr.Error())
 		}
 	}
 
-	// Wait for command to finish
-	err = cmd.Wait()
-
-	// Determine final status
-	if ctx.Err() == context.DeadlineExceeded {
-		s.updateStatus(id, "timeout", "Attack timed out")
-	} else if ctx.Err() == context.Canceled {
-		// Already handled in StopAttack, but double check
-		s.updateStatus(id, "stopped", "Stopped by user")
-	} else if foundPin != "" {
-		s.completeSuccess(id, foundPin, foundPsk)
-	} else if err != nil {
-		s.updateStatus(id, "failed", fmt.Sprintf("Reaver exited with error: %v", err))
-	} else {
-		s.updateStatus(id, "failed", "Attack finished but no PIN found")
+	if err != nil {
+		s.updateStatus(id, "failed", fmt.Sprintf("Failed to lock channel: %v", err))
 	}
 }
 

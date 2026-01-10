@@ -239,8 +239,36 @@ func ParseIEs(data []byte, device *domain.Device) {
 			if len(val) > 0 {
 				device.Channel = int(val[0])
 			}
-		case 48: // RSN (WPA2)
-			device.Security = "WPA2"
+		case 48: // RSN (WPA2/WPA3)
+			if rsn, err := ParseRSN(val); err == nil {
+				// Determine security type based on AKM
+				if containsString(rsn.AKMSuites, "SAE") {
+					device.Security = "WPA3"
+				} else if containsString(rsn.AKMSuites, "PSK") {
+					device.Security = "WPA2-PSK"
+				} else if containsString(rsn.AKMSuites, "802.1X") {
+					device.Security = "WPA2-Enterprise"
+				} else {
+					device.Security = "WPA2"
+				}
+				device.RSNInfo = &domain.RSNInfo{
+					Version:         rsn.Version,
+					GroupCipher:     rsn.GroupCipher,
+					PairwiseCiphers: rsn.PairwiseCiphers,
+					AKMSuites:       rsn.AKMSuites,
+					Capabilities: domain.RSNCapabilities{
+						PreAuth:          rsn.Capabilities.PreAuth,
+						NoPairwise:       rsn.Capabilities.NoPairwise,
+						PTKSAReplayCount: rsn.Capabilities.PTKSAReplayCount,
+						GTKSAReplayCount: rsn.Capabilities.GTKSAReplayCount,
+						MFPRequired:      rsn.Capabilities.MFPRequired,
+						MFPCapable:       rsn.Capabilities.MFPCapable,
+						PeerKeyEnabled:   rsn.Capabilities.PeerKeyEnabled,
+					},
+				}
+			} else {
+				device.Security = "WPA2"
+			}
 		case 54: // Mobility Domain (802.11r)
 			device.Has11r = true
 			device.Capabilities = append(device.Capabilities, "11r")
@@ -293,10 +321,10 @@ func ParseIEs(data []byte, device *domain.Device) {
 // ParseWPSAttributes extracts Model/Manufacturer/State from WPS IEs
 // Returns "Manufacturer Model" string
 func ParseWPSAttributes(data []byte, device *domain.Device) string {
+	details := &domain.WPSDetails{}
 	model := ""
 	manufacturer := ""
 	deviceName := ""
-	wpsState := ""
 
 	offset := 0
 	limit := len(data)
@@ -319,26 +347,43 @@ func ParseWPSAttributes(data []byte, device *domain.Device) string {
 		switch attrType {
 		case 0x1021: // Manufacturer
 			manufacturer = val
+			details.Manufacturer = val
 		case 0x1023: // Model Name
 			model = val
+			details.Model = val
 		case 0x1011: // Device Name
 			deviceName = val
+			details.DeviceName = val
 		case 0x1044: // WPS State
 			if len(valBytes) > 0 {
 				switch valBytes[0] {
 				case 0x01:
-					wpsState = "Unconfigured"
+					details.State = "Unconfigured"
 				case 0x02:
-					wpsState = "Configured"
+					details.State = "Configured"
 				}
 			}
 		case 0x104A: // WPS Version
 			if len(valBytes) > 0 {
 				ver := valBytes[0]
 				if ver == 0x10 {
-					wpsState += " (WPS 1.0)"
+					details.Version = "1.0"
 				} else if ver >= 0x20 {
-					wpsState += " (WPS 2.0)"
+					details.Version = "2.0"
+				}
+			}
+		case 0x1057: // AP Setup Locked
+			if len(valBytes) > 0 && valBytes[0] == 0x01 {
+				details.Locked = true
+			}
+		case 0x1012: // Device Password ID
+			if len(valBytes) >= 2 {
+				pwdID := (int(valBytes[0]) << 8) | int(valBytes[1])
+				switch pwdID {
+				case 0x0000:
+					details.ConfigMethods = append(details.ConfigMethods, "PIN")
+				case 0x0004:
+					details.ConfigMethods = append(details.ConfigMethods, "PBC")
 				}
 			}
 		}
@@ -346,8 +391,12 @@ func ParseWPSAttributes(data []byte, device *domain.Device) string {
 		offset += attrLen
 	}
 
-	if wpsState != "" {
-		device.WPSInfo = wpsState
+	device.WPSDetails = details
+	if details.State != "" {
+		device.WPSInfo = details.State
+		if details.Version != "" {
+			device.WPSInfo += " (WPS " + details.Version + ")"
+		}
 	}
 
 	// Fallback to DeviceName if Model is empty
@@ -362,4 +411,147 @@ func ParseWPSAttributes(data []byte, device *domain.Device) string {
 		return model
 	}
 	return ""
+}
+
+// Internal RSN Parsing Structs
+type internalRSNInfo struct {
+	Version         uint16
+	GroupCipher     string
+	PairwiseCiphers []string
+	AKMSuites       []string
+	Capabilities    internalRSNCapabilities
+}
+
+type internalRSNCapabilities struct {
+	PreAuth          bool
+	NoPairwise       bool
+	PTKSAReplayCount uint8
+	GTKSAReplayCount uint8
+	MFPRequired      bool
+	MFPCapable       bool
+	PeerKeyEnabled   bool
+}
+
+// ParseRSN parses IE 48 (RSN Information Element)
+func ParseRSN(data []byte) (*internalRSNInfo, error) {
+	if len(data) < 2 {
+		return nil, fmt.Errorf("RSN IE too short")
+	}
+
+	rsn := &internalRSNInfo{}
+	offset := 0
+
+	// Version (2 bytes)
+	rsn.Version = uint16(data[offset]) | uint16(data[offset+1])<<8
+	offset += 2
+
+	// Group Cipher Suite (4 bytes: OUI + Type)
+	if offset+4 <= len(data) {
+		rsn.GroupCipher = parseCipherSuite(data[offset : offset+4])
+		offset += 4
+	}
+
+	// Pairwise Cipher Suite Count + List
+	if offset+2 <= len(data) {
+		count := int(data[offset]) | int(data[offset+1])<<8
+		offset += 2
+		for i := 0; i < count && offset+4 <= len(data); i++ {
+			rsn.PairwiseCiphers = append(rsn.PairwiseCiphers, parseCipherSuite(data[offset:offset+4]))
+			offset += 4
+		}
+	}
+
+	// AKM Suite Count + List
+	if offset+2 <= len(data) {
+		count := int(data[offset]) | int(data[offset+1])<<8
+		offset += 2
+		for i := 0; i < count && offset+4 <= len(data); i++ {
+			rsn.AKMSuites = append(rsn.AKMSuites, parseAKMSuite(data[offset:offset+4]))
+			offset += 4
+		}
+	}
+
+	// RSN Capabilities (2 bytes)
+	if offset+2 <= len(data) {
+		caps := uint16(data[offset]) | uint16(data[offset+1])<<8
+		rsn.Capabilities = parseRSNCapabilities(caps)
+	}
+
+	return rsn, nil
+}
+
+func parseCipherSuite(data []byte) string {
+	if len(data) < 4 {
+		return "UNKNOWN"
+	}
+	// OUI: 00-0F-AC (standard)
+	cipherType := data[3]
+	switch cipherType {
+	case 1:
+		return "WEP-40"
+	case 2:
+		return "TKIP"
+	case 4:
+		return "CCMP" // AES
+	case 5:
+		return "WEP-104"
+	case 8:
+		return "GCMP-128"
+	case 9:
+		return "GCMP-256"
+	case 10:
+		return "CCMP-256"
+	default:
+		return fmt.Sprintf("UNKNOWN(%d)", cipherType)
+	}
+}
+
+func parseAKMSuite(data []byte) string {
+	if len(data) < 4 {
+		return "UNKNOWN"
+	}
+	akmType := data[3]
+	switch akmType {
+	case 1:
+		return "802.1X"
+	case 2:
+		return "PSK"
+	case 3:
+		return "FT-802.1X"
+	case 4:
+		return "FT-PSK"
+	case 5:
+		return "802.1X-SHA256"
+	case 6:
+		return "PSK-SHA256"
+	case 8:
+		return "SAE" // WPA3-Personal
+	case 9:
+		return "FT-SAE"
+	case 18:
+		return "OWE" // Opportunistic Wireless Encryption
+	default:
+		return fmt.Sprintf("UNKNOWN(%d)", akmType)
+	}
+}
+
+func parseRSNCapabilities(caps uint16) internalRSNCapabilities {
+	return internalRSNCapabilities{
+		PreAuth:          (caps & 0x0001) != 0,
+		NoPairwise:       (caps & 0x0002) != 0,
+		PTKSAReplayCount: uint8((caps >> 2) & 0x03),
+		GTKSAReplayCount: uint8((caps >> 4) & 0x03),
+		MFPRequired:      (caps & 0x0040) != 0,
+		MFPCapable:       (caps & 0x0080) != 0,
+		PeerKeyEnabled:   (caps & 0x0200) != 0,
+	}
+}
+
+func containsString(slice []string, val string) bool {
+	for _, item := range slice {
+		if item == val {
+			return true
+		}
+	}
+	return false
 }

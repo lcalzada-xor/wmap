@@ -9,13 +9,15 @@ import (
 
 // GraphBuilder handles the construction of the visual graph.
 type GraphBuilder struct {
-	registry ports.DeviceRegistry
+	registry              ports.DeviceRegistry
+	vulnerabilityDetector *VulnerabilityDetector
 }
 
 // NewGraphBuilder creates a new graph builder.
 func NewGraphBuilder(registry ports.DeviceRegistry) *GraphBuilder {
 	return &GraphBuilder{
-		registry: registry,
+		registry:              registry,
+		vulnerabilityDetector: NewVulnerabilityDetector(registry),
 	}
 }
 
@@ -94,30 +96,34 @@ func (b *GraphBuilder) BuildGraph() domain.GraphData {
 			label += "\n[5GHz]"
 		}
 
+		// Passive Vulnerability Detection
+		vulns := b.vulnerabilityDetector.DetectVulnerabilities(&device)
+
 		nodes = append(nodes, domain.GraphNode{
-			ID:           "dev_" + device.MAC,
-			Label:        label,
-			Group:        group,
-			MAC:          device.MAC,
-			Vendor:       device.Vendor,
-			RSSI:         device.RSSI,
-			LastSeen:     device.LastSeen,
-			FirstSeen:    device.FirstSeen,
-			Capabilities: device.Capabilities,
-			IsRandomized: device.IsRandomized,
-			HasHandshake: device.HasHandshake,
-			SSID:         device.SSID,
-			Channel:      device.Channel,
-			Security:     device.Security,
-			Standard:     device.Standard,
-			Model:        device.Model,
-			OS:           device.OS,
-			Frequency:    device.Frequency,
-			IsWiFi6:      device.IsWiFi6,
-			IsWiFi7:      device.IsWiFi7,
-			Signature:    device.Signature,
-			WPSInfo:      device.WPSInfo,
-			IETags:       device.IETags,
+			ID:              "dev_" + device.MAC,
+			Label:           label,
+			Group:           group,
+			MAC:             device.MAC,
+			Vendor:          device.Vendor,
+			RSSI:            device.RSSI,
+			LastSeen:        device.LastSeen,
+			FirstSeen:       device.FirstSeen,
+			Capabilities:    device.Capabilities,
+			IsRandomized:    device.IsRandomized,
+			HasHandshake:    device.HasHandshake,
+			SSID:            device.SSID,
+			Channel:         device.Channel,
+			Security:        device.Security,
+			Standard:        device.Standard,
+			Model:           device.Model,
+			OS:              device.OS,
+			Frequency:       device.Frequency,
+			IsWiFi6:         device.IsWiFi6,
+			IsWiFi7:         device.IsWiFi7,
+			Signature:       device.Signature,
+			WPSInfo:         device.WPSInfo,
+			IETags:          device.IETags,
+			Vulnerabilities: vulns,
 
 			// Traffic Stats
 			DataTransmitted: device.DataTransmitted,
@@ -171,7 +177,10 @@ func (b *GraphBuilder) BuildGraph() domain.GraphData {
 			isDashed := false
 			edgeLabel := ""
 
-			if device.ConnectionState == domain.StateAssociating {
+			if device.ConnectionState == domain.StateAuthenticating {
+				isDashed = true
+				edgeLabel = "authenticating"
+			} else if device.ConnectionState == domain.StateAssociating {
 				isDashed = true
 				edgeLabel = "associating"
 			} else if device.ConnectionState == domain.StateHandshake {

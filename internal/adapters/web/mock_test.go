@@ -77,8 +77,8 @@ func (m *MockNetworkService) StartDeauthAttack(config domain.DeauthAttackConfig)
 	return args.String(0), args.Error(1)
 }
 
-func (m *MockNetworkService) StopDeauthAttack(id string) error {
-	args := m.Called(id)
+func (m *MockNetworkService) StopDeauthAttack(id string, force bool) error {
+	args := m.Called(id, force)
 	return args.Error(0)
 }
 
@@ -98,8 +98,8 @@ func (m *MockNetworkService) StartWPSAttack(config domain.WPSAttackConfig) (stri
 	return args.String(0), args.Error(1)
 }
 
-func (m *MockNetworkService) StopWPSAttack(id string) error {
-	args := m.Called(id)
+func (m *MockNetworkService) StopWPSAttack(id string, force bool) error {
+	args := m.Called(id, force)
 	return args.Error(0)
 }
 
