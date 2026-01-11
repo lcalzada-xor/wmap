@@ -6,9 +6,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer"
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
 	"github.com/lcalzada-xor/wmap/internal/core/ports"
 	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
@@ -29,14 +31,15 @@ var (
 
 // NetworkService orchestrates the discovery and analysis of network devices.
 type NetworkService struct {
-	registry     ports.DeviceRegistry
-	security     ports.SecurityEngine
-	persistence  *PersistenceManager
-	sniffer      ports.Sniffer
-	graphBuilder *GraphBuilder
-	deauthEngine ports.DeauthService
-	wpsEngine    ports.WPSAttackService
-	auditService ports.AuditService
+	registry        ports.DeviceRegistry
+	security        ports.SecurityEngine
+	persistence     *PersistenceManager
+	sniffer         ports.Sniffer
+	graphBuilder    *GraphBuilder
+	deauthEngine    ports.DeauthService
+	wpsEngine       ports.WPSAttackService
+	authFloodEngine *sniffer.AuthFloodEngine
+	auditService    ports.AuditService
 
 	// Optimization: Graph Caching
 	cachedGraph     *domain.GraphData
@@ -70,6 +73,11 @@ func (s *NetworkService) SetDeauthEngine(engine ports.DeauthService) {
 // SetWPSEngine injects the WPS engine dependency
 func (s *NetworkService) SetWPSEngine(engine ports.WPSAttackService) {
 	s.wpsEngine = engine
+}
+
+// SetAuthFloodEngine injects the Auth Flood engine dependency
+func (s *NetworkService) SetAuthFloodEngine(engine *sniffer.AuthFloodEngine) {
+	s.authFloodEngine = engine
 }
 
 // SetDeauthLogger sets the logger for the deauth engine
@@ -443,4 +451,48 @@ func (s *NetworkService) GetSystemStats() domain.SystemStats {
 	}
 
 	return stats
+}
+
+// Auth Flood Attack Methods
+
+func (s *NetworkService) StartAuthFloodAttack(config domain.AuthFloodAttackConfig) (string, error) {
+	if s.authFloodEngine == nil {
+		return "", fmt.Errorf("auth flood engine not initialized")
+	}
+
+	// Auto-detect channel if not specified
+	if config.Channel == 0 && config.TargetBSSID != "" {
+		device, exists := s.registry.GetDevice(config.TargetBSSID)
+		if exists && device.Channel > 0 {
+			config.Channel = device.Channel
+		}
+	}
+
+	// Auto-detect interface
+	if config.Interface == "" && s.sniffer != nil {
+		interfaces := s.sniffer.GetInterfaces()
+		if len(interfaces) > 0 {
+			config.Interface = interfaces[0]
+		}
+	}
+
+	id, err := s.authFloodEngine.StartAttack(config)
+	if err == nil && s.auditService != nil {
+		s.auditService.Log(context.Background(), domain.ActionDeauthStart, config.TargetBSSID, "Started Auth Flood")
+	}
+	return id, err
+}
+
+func (s *NetworkService) StopAuthFloodAttack(id string, force bool) error {
+	if s.authFloodEngine == nil {
+		return fmt.Errorf("auth flood engine not initialized")
+	}
+	return s.authFloodEngine.StopAttack(id, force)
+}
+
+func (s *NetworkService) GetAuthFloodStatus(id string) (domain.AuthFloodAttackStatus, error) {
+	if s.authFloodEngine == nil {
+		return domain.AuthFloodAttackStatus{}, fmt.Errorf("auth flood engine not initialized")
+	}
+	return s.authFloodEngine.GetStatus(id)
 }

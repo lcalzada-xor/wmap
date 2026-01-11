@@ -245,6 +245,15 @@ func main() {
 	}
 	networkService.SetWPSEngine(wpsEngine)
 
+	// Initialize Auth Flood Engine
+	authFloodEngine := sniffer.NewAuthFloodEngine(injector, locker, 5)
+	if cfg.Debug {
+		authFloodEngine.SetLogger(func(msg, level string) {
+			slog.Info("AUTH-FLOOD", "level", level, "msg", msg)
+		})
+	}
+	networkService.SetAuthFloodEngine(authFloodEngine)
+
 	// Start Cleanup Loop: Remove devices unseen for 10m, check every 1m
 	networkService.StartCleanupLoop(ctx, 10*time.Minute, 1*time.Minute)
 

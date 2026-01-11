@@ -79,5 +79,10 @@ func SetupRoutes(s *Server) http.Handler {
 		promhttp.Handler().ServeHTTP(w, r)
 	}))
 
+	// Auth Flood Attack (New)
+	mux.Handle("/api/attack/auth-flood/start", protectOp(s.handleAuthFloodStart))
+	mux.Handle("/api/attack/auth-flood/stop", protectOp(s.handleAuthFloodStop))
+	mux.Handle("/api/attack/auth-flood/status", protect(s.handleAuthFloodStatus))
+
 	return mux
 }

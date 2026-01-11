@@ -67,4 +67,9 @@ type NetworkService interface {
 
 	// Intelligence
 	GetSystemStats() domain.SystemStats
+
+	// Auth Flood Attack Methods
+	StartAuthFloodAttack(config domain.AuthFloodAttackConfig) (string, error)
+	StopAuthFloodAttack(id string, force bool) error
+	GetAuthFloodStatus(id string) (domain.AuthFloodAttackStatus, error)
 }

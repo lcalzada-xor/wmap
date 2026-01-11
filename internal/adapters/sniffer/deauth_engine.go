@@ -228,6 +228,14 @@ func (e *DeauthEngine) runAttack(ctx context.Context, controller *AttackControll
 					if event == "probe" {
 						e.log(fmt.Sprintf("Target %s sent Probe Request - CONFIRMED DISCONNECTION", config.TargetMAC), "success")
 					}
+					if event == "disconnected" {
+						e.log(fmt.Sprintf("Target %s silenced (No data > 3s) - EFFECTIVE DISCONNECTION", config.TargetMAC), "success")
+						controller.mu.Lock()
+						controller.Status.Status = domain.AttackStopped
+						controller.mu.Unlock()
+						controller.CancelFn()
+						return
+					}
 				}
 			}
 		}()

@@ -53,3 +53,6 @@ data/sessions/
 # PCAP captures
 *.pcap
 *.pcapng
+
+# Root binary
+main

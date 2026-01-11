@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"os/exec"
 	"regexp"
 	"strings" // Added for detectMonitorInterface
@@ -33,6 +34,7 @@ type WPSEngine struct {
 
 // execCmd allows mocking exec.CommandContext in tests
 var execCmd = exec.CommandContext
+var execCommand = exec.Command
 
 // NewWPSEngine creates a new WPS attack engine
 func NewWPSEngine(registry *services.DeviceRegistry) *WPSEngine {
@@ -236,8 +238,14 @@ func (s *WPSEngine) cleanupRoutine() {
 }
 
 func (s *WPSEngine) runAttack(ctx context.Context, id string, config domain.WPSAttackConfig) {
+	// Optimize interface for robustness
+
 	// Wrapper for channel locking
 	action := func() error {
+		// Optimize interface for robustness (inside lock)
+		if config.Interface != "" {
+			s.optimizeInterface(config.Interface)
+		}
 		defer func() {
 			s.mu.Lock()
 			defer s.mu.Unlock()
@@ -450,4 +458,14 @@ func (s *WPSEngine) checkDependencies() error {
 		return fmt.Errorf("%s not found (install with: sudo apt install pixiewps)", s.pixiewpsPath)
 	}
 	return nil
+}
+
+// optimizeInterface configures the interface for "Low 'n Slow" injection
+func (s *WPSEngine) optimizeInterface(iface string) {
+	cmd := execCommand("iw", "dev", iface, "set", "bitrates", "legacy-2.4", "1", "2", "5.5", "11", "legacy-5", "6", "9", "12")
+	if err := cmd.Run(); err != nil {
+		log.Printf("Warning: Failed to optimize bitrate for %s in WPS attack: %v", iface, err)
+	} else {
+		log.Printf("Interface %s optimized for robust injection (Legacy 2.4/5GHz) for WPS", iface)
+	}
 }

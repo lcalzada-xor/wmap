@@ -303,6 +303,14 @@
                 </button>
             </div>
 
+            <!-- MDK Auth Flood Toggle -->
+            <div style="margin-top: 5px;">
+                <button id="btn-toggle-auth-flood" class="action-btn-secondary"
+                    style="width:100%; padding:10px; cursor:pointer; font-size:0.9em; background: rgba(180, 0, 255, 0.15); border: 1px solid rgba(180, 0, 255, 0.3); color: #c300ff;">
+                    <i class="fas fa-ghost"></i> Auth Flood (MDK)
+                </button>
+            </div>
+
             <button id="btn-active-scan" class="action-btn"
                 style="width:100%; margin-top:15px; background:var(--danger-color); color:white; border:none; padding:12px; cursor:pointer; font-family:var(--font-head);">
                 <i class="fas fa-radar"></i> ACTIVE SCAN
@@ -573,6 +581,56 @@
         </div>
     </div>
 
+    <!-- Auth Flood Panel -->
+    <div id="auth-flood-panel" class="hud-panel wps-panel glass">
+        <h3><i class="fas fa-ghost"></i> Auth Flood Attack <i class="fas fa-times" id="btn-close-auth-flood"
+                style="float:right; cursor:pointer; opacity:0.6; font-size:0.8em"></i></h3>
+
+        <div class="legal-warning"
+            style="background: rgba(180, 0, 255, 0.15); border: 1px solid rgba(180, 0, 255, 0.5); padding: 12px; margin: 10px 0; border-radius: 8px;">
+            <strong style="color: #c300ff;">⚠️ DOS WARNING</strong>
+            <p style="font-size: 0.85em; margin: 8px 0 0 0; color: var(--text-secondary);">
+                This attack floods the AP with authentication requests. (DoS)
+            </p>
+        </div>
+
+        <div class="attack-config" style="margin-top: 20px;">
+            <div class="form-group" style="margin-bottom: 12px;">
+                <label style="display: block; color: #fff; font-size: 0.85em; margin-bottom: 5px;">Target BSSID:</label>
+                <input type="text" id="auth-flood-target"
+                    style="width: 100%; padding: 8px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: #fff;">
+            </div>
+
+            <div class="form-group" style="margin-bottom: 12px;">
+                <label style="display: block; color: #fff; font-size: 0.85em; margin-bottom: 5px;">Channel:</label>
+                <input type="number" id="auth-flood-channel" placeholder="Auto"
+                    style="width: 100%; padding: 8px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: #fff;">
+            </div>
+
+            <div class="form-group" style="margin-bottom: 12px;">
+                <label style="display: block; color: #fff; font-size: 0.85em; margin-bottom: 5px;">Packets
+                    (0=Inf):</label>
+                <input type="number" id="auth-flood-count" value="0"
+                    style="width: 100%; padding: 8px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: #fff;">
+            </div>
+
+            <button id="btn-start-auth-flood" class="action-btn"
+                style="width: 100%; margin-top: 10px; background: linear-gradient(135deg, #b400ff, #e040fb); color: white; padding: 12px 24px; border: none; border-radius: 8px; cursor: pointer; font-weight: 700;">
+                <i class="fas fa-ghost"></i> FLOOD
+            </button>
+
+            <button id="btn-stop-auth-flood" class="action-btn"
+                style="width: 100%; margin-top: 10px; background: var(--danger-color); color: white; padding: 12px 24px; border: none; border-radius: 8px; cursor: pointer; font-weight: 700; display:none;">
+                <i class="fas fa-stop"></i> STOP
+            </button>
+        </div>
+
+        <div style="margin-top: 20px; text-align: center;">
+            <div style="font-size: 0.9em; opacity: 0.8;">Status: <span id="auth-flood-status-text">Ready</span></div>
+            <div style="font-size: 0.8em; opacity: 0.6;">Packets Sent: <span id="auth-flood-packets">0</span></div>
+        </div>
+    </div>
+
     <!-- Deauth Attack Panel -->
     <div id="deauth-panel" class="hud-panel deauth-panel glass">
         <h3>⚡ Deauth Attack Control <i class="fas fa-times" id="btn-close-deauth"
@@ -603,7 +661,7 @@
 
             <div class="form-group" style="margin-bottom: 15px;">
                 <label style="display: flex; align-items: center; color: #fff; font-size: 0.85em; cursor: pointer;">
-                    <input type="checkbox" id="deauth-stealth" style="margin-right: 8px;">
+                    <input type="checkbox" id="deauth-stealth" checked style="margin-right: 8px;">
                     <span style="color: #ff6b6b;">Stealth Mode (Reason Fuzzing)</span>
                 </label>
             </div>
@@ -653,7 +711,7 @@
                 <option value="1">Unspecified</option>
                 <option value="3">Deauthenticated (leaving)</option>
                 <option value="6">Class 2 frame from non-auth STA</option>
-                <option value="7">Class 3 frame from non-assoc STA</option>
+                <option value="7" selected>Class 3 frame from non-assoc STA (Recommended)</option>
             </select>
 
             <label style="display: block; margin-top: 15px; color: #fff; font-size: 0.85em; cursor: pointer;">

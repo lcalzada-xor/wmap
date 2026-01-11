@@ -14,6 +14,7 @@ import { Events } from '../core/constants.js';
 // Controllers
 import { DeauthController } from './deauth_controller.js';
 import { WPSController } from './wps_controller.js';
+import { AuthFloodController } from './auth_flood_controller.js';
 import HealthUI from './health_ui.js';
 
 export class UIManager {
@@ -25,6 +26,7 @@ export class UIManager {
         // Controllers
         this.deauthController = null;
         this.wpsController = null;
+        this.authFloodController = null;
         this.healthUI = null;
         this.auditManager = null;
         this.contextMenu = null;
@@ -103,7 +105,14 @@ export class UIManager {
             this.console.log("WPS Module Failed: " + err.message, "danger");
         }
 
-        // 3. Audit Manager
+        // 3. Auth Flood Controller
+        try {
+            this.authFloodController = new AuthFloodController(this.api, this.console);
+        } catch (err) {
+            console.error("Failed to initialize AuthFloodController", err);
+        }
+
+        // 4. Audit Manager
         try {
             const { AuditManager } = await import('./audit_manager.js');
             this.auditManager = new AuditManager();

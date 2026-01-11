@@ -113,6 +113,22 @@ func (m *MockNetworkService) GetSystemStats() domain.SystemStats {
 	return args.Get(0).(domain.SystemStats)
 }
 
+// Auth Flood Mock Methods
+func (m *MockNetworkService) StartAuthFloodAttack(config domain.AuthFloodAttackConfig) (string, error) {
+	args := m.Called(config)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockNetworkService) StopAuthFloodAttack(id string, force bool) error {
+	args := m.Called(id, force)
+	return args.Error(0)
+}
+
+func (m *MockNetworkService) GetAuthFloodStatus(id string) (domain.AuthFloodAttackStatus, error) {
+	args := m.Called(id)
+	return args.Get(0).(domain.AuthFloodAttackStatus), args.Error(1)
+}
+
 // MockDeviceRegistry is a mock of ports.DeviceRegistry (needed for SessionManager mock)
 type MockDeviceRegistry struct {
 	mock.Mock

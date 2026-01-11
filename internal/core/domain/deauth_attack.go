@@ -58,6 +58,12 @@ type DeauthAttackConfig struct {
 
 	// UseReasonFuzzing enables cycling through effective reason codes
 	UseReasonFuzzing bool `json:"use_reason_fuzzing"`
+
+	// UseJitter enables randomized packet intervals to avoid detection matches
+	UseJitter bool `json:"use_jitter"`
+
+	// SpoofSource enables randomization of the source MAC address (Access Point spoofing)
+	SpoofSource bool `json:"spoof_source"`
 }
 
 // DeauthAttackStatus represents the current status of a deauth attack
