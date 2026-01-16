@@ -13,6 +13,7 @@ const (
 	ActionDeauthStop   = "DEAUTH_STOPPED"
 	ActionConfigChange = "CONFIG_CHANGE"
 	ActionWorkspace    = "WORKSPACE_OP"
+	ActionInfo         = "INFO"
 )
 
 // AuditLog represents a record of a critical system action.

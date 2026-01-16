@@ -32,7 +32,7 @@ func AuthRedirectMiddleware(authService interface{}) func(http.Handler) http.Han
 			// For root or index.html, check authentication
 			if r.URL.Path == "/" || r.URL.Path == "/index.html" {
 				// Check for session cookie
-				cookie, err := r.Cookie("session_token")
+				cookie, err := r.Cookie("auth_token")
 				if err != nil || cookie.Value == "" {
 					// No session, redirect to login
 					http.Redirect(w, r, "/login.html", http.StatusSeeOther)

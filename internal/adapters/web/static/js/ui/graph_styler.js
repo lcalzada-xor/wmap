@@ -14,57 +14,75 @@ export const GraphStyler = {
             n.font = { color: '#FFD60A' };
         }
 
-        // WiFi Generation Styling
+        // WiFi Generation Styling - System Colors
         if (n.is_wifi7) {
-            n.borderWidth = 4;
-            n.color = { border: '#b900ff', background: n.group === NodeGroups.AP ? 'rgba(185, 0, 255, 0.2)' : undefined };
-            n.shadow = { color: '#b900ff', size: 15, x: 0, y: 0 };
+            n.borderWidth = 2;
+            n.color = {
+                border: '#BF5AF2', // System Purple
+                background: 'rgba(191, 90, 242, 0.2)'
+            };
+            n.shadow = { color: 'rgba(191, 90, 242, 0.4)', size: 10, x: 0, y: 0 };
         } else if (n.is_wifi6) {
             n.borderWidth = 2;
-            n.color = { border: '#00f0ff' };
-            n.shadow = { color: '#00f0ff', size: 12, x: 0, y: 0 };
+            n.color = {
+                border: '#64D2FF', // System Cyan
+                background: 'rgba(100, 210, 255, 0.2)'
+            };
+            n.shadow = { color: 'rgba(100, 210, 255, 0.4)', size: 8, x: 0, y: 0 };
         }
 
-        // Randomized MAC
+        // Randomized MAC - Subtle Glass
         if (n.is_randomized) {
-            n.shadow = { enabled: true, color: 'rgba(255, 255, 255, 0.4)', size: 8, x: 0, y: 0 };
+            n.opacity = 0.6;
+            n.font = { color: '#86868B' }; // Text Secondary
         }
 
         // Icons
         if (n.group === NodeGroups.STATION) {
             n.shape = 'icon';
-            let iconCode = '\uf390'; // mobile
-            let color = '#FF453A';
+            let iconCode = '\uf10b'; // mobile-alt
+            let color = '#FF453A'; // System Red (Default)
 
             const os = (n.os || '').toLowerCase();
             const model = (n.model || '').toLowerCase();
 
-            if (os.includes('ios') || os.includes('apple')) iconCode = '\uf179';
-            else if (os.includes('android')) iconCode = '\uf17b';
-            else if (os.includes('windows') || model.includes('pc')) iconCode = '\uf108';
-            else if (model.includes('camera')) iconCode = '\uf030';
-            else if (model.includes('tv')) iconCode = '\uf26c';
+            if (os.includes('ios') || os.includes('apple')) {
+                iconCode = '\uf179';
+                color = '#F5F5F7'; // Apple White
+            }
+            else if (os.includes('android')) {
+                iconCode = '\uf17b';
+                color = '#30D158'; // System Green
+            }
+            else if (os.includes('windows') || model.includes('pc')) {
+                iconCode = '\uf108'; // Desktop
+                color = '#0A84FF'; // System Blue
+            }
+            else if (model.includes('camera')) {
+                iconCode = '\uf030';
+                color = '#FFD60A'; // System Yellow
+            }
+            else if (model.includes('tv')) {
+                iconCode = '\uf26c';
+                color = '#BF5AF2'; // System Purple
+            }
 
-            n.icon = { face: '"Font Awesome 6 Free"', code: iconCode, size: 26, color: color, weight: '900' };
+            n.icon = { face: '"Font Awesome 6 Free"', code: iconCode, size: 24, color: color, weight: 'bold' };
 
-            // Highlight Alias with Yellow Icon
+            // Highlight Alias with Gold Icon
             if (State.getAlias(n.mac)) n.icon.color = '#FFD60A';
 
         } else if (n.group === NodeGroups.AP) {
             n.shape = 'icon';
-            n.icon = { face: '"Font Awesome 6 Free"', code: '\uf1eb', size: 32, color: '#32D74B', weight: '900' };
-
+            n.icon = { face: '"Font Awesome 6 Free"', code: '\uf1eb', size: 36, color: '#30D158', weight: 'bold' }; // System Green
+            n.shadow = { color: 'rgba(48, 209, 88, 0.4)', size: 12, x: 0, y: 0 };
 
             // Handshake Captured (Lock Badge)
             if (n.has_handshake) {
-                // Instead of replacing the icon, we append a badge to the label
-                // Vis.js supports unicode in labels.
                 if (!n.label) n.label = '';
-                // Check if already has lock to avoid duplication if called multiple times
                 if (!n.label.includes('🔒')) {
                     n.label += ' 🔒';
                 }
-                // Optional: Make label color generic if not valid, but let's keep it simple.
             }
         }
 

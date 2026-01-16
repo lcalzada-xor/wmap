@@ -25,6 +25,7 @@ import { ContextMenu } from './ui/context_menu.js';
 import { GraphConfig } from './ui/graph_config.js';
 import { StartupVerifier } from './core/startup.js';
 import { VulnerabilityPanel } from './ui/vulnerability_panel.js';
+import { SaturationManager } from './core/saturation_manager.js';
 
 // Vis.js Global
 const vis = window.vis;
@@ -47,6 +48,7 @@ class App {
     }
 
     init() {
+        SaturationManager.init();
         this.initGraph();
         this.initRenderers();
 
@@ -81,11 +83,43 @@ class App {
             if (p.nodes.length > 0) {
                 const nodeId = p.nodes[0];
                 const node = this.dataManager.nodes.get(nodeId);
+
+                // Focus Mode: Highlight connections (Optimized)
+                const connected = this.network.getConnectedNodes(nodeId);
+                const connectedSet = new Set([nodeId, ...connected]);
+                const connectedEdges = new Set(this.network.getConnectedEdges(nodeId));
+
+                // Batch update: dim non-connected, highlight connected
+                const allNodes = this.dataManager.nodes.get();
+                const nodeUpdates = allNodes.map(n => ({
+                    id: n.id,
+                    opacity: connectedSet.has(n.id) ? 1 : 0.1
+                }));
+
+                const allEdges = this.dataManager.edges.get();
+                const edgeUpdates = allEdges.map(e => ({
+                    id: e.id,
+                    color: { opacity: connectedEdges.has(e.id) ? 1 : 0.05, inherit: false }
+                }));
+
+                this.dataManager.nodes.update(nodeUpdates);
+                this.dataManager.edges.update(edgeUpdates);
+
                 this.network.selectNodes([nodeId]);
                 if (node) {
                     HUD.showDetails(node);
                 }
             } else {
+                // Reset View (Optimized)
+                const allNodes = this.dataManager.nodes.get();
+                const nodeUpdates = allNodes.map(n => ({ id: n.id, opacity: 1 }));
+
+                const allEdges = this.dataManager.edges.get();
+                const edgeUpdates = allEdges.map(e => ({ id: e.id, color: { opacity: 1 } }));
+
+                this.dataManager.nodes.update(nodeUpdates);
+                this.dataManager.edges.update(edgeUpdates);
+
                 HUD.hideDetails();
             }
         });
@@ -107,6 +141,13 @@ class App {
         // UI Physics Toggle
         EventBus.on('ui:physics', (enabled) => {
             this.network.setOptions({ physics: { enabled } });
+        });
+
+        // UI Force Stabilize
+        EventBus.on('ui:stabilize', () => {
+            if (this.network) {
+                this.network.stabilize(500); // Run up to 500 iterations
+            }
         });
 
         // UI Compositor Refresh

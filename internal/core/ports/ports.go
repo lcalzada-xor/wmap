@@ -34,6 +34,9 @@ type Sniffer interface {
 	// Channel Locking for attacks
 	Lock(iface string, channel int) error
 	Unlock(iface string) error
+
+	// Close releases resources (sockets, handles).
+	Close()
 }
 
 // NetworkService defines the core business logic (if we extract it from Server).
@@ -55,7 +58,7 @@ type NetworkService interface {
 	GetInterfaceDetails() []domain.InterfaceInfo
 
 	// Deauth Attack Methods
-	StartDeauthAttack(config domain.DeauthAttackConfig) (string, error)
+	StartDeauthAttack(ctx context.Context, config domain.DeauthAttackConfig) (string, error)
 	StopDeauthAttack(id string, force bool) error
 	GetDeauthStatus(id string) (domain.DeauthAttackStatus, error)
 	ListDeauthAttacks() []domain.DeauthAttackStatus
@@ -64,7 +67,6 @@ type NetworkService interface {
 	StartWPSAttack(config domain.WPSAttackConfig) (string, error)
 	StopWPSAttack(id string, force bool) error
 	GetWPSStatus(id string) (domain.WPSAttackStatus, error)
-
 	// Intelligence
 	GetSystemStats() domain.SystemStats
 
@@ -72,4 +74,5 @@ type NetworkService interface {
 	StartAuthFloodAttack(config domain.AuthFloodAttackConfig) (string, error)
 	StopAuthFloodAttack(id string, force bool) error
 	GetAuthFloodStatus(id string) (domain.AuthFloodAttackStatus, error)
+	Close()
 }

@@ -57,6 +57,8 @@ export class UIManager {
                 // Determine event based on prop
                 if (prop === 'physics') {
                     EventBus.emit('ui:physics', val);
+                } else if (prop === 'stabilize') {
+                    EventBus.emit('ui:stabilize');
                 } else if (prop === 'grid' || prop === 'trails' || prop === 'heatmap') {
                     EventBus.emit('ui:render_layer', { layer: prop, enabled: val }); // val isn't passed for refresh but let's assume toggle
                     // Actually original code was: props === 'grid' ... -> compositor.refresh()

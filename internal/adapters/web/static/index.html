@@ -7,11 +7,10 @@
     <title>WMAP // Enterprise WiFi Intel</title>
 
     <!-- Fonts (iOS 19 Style) -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@400;600;700&display=swap"
-        rel="stylesheet">
+    <!-- Fonts (Disabled for offline compatibility) -->
+    <!-- <link rel="preconnect" href="https://fonts.googleapis.com"> -->
+    <!-- <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin> -->
+    <!-- <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet"> -->
 
     <!-- Icons & Libs -->
     <link rel="stylesheet" href="fontawesome-css/all.min.css">
@@ -254,6 +253,9 @@
                         style="margin-right:8px"></i> Group Stations</label>
                 <label><input type="checkbox" id="toggle-physics" checked> <i class="fas fa-atom"
                         style="margin-right:8px"></i> Physics Engine</label>
+                <button id="btn-stabilize" class="action-btn-secondary" style="width:100%; margin-top:5px; font-size:0.8em; padding:6px;">
+                    <i class="fas fa-snowflake"></i> Force Stabilize
+                </button>
                 <label><input type="checkbox" id="toggle-persist" checked> <i class="fas fa-history"
                         style="margin-right:8px"></i> Persist Findings</label>
             </div>

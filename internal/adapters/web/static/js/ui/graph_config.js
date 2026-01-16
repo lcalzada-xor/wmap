@@ -4,38 +4,40 @@
  */
 export const GraphConfig = {
     nodes: {
-        font: { face: 'SF Pro Text, Inter, sans-serif', color: '#F5F5F7', size: 14, strokeWidth: 4, strokeColor: '#000000' },
-        borderWidth: 0,
-        shadow: { enabled: true, color: 'rgba(0,0,0,0.5)', size: 10, x: 0, y: 4 },
+        font: { face: 'SF Pro Text, Inter, sans-serif', color: '#F5F5F7', size: 14, strokeWidth: 0, vadjust: -30 },
+        borderWidth: 1, // Elegant thin border
+        shadow: { enabled: true, color: 'rgba(0,0,0,0.5)', size: 8, x: 0, y: 4 }, // Soft shadow
         shape: 'dot',
         size: 10,
         color: {
-            background: '#86868B',
+            background: '#1C1C1E', // Apple Dark Grey
             border: '#ffffff',
-            highlight: { background: '#ffffff', border: '#0A84FF' }
+            highlight: { background: '#ffffff', border: '#0A84FF' } // System Blue
         }
     },
     edges: {
         color: {
-            color: 'rgba(0, 240, 255, 0.8)', /* Neon Cyan - Increased Opacity */
+            color: 'rgba(255, 255, 255, 0.15)', // Subtle connection
             highlight: '#ffffff',
-            hover: '#ffffff'
+            hover: '#ffffff',
+            inherit: false
         },
-        width: 3, /* Increased Width */
-        shadow: { enabled: true, color: 'rgba(0, 240, 255, 0.6)', size: 10, x: 0, y: 0 },
-        smooth: { type: 'continuous' }
+        width: 1,
+        shadow: { enabled: false }, // No glowing edges, clean lines
+        smooth: { type: 'continuous', forceDirection: 'none', roundness: 0.5 }
     },
     physics: {
         stabilization: false,
         barnesHut: {
-            gravitationalConstant: -10000, /* Stronger Repeals (was -3000) */
-            centralGravity: 0.3,
-            springLength: 250, /* Longer Springs (was 200) */
-            springConstant: 0.04,
-            damping: 0.09,
-            avoidOverlap: 0.5 /* explicit overlap avoidance benefit */
+            gravitationalConstant: -8000,
+            centralGravity: 0.4,
+            springLength: 150,
+            springConstant: 0.05,
+            damping: 0.2,
+            avoidOverlap: 0.1
         },
-        timestep: 0.5
+        minVelocity: 0.75,
+        timestep: 0.4
     },
     groups: {
         network: {

@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
+	"gorm.io/plugin/opentelemetry/tracing"
 )
 
 // SQLiteAdapter implements ports.Storage using GORM and SQLite.
@@ -23,7 +24,7 @@ type DeviceModel struct {
 	Type           string
 	Vendor         string
 	RSSI           int
-	SSID           string
+	SSID           string `gorm:"column:ssid"`
 	Channel        int
 	Crypto         string
 	Security       string // WPA2, WPA3, OPEN, WEP
@@ -59,6 +60,11 @@ type DeviceModel struct {
 	AnomalyScore   float64
 	ActiveHours    string // JSON encoded []int
 
+	// Connection State (Logic 2.0)
+	ConnectionState  string
+	ConnectionTarget string
+	ConnectionError  string
+
 	// ProbedSSIDs is a many-to-many or one-to-many relationship,
 	// but for simplicity in SQLite we can store it in a separate table.
 	ProbedSSIDs []ProbeModel `gorm:"foreignKey:DeviceMAC"`
@@ -68,7 +74,7 @@ type DeviceModel struct {
 type ProbeModel struct {
 	ID        uint   `gorm:"primaryKey"`
 	DeviceMAC string `gorm:"index"`
-	SSID      string
+	SSID      string `gorm:"column:ssid"`
 	LastSeen  time.Time
 }
 
@@ -84,6 +90,29 @@ func NewSQLiteAdapter(path string) (*SQLiteAdapter, error) {
 	// Auto Migrate
 	if err := db.AutoMigrate(&DeviceModel{}, &ProbeModel{}, &domain.User{}, &domain.AuditLog{}); err != nil {
 		return nil, err
+	}
+
+	// Instrument with OpenTelemetry
+	if err := db.Use(tracing.NewPlugin()); err != nil {
+		return nil, err
+	}
+
+	// Performance & Concurrency Optimizations
+	// WAL mode allows simultaneous readers and one writer
+	db.Exec("PRAGMA journal_mode=WAL;")
+	// Busy timeout prevents "database locked" errors by waiting
+	db.Exec("PRAGMA busy_timeout=5000;")
+	// Synchronous NORMAL is faster and safe enough for WAL
+	db.Exec("PRAGMA synchronous=NORMAL;")
+
+	// Manual Migration fallbacks for SQLite (sometimes AutoMigrate misses columns in existing tables)
+	if !db.Migrator().HasColumn(&DeviceModel{}, "SSID") {
+		log.Println("Manually adding missing column: device_models.ssid")
+		db.Migrator().AddColumn(&DeviceModel{}, "SSID")
+	}
+	if !db.Migrator().HasColumn(&ProbeModel{}, "SSID") {
+		log.Println("Manually adding missing column: probe_models.ssid")
+		db.Migrator().AddColumn(&ProbeModel{}, "SSID")
 	}
 
 	// Create Indices for Performance

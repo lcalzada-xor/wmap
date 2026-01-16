@@ -24,12 +24,16 @@ export const Notifications = {
 
         const note = document.createElement('div');
         note.className = `notification ${type}`;
-        note.innerHTML = `<i class="fas fa-info-circle"></i> ${message}`;
 
-        // Icons
-        if (type === 'success') note.innerHTML = `<i class="fas fa-check-circle"></i> ${message}`;
-        if (type === 'warning') note.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${message}`;
-        if (type === 'danger') note.innerHTML = `<i class="fas fa-radiation"></i> ${message}`;
+        const icon = document.createElement('i');
+        // Set icon class based on type
+        if (type === 'success') icon.className = 'fas fa-check-circle';
+        else if (type === 'warning') icon.className = 'fas fa-exclamation-triangle';
+        else if (type === 'danger') icon.className = 'fas fa-radiation';
+        else icon.className = 'fas fa-info-circle';
+
+        note.appendChild(icon);
+        note.appendChild(document.createTextNode(' ' + message));
 
         this.container.appendChild(note);
 

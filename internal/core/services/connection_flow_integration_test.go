@@ -5,14 +5,15 @@ import (
 	"time"
 
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
+	"github.com/lcalzada-xor/wmap/internal/core/services/registry"
 	"github.com/stretchr/testify/assert"
 )
 
 // TestConnectionStateFlow_Integration tests the complete flow from device processing to graph building
 func TestConnectionStateFlow_Integration(t *testing.T) {
 	// 1. Create registry and graph builder
-	registry := NewDeviceRegistry(nil)
-	builder := NewGraphBuilder(registry)
+	reg := registry.NewDeviceRegistry(nil)
+	builder := registry.NewGraphBuilder(reg)
 
 	// 2. Create AP device
 	ap := domain.Device{
@@ -21,7 +22,7 @@ func TestConnectionStateFlow_Integration(t *testing.T) {
 		SSID:           "TestNetwork",
 		LastPacketTime: time.Now(),
 	}
-	registry.ProcessDevice(ap)
+	reg.ProcessDevice(ap)
 
 	// 3. Create Station device with connection state
 	station := domain.Device{
@@ -31,7 +32,7 @@ func TestConnectionStateFlow_Integration(t *testing.T) {
 		ConnectionTarget: "00:11:22:33:44:55", // Connected to AP
 		LastPacketTime:   time.Now(),
 	}
-	merged, _ := registry.ProcessDevice(station)
+	merged, _ := reg.ProcessDevice(station)
 
 	// 4. Verify device was merged correctly
 	assert.Equal(t, domain.StateConnected, merged.ConnectionState, "ConnectionState should be preserved")
@@ -118,8 +119,8 @@ func TestConnectionStateFlow_AllStates(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			registry := NewDeviceRegistry(nil)
-			builder := NewGraphBuilder(registry)
+			reg := registry.NewDeviceRegistry(nil)
+			builder := registry.NewGraphBuilder(reg)
 
 			// Create AP
 			ap := domain.Device{
@@ -127,7 +128,7 @@ func TestConnectionStateFlow_AllStates(t *testing.T) {
 				Type:           "ap",
 				LastPacketTime: time.Now(),
 			}
-			registry.ProcessDevice(ap)
+			reg.ProcessDevice(ap)
 
 			// Create Station with specific state
 			station := domain.Device{
@@ -138,7 +139,7 @@ func TestConnectionStateFlow_AllStates(t *testing.T) {
 				RSSI:             -50, // Good signal
 				LastPacketTime:   time.Now(),
 			}
-			registry.ProcessDevice(station)
+			reg.ProcessDevice(station)
 
 			// Build graph
 			graph := builder.BuildGraph()
@@ -165,8 +166,8 @@ func TestConnectionStateFlow_AllStates(t *testing.T) {
 
 // TestConnectionStateFlow_Disconnected verifies disconnected state does NOT create edge
 func TestConnectionStateFlow_Disconnected(t *testing.T) {
-	registry := NewDeviceRegistry(nil)
-	builder := NewGraphBuilder(registry)
+	reg := registry.NewDeviceRegistry(nil)
+	builder := registry.NewGraphBuilder(reg)
 
 	// Create AP
 	ap := domain.Device{
@@ -174,7 +175,7 @@ func TestConnectionStateFlow_Disconnected(t *testing.T) {
 		Type:           "ap",
 		LastPacketTime: time.Now(),
 	}
-	registry.ProcessDevice(ap)
+	reg.ProcessDevice(ap)
 
 	// Create disconnected station
 	station := domain.Device{
@@ -184,7 +185,7 @@ func TestConnectionStateFlow_Disconnected(t *testing.T) {
 		ConnectionTarget: "", // No target when disconnected
 		LastPacketTime:   time.Now(),
 	}
-	registry.ProcessDevice(station)
+	reg.ProcessDevice(station)
 
 	// Build graph
 	graph := builder.BuildGraph()

@@ -177,10 +177,23 @@ export class WPSController {
         } else if (['failed', 'timeout', 'stopped'].includes(status.status)) {
             this.finishAttack(status.id, 'error', status);
         } else {
-            // Still running
+            // Still running - Granular Status
+            let statusText = "Running...";
+            let icon = "fa-circle-notch fa-spin";
+
+            if (status.status === 'associating') {
+                statusText = "Associating...";
+                icon = "fa-wifi fa-pulse";
+            } else if (status.status === 'exchanging_keys') {
+                statusText = "Exchanging Keys...";
+                icon = "fa-key fa-pulse";
+            } else if (status.status === 'cracking') {
+                statusText = "Cracking (Pixie Dust)...";
+                icon = "fa-magic fa-spin";
+            }
+
             this.renderStatus(`
-                <i class="fas fa-circle-notch fa-spin"></i> Running... <br>
-                <span style="font-size:0.8em; opacity:0.7">${status.status}</span>
+                <i class="fas ${icon}"></i> ${statusText} <br>
                 <div style="margin-top: 10px;">
                     <button class="btn-wps-stop" data-id="${status.id}" style="padding: 4px 8px; font-size: 0.8em; margin-right: 5px;">Stop</button>
                     <button class="btn-wps-force" data-id="${status.id}" style="padding: 4px 8px; font-size: 0.8em; background: var(--danger-color);">Force</button>

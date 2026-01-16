@@ -12,6 +12,9 @@ type DeviceRegistry interface {
 	// Returns the merged device and whether it was newly discovered (missing or cache invalidated).
 	ProcessDevice(device domain.Device) (domain.Device, bool)
 
+	// LoadDevice restores a device from storage without triggering new device logic (timestamps, discovery).
+	LoadDevice(device domain.Device)
+
 	// GetDevice returns a device by MAC.
 	GetDevice(mac string) (domain.Device, bool)
 

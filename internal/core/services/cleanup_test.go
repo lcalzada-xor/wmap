@@ -5,11 +5,12 @@ import (
 	"time"
 
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
+	"github.com/lcalzada-xor/wmap/internal/core/services/registry"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestDeviceRegistry_CleanupStaleConnections(t *testing.T) {
-	registry := NewDeviceRegistry(nil)
+	registry := registry.NewDeviceRegistry(nil)
 
 	// Setup: 3 Devices
 	// 1. Active Connected (Just seen)

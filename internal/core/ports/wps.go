@@ -10,4 +10,7 @@ type WPSAttackService interface {
 	StopAttack(id string, force bool) error
 	// GetStatus returns the status of an attack
 	GetStatus(id string) (domain.WPSAttackStatus, error)
+	StopAll()
+	// HealthCheck verifies if the necessary tools (reaver, pixiewps) are installed
+	HealthCheck() error
 }

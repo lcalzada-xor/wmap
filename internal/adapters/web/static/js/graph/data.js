@@ -6,6 +6,7 @@
 import { State } from '../core/state.js';
 import { GraphStyler } from '../ui/graph_styler.js';
 import { GraphFilter } from '../core/graph_filter.js';
+import { SaturationManager } from '../core/saturation_manager.js';
 
 export const DataManager = {
     // Cache for differential updates
@@ -13,6 +14,9 @@ export const DataManager = {
     nodeCache: new Map(),
 
     processNodes(rawNodes) {
+        // Update saturation state based on total volume
+        SaturationManager.update(rawNodes);
+
         const updates = [];
 
         rawNodes.forEach(n => {

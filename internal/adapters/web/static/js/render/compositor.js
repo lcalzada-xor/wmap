@@ -13,7 +13,16 @@ export class Compositor {
         this.ctx = this.canvas ? this.canvas.getContext('2d') : null;
 
         this.resize();
-        window.addEventListener('resize', () => this.resize());
+        this.resize();
+        this.resizeHandler = () => this.resize();
+        window.addEventListener('resize', this.resizeHandler);
+    }
+
+    destroy() {
+        this.stop();
+        if (this.resizeHandler) {
+            window.removeEventListener('resize', this.resizeHandler);
+        }
     }
 
     addRenderer(renderer) {

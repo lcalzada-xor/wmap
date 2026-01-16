@@ -66,6 +66,17 @@ export const HUD = {
 
         bind('filter-ap', 'showAP');
         bind('filter-sta', 'showSta');
+        bind('toggle-physics', 'physics', true); // Physics is special, usually tied to network options
+
+        const btnStabilize = document.getElementById('btn-stabilize');
+        if (btnStabilize) {
+            btnStabilize.onclick = () => {
+                if (this.refreshCallback) this.refreshCallback('stabilize');
+            };
+        }
+
+        bind('filter-ap', 'showAP');
+        bind('filter-sta', 'showSta');
         bind('toggle-persist', 'persistFindings');
 
         // RSSI Slider

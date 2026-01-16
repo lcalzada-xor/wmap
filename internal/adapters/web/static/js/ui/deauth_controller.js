@@ -267,6 +267,7 @@ export class DeauthController {
         const packetInterval = parseInt(document.getElementById('deauth-interval').value);
         const reasonCode = parseInt(document.getElementById('deauth-reason').value);
         const legalAck = document.getElementById('deauth-legal-ack').checked;
+        const stealth = document.getElementById('deauth-stealth')?.checked || false;
         const interfaceName = this.interfaceSelect ? this.interfaceSelect.value : "";
         const channelVal = parseInt(document.getElementById('deauth-channel').value);
 
@@ -296,7 +297,11 @@ export class DeauthController {
             reason_code: reasonCode,
             channel: channelVal || 0, // Use input or 0 for auto-detect
             legal_acknowledgment: legalAck,
-            interface: interfaceName
+            interface: interfaceName,
+            // Stealth & Optimizations
+            spoof_source: stealth,
+            use_jitter: stealth,
+            use_reason_fuzzing: stealth || (reasonCode === 0)
         };
 
         try {

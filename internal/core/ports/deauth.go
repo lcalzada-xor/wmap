@@ -12,4 +12,5 @@ type DeauthService interface {
 	GetAttackStatus(id string) (domain.DeauthAttackStatus, error)
 	ListActiveAttacks() []domain.DeauthAttackStatus
 	SetLogger(logger func(string, string))
+	StopAll()
 }

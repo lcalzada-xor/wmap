@@ -22,7 +22,7 @@ func AuthMiddleware(authService ports.AuthService) func(http.Handler) http.Handl
 			// or apply middleware selectively.
 
 			// Get token from cookie
-			cookie, err := r.Cookie("session_token")
+			cookie, err := r.Cookie("auth_token")
 			var token string
 			if err == nil {
 				token = cookie.Value
@@ -46,7 +46,7 @@ func AuthMiddleware(authService ports.AuthService) func(http.Handler) http.Handl
 			if err != nil {
 				// Clear cookie if invalid
 				http.SetCookie(w, &http.Cookie{
-					Name:   "session_token",
+					Name:   "auth_token",
 					Value:  "",
 					Path:   "/",
 					MaxAge: -1,

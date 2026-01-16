@@ -7,11 +7,16 @@ import { State } from '../core/state.js';
 import { NodeGroups } from '../core/constants.js';
 import { AttackTags } from '../core/attack_tags.js';
 
+import { SaturationManager } from './saturation_manager.js';
+
 export const GraphFilter = {
     /**
      * Main filter function - applies all active filters
      */
     apply(node) {
+        // Saturation Protection (Critical Check)
+        if (!SaturationManager.shouldShow(node.id)) return false;
+
         // Apply basic filters first (fast rejection)
         if (!this.applyBasicFilters(node)) return false;
 

@@ -29,12 +29,6 @@ export class DataManager {
      * @param {Object} data - { nodes: [], edges: [] }
      */
     update(data) {
-        // Debug logging to trace data flow
-        console.log('[DataManager] Received update:', {
-            nodes: data.nodes?.length || 0,
-            edges: data.edges?.length || 0
-        });
-
         // 1. Process Nodes
         const paramNodes = data.nodes || [];
         const updates = [];
@@ -57,36 +51,35 @@ export class DataManager {
             this.nodes.update(updates);
         }
 
-        // 2. Process Edges
-        // Graph data from backend is a complete snapshot, not incremental
-        // We need to REPLACE all edges, not merge them
-        const paramEdges = data.edges || [];
+        // Prune stale nodes (Ghost Node Fix)
+        // Identify nodes that are in the dataset but NOT in the update payload
+        const currentIds = new Set(this.nodes.getIds());
+        const newIds = new Set(paramNodes.map(n => n.id));
+        const idsToRemove = [...currentIds].filter(id => !newIds.has(id));
 
-        // Debug: Log sample edges and breakdown by type
-        if (paramEdges.length > 0) {
-            console.log('[DataManager] Sample edges (first 5):', paramEdges.slice(0, 5));
-            const connectionEdges = paramEdges.filter(e => e.type === 'connection');
-            const probeEdges = paramEdges.filter(e => e.type === 'probe');
-            console.log('[DataManager] Edge breakdown:', {
-                total: paramEdges.length,
-                connection: connectionEdges.length,
-                probe: probeEdges.length
-            });
-            if (connectionEdges.length > 0) {
-                console.log('[DataManager] Connection edges:', connectionEdges);
-            }
+        if (idsToRemove.length > 0) {
+            this.nodes.remove(idsToRemove);
+            idsToRemove.forEach(id => this.nodeCache.delete(id));
         }
 
+        // 2. Process Edges with Differential Updates
+        const paramEdges = data.edges || [];
         const edgeUpdates = paramEdges.map(e => GraphStyler.styleEdge(e));
 
-        console.log('[DataManager] Styled edges (first 3):', edgeUpdates.slice(0, 3));
+        // Differential edge sync (avoid full clear+add)
+        const currentEdgeIds = new Set(this.edges.getIds());
+        const newEdgeMap = new Map(edgeUpdates.map(e => [e.id, e]));
+        const newEdgeIds = new Set(newEdgeMap.keys());
 
-        // Full sync: clear old edges and add new ones
-        this.edges.clear();
+        // Remove stale edges
+        const edgesToRemove = [...currentEdgeIds].filter(id => !newEdgeIds.has(id));
+        if (edgesToRemove.length > 0) {
+            this.edges.remove(edgesToRemove);
+        }
+
+        // Update/add edges (vis.js handles both)
         if (edgeUpdates.length > 0) {
-            this.edges.add(edgeUpdates);
-            console.log('[DataManager] Added', edgeUpdates.length, 'edges to graph');
-            console.log('[DataManager] Current edge count in dataset:', this.edges.length);
+            this.edges.update(edgeUpdates);
         }
 
         return {

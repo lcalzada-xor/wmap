@@ -10,8 +10,8 @@ import (
 	"syscall"
 
 	wmap_grpc "github.com/lcalzada-xor/wmap/api/proto"
-	"github.com/lcalzada-xor/wmap/geo"
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer"
+	"github.com/lcalzada-xor/wmap/internal/geo"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
