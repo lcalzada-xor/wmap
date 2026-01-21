@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/parser"
+	"github.com/lcalzada-xor/wmap/internal/core/domain"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
@@ -60,7 +61,7 @@ func createBeaconPacket(bssid, ssid string, channel int) gopacket.Packet {
 func TestHandlePacket_BeaconParsing(t *testing.T) {
 	// Setup
 	mockLoc := MockGeo{}
-	handler := parser.NewPacketHandler(mockLoc, false, nil, nil)
+	handler := parser.NewPacketHandler(mockLoc, false, nil, nil, nil)
 
 	bssid := "00:11:22:33:44:55"
 	ssid := "TestSSID"
@@ -74,7 +75,7 @@ func TestHandlePacket_BeaconParsing(t *testing.T) {
 	assert.NotNil(t, device)
 
 	assert.Equal(t, bssid, device.MAC)
-	assert.Equal(t, "ap", device.Type)
+	assert.Equal(t, domain.DeviceTypeAP, device.Type)
 	assert.Equal(t, ssid, device.SSID)
 	assert.Equal(t, channel, device.Channel)
 	assert.Equal(t, "WPA2-PSK", device.Security)
@@ -82,7 +83,7 @@ func TestHandlePacket_BeaconParsing(t *testing.T) {
 
 func TestHandlePacket_IgnoreJunk(t *testing.T) {
 	mockLoc := MockGeo{}
-	handler := parser.NewPacketHandler(mockLoc, false, nil, nil)
+	handler := parser.NewPacketHandler(mockLoc, false, nil, nil, nil)
 
 	// Empty Packet
 	buf := gopacket.NewSerializeBuffer()

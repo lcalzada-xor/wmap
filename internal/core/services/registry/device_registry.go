@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -20,29 +21,38 @@ type deviceShard struct {
 
 // DeviceRegistry implements ports.DeviceRegistry.
 type DeviceRegistry struct {
-	shards       []*deviceShard
-	ssids        map[string]bool
-	ssidSecurity map[string]string
-	ssidsMu      sync.RWMutex
-	discoCache   map[string]string
+	shards      []*deviceShard
+	ssidManager *SSIDManager
+	merger      *DeviceMerger
+	subject     *RegistrySubject
+	discoCache  map[string]string
 
 	// Services
 	BehaviorEngine *security.BehaviorEngine
 	// MAC -> Last processed Signature
 	discoCacheMu sync.RWMutex
 	sigMatcher   ports.SignatureMatcher
+
+	// Vulnerability Persistence
+	VulnPersistence *security.VulnerabilityPersistenceService
+	VulnDetector    *security.VulnerabilityDetector
 }
 
 // NewDeviceRegistry creates a new sharded registry.
-func NewDeviceRegistry(sigMatcher ports.SignatureMatcher) *DeviceRegistry {
+func NewDeviceRegistry(sigMatcher ports.SignatureMatcher, vulnStore *security.VulnerabilityPersistenceService) *DeviceRegistry {
 	r := &DeviceRegistry{
-		shards:         make([]*deviceShard, numShards),
-		ssids:          make(map[string]bool),
-		ssidSecurity:   make(map[string]string),
-		discoCache:     make(map[string]string),
-		BehaviorEngine: security.NewBehaviorEngine(),
-		sigMatcher:     sigMatcher,
+		shards:          make([]*deviceShard, numShards),
+		ssidManager:     NewSSIDManager(),
+		merger:          NewDeviceMerger(),
+		subject:         NewRegistrySubject(),
+		discoCache:      make(map[string]string),
+		BehaviorEngine:  security.NewBehaviorEngine(),
+		sigMatcher:      sigMatcher,
+		VulnPersistence: vulnStore,
 	}
+	// r.VulnDetector will be set after 'r' is created to avoid circular dep issues in constructor params,
+	// but we can set it here using 'r' reference.
+	r.VulnDetector = security.NewVulnerabilityDetector(r)
 
 	for i := 0; i < numShards; i++ {
 		r.shards[i] = &deviceShard{
@@ -61,7 +71,7 @@ func (r *DeviceRegistry) getShard(mac string) *deviceShard {
 	return r.shards[hash%uint32(len(r.shards))]
 }
 
-func (r *DeviceRegistry) ProcessDevice(newDevice domain.Device) (domain.Device, bool) {
+func (r *DeviceRegistry) ProcessDevice(ctx context.Context, newDevice domain.Device) (domain.Device, bool) {
 	shard := r.getShard(newDevice.MAC)
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
@@ -80,7 +90,7 @@ func (r *DeviceRegistry) ProcessDevice(newDevice domain.Device) (domain.Device, 
 		}
 
 		r.updateBehavioralProfile(shard, newDevice)
-		r.performDiscovery(&newDevice)
+		r.performDiscovery(ctx, &newDevice)
 
 		// Move correlation outside of the primary shard lock to avoid deadlock
 		shard.mu.Unlock()
@@ -90,7 +100,7 @@ func (r *DeviceRegistry) ProcessDevice(newDevice domain.Device) (domain.Device, 
 		// Race Condition Fix: Check if another thread created the device while we were unlocked
 		if raceExisting, raceOk := shard.devices[newDevice.MAC]; raceOk {
 			// Another thread beat us to it. Merge our data into the existing one.
-			r.mergeDeviceData(&raceExisting, newDevice)
+			r.merger.Merge(&raceExisting, newDevice)
 			shard.devices[newDevice.MAC] = raceExisting
 			// Strictly speaking, it's not "new" to the registry anymore, but we might want to return true/false based on discovery?
 			// Let's return false as it's an update now.
@@ -110,12 +120,19 @@ func (r *DeviceRegistry) ProcessDevice(newDevice domain.Device) (domain.Device, 
 		}
 
 		shard.devices[newDevice.MAC] = newDevice
-		r.updateSSIDsInternal(newDevice)
+		r.ssidManager.Update(ctx, newDevice.SSID, newDevice.Security)
+		r.ssidManager.Update(ctx, "", "") // Dummy to trigger internal SSID update for ProbedSSIDs?
+		// Actually SSIDManager Update only takes one SSID. We need to iterate probed SSIDs.
+		for ssid := range newDevice.ProbedSSIDs {
+			r.ssidManager.Update(ctx, ssid, "")
+		}
 
 		// Populate discovery cache for new device to prevent immediate re-discovery
 		r.discoCacheMu.Lock()
 		r.discoCache[newDevice.MAC] = newDevice.Signature
 		r.discoCacheMu.Unlock()
+
+		r.subject.NotifyAdded(ctx, newDevice) // Notify Observers
 
 		return newDevice, true
 	}
@@ -124,10 +141,10 @@ func (r *DeviceRegistry) ProcessDevice(newDevice domain.Device) (domain.Device, 
 	shouldPerformDiscovery := r.checkDiscoveryNeeded(existing, newDevice)
 
 	// Merge Logic
-	r.mergeDeviceData(&existing, newDevice)
+	r.merger.Merge(&existing, newDevice)
 
 	if shouldPerformDiscovery {
-		r.performDiscovery(&existing)
+		r.performDiscovery(ctx, &existing)
 		r.discoCacheMu.Lock()
 		r.discoCache[existing.MAC] = existing.Signature
 		r.discoCacheMu.Unlock()
@@ -139,12 +156,31 @@ func (r *DeviceRegistry) ProcessDevice(newDevice domain.Device) (domain.Device, 
 	}
 
 	shard.devices[newDevice.MAC] = existing
-	r.updateSSIDsInternal(existing)
+
+	r.ssidManager.Update(ctx, existing.SSID, existing.Security)
+	for ssid := range existing.ProbedSSIDs {
+		r.ssidManager.Update(ctx, ssid, "")
+	}
+
+	r.subject.NotifyUpdated(ctx, existing) // Notify Observers
+
+	// Async Vulnerability Check for Performance - Retained as explicit call or move to Observer?
+	// Plan said "Implement an Observer pattern for device updates instead of direct calls".
+	// So we should move this to an observer?
+	// For this refactor, I'll keep it here but we should ideally have a VulnerabilityScannerObserver.
+	if r.VulnPersistence != nil && r.VulnDetector != nil {
+		go func(d domain.Device) {
+			vulns := r.VulnDetector.DetectVulnerabilities(&d)
+			if len(vulns) > 0 {
+				r.VulnPersistence.ProcessDetections(d.MAC, vulns)
+			}
+		}(existing)
+	}
 
 	return existing, shouldPerformDiscovery
 }
 
-func (r *DeviceRegistry) LoadDevice(device domain.Device) {
+func (r *DeviceRegistry) LoadDevice(ctx context.Context, device domain.Device) {
 	shard := r.getShard(device.MAC)
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
@@ -158,7 +194,10 @@ func (r *DeviceRegistry) LoadDevice(device domain.Device) {
 	}
 
 	// 3. Update Lookup Maps
-	r.updateSSIDsInternal(device)
+	r.ssidManager.Update(ctx, device.SSID, device.Security)
+	for ssid := range device.ProbedSSIDs {
+		r.ssidManager.Update(ctx, ssid, "")
+	}
 
 	// 4. Populate Disco Cache to avoid immediate re-discovery upon next packet
 	r.discoCacheMu.Lock()
@@ -173,117 +212,10 @@ func (r *DeviceRegistry) checkDiscoveryNeeded(existing, newDevice domain.Device)
 	return !cached || lastSig != newDevice.Signature || existing.Model == ""
 }
 
-func (r *DeviceRegistry) mergeDeviceData(existing *domain.Device, newDevice domain.Device) {
-	existing.LastPacketTime = newDevice.LastPacketTime
-	existing.LastSeen = newDevice.LastPacketTime
-	existing.RSSI = newDevice.RSSI
-	existing.Latitude = newDevice.Latitude
-	existing.Longitude = newDevice.Longitude
+// DELETED: func (r *DeviceRegistry) mergeDeviceData...
+// DELETED: func (r *DeviceRegistry) updateSSIDsInternal...
 
-	if newDevice.Vendor != "" {
-		existing.Vendor = newDevice.Vendor
-	}
-
-	// Merge Type - APs take precedence over stations
-	// A device might first be seen as a station (probe) but later broadcast beacons (AP)
-	if newDevice.Type != "" {
-		if newDevice.Type == "ap" || existing.Type == "" {
-			existing.Type = newDevice.Type
-		}
-	}
-
-	if newDevice.Signature != "" {
-		existing.Signature = newDevice.Signature
-		existing.IETags = newDevice.IETags
-	}
-
-	// Merge other fields
-	if newDevice.Security != "" {
-		existing.Security = newDevice.Security
-	}
-	if newDevice.Standard != "" {
-		existing.Standard = newDevice.Standard
-	}
-	if newDevice.Model != "" {
-		existing.Model = newDevice.Model
-	}
-	if newDevice.Frequency > 0 {
-		existing.Frequency = newDevice.Frequency
-	}
-	if newDevice.WPSInfo != "" {
-		existing.WPSInfo = newDevice.WPSInfo
-	}
-	if newDevice.HasHandshake {
-		existing.HasHandshake = true
-	}
-
-	// Merge Channel - keep current channel info
-	if newDevice.Channel > 0 {
-		existing.Channel = newDevice.Channel
-	}
-
-	// Protocol capabilities - once detected, always true (like HasHandshake)
-	if newDevice.Has11k {
-		existing.Has11k = true
-	}
-	if newDevice.Has11v {
-		existing.Has11v = true
-	}
-	if newDevice.Has11r {
-		existing.Has11r = true
-	}
-
-	existing.DataTransmitted += newDevice.DataTransmitted
-	existing.DataReceived += newDevice.DataReceived
-	existing.PacketsCount += newDevice.PacketsCount
-	existing.RetryCount += newDevice.RetryCount
-	if newDevice.ChannelWidth > 0 {
-		existing.ChannelWidth = newDevice.ChannelWidth
-	}
-
-	if existing.ProbedSSIDs == nil {
-		existing.ProbedSSIDs = make(map[string]time.Time)
-	}
-	for ssid, ts := range newDevice.ProbedSSIDs {
-		existing.ProbedSSIDs[ssid] = ts
-	}
-
-	if newDevice.SSID != "" {
-		existing.SSID = newDevice.SSID
-	}
-	if newDevice.ConnectedSSID != "" {
-		existing.ConnectedSSID = newDevice.ConnectedSSID
-	}
-
-	// Connection State Fields (Critical for Graph)
-	// Always update these fields as they represent the most current connection state
-	// When ConnectionState is set, we also update Target and Error (even if empty)
-	// to allow clearing these fields on disconnect
-	if newDevice.ConnectionState != "" {
-		existing.ConnectionState = newDevice.ConnectionState
-		existing.ConnectionTarget = newDevice.ConnectionTarget
-		existing.ConnectionError = newDevice.ConnectionError
-	}
-}
-
-func (r *DeviceRegistry) updateSSIDsInternal(d domain.Device) {
-	r.ssidsMu.Lock()
-	defer r.ssidsMu.Unlock()
-
-	if d.SSID != "" {
-		r.ssids[d.SSID] = true
-		if d.Security != "" {
-			if _, ok := r.ssidSecurity[d.SSID]; !ok {
-				r.ssidSecurity[d.SSID] = d.Security
-			}
-		}
-	}
-	for ssid := range d.ProbedSSIDs {
-		r.ssids[ssid] = true
-	}
-}
-
-func (r *DeviceRegistry) GetDevice(mac string) (domain.Device, bool) {
+func (r *DeviceRegistry) GetDevice(ctx context.Context, mac string) (domain.Device, bool) {
 	shard := r.getShard(mac)
 	shard.mu.RLock()
 	defer shard.mu.RUnlock()
@@ -291,7 +223,7 @@ func (r *DeviceRegistry) GetDevice(mac string) (domain.Device, bool) {
 	return d, ok
 }
 
-func (r *DeviceRegistry) GetAllDevices() []domain.Device {
+func (r *DeviceRegistry) GetAllDevices(ctx context.Context) []domain.Device {
 	var all []domain.Device
 	for _, shard := range r.shards {
 		shard.mu.RLock()
@@ -319,7 +251,7 @@ func (r *DeviceRegistry) GetAllDevices() []domain.Device {
 	return all
 }
 
-func (r *DeviceRegistry) PruneOldDevices(ttl time.Duration) int {
+func (r *DeviceRegistry) PruneOldDevices(ctx context.Context, ttl time.Duration) int {
 	threshold := time.Now().Add(-ttl)
 	profileThreshold := time.Now().Add(-24 * time.Hour) // Profiles last 24h by default
 	deletedCount := 0
@@ -343,7 +275,7 @@ func (r *DeviceRegistry) PruneOldDevices(ttl time.Duration) int {
 }
 
 // CleanupStaleConnections degrades connections to "disconnected" if silent for too long.
-func (r *DeviceRegistry) CleanupStaleConnections(timeout time.Duration) int {
+func (r *DeviceRegistry) CleanupStaleConnections(ctx context.Context, timeout time.Duration) int {
 	threshold := time.Now().Add(-timeout)
 	count := 0
 
@@ -375,7 +307,7 @@ func (r *DeviceRegistry) CleanupStaleConnections(timeout time.Duration) int {
 }
 
 // Clear wipes all in-memory state.
-func (r *DeviceRegistry) Clear() {
+func (r *DeviceRegistry) Clear(ctx context.Context) {
 	for _, shard := range r.shards {
 		shard.mu.Lock()
 		shard.devices = make(map[string]domain.Device)
@@ -383,17 +315,14 @@ func (r *DeviceRegistry) Clear() {
 		shard.mu.Unlock()
 	}
 
-	r.ssidsMu.Lock()
-	r.ssids = make(map[string]bool)
-	r.ssidSecurity = make(map[string]string)
-	r.ssidsMu.Unlock()
+	r.ssidManager.Clear()
 
 	r.discoCacheMu.Lock()
 	r.discoCache = make(map[string]string)
 	r.discoCacheMu.Unlock()
 }
 
-func (r *DeviceRegistry) GetActiveCount() int {
+func (r *DeviceRegistry) GetActiveCount(ctx context.Context) int {
 	count := 0
 	for _, shard := range r.shards {
 		shard.mu.RLock()
@@ -403,32 +332,16 @@ func (r *DeviceRegistry) GetActiveCount() int {
 	return count
 }
 
-func (r *DeviceRegistry) UpdateSSID(ssid, security string) {
-	r.ssidsMu.Lock()
-	defer r.ssidsMu.Unlock()
-	r.ssids[ssid] = true
-	if security != "" {
-		if _, ok := r.ssidSecurity[ssid]; !ok {
-			r.ssidSecurity[ssid] = security
-		}
-	}
+func (r *DeviceRegistry) UpdateSSID(ctx context.Context, ssid, security string) {
+	r.ssidManager.Update(ctx, ssid, security)
 }
 
-func (r *DeviceRegistry) GetSSIDs() map[string]bool {
-	r.ssidsMu.RLock()
-	defer r.ssidsMu.RUnlock()
-	copy := make(map[string]bool)
-	for k, v := range r.ssids {
-		copy[k] = v
-	}
-	return copy
+func (r *DeviceRegistry) GetSSIDs(ctx context.Context) map[string]bool {
+	return r.ssidManager.GetSSIDs(ctx)
 }
 
-func (r *DeviceRegistry) GetSSIDSecurity(ssid string) (string, bool) {
-	r.ssidsMu.RLock()
-	defer r.ssidsMu.RUnlock()
-	sec, ok := r.ssidSecurity[ssid]
-	return sec, ok
+func (r *DeviceRegistry) GetSSIDSecurity(ctx context.Context, ssid string) (string, bool) {
+	return r.ssidManager.GetSecurity(ctx, ssid)
 }
 
 func (r *DeviceRegistry) updateBehavioralProfile(shard *deviceShard, device domain.Device) {
@@ -473,14 +386,14 @@ func (r *DeviceRegistry) correlateMAC(newDevice domain.Device) (string, float64)
 	return bestMAC, maxScore
 }
 
-func (r *DeviceRegistry) performDiscovery(device *domain.Device) {
+func (r *DeviceRegistry) performDiscovery(ctx context.Context, device *domain.Device) {
 	if r.sigMatcher == nil {
 		return
 	}
-	match := r.sigMatcher.MatchSignature(*device)
+	match := r.sigMatcher.MatchSignature(ctx, *device)
 	if match != nil && match.Confidence >= 0.6 {
 		device.Model = match.Signature.Model
 		device.OS = match.Signature.OS
-		device.Type = match.Signature.DeviceType
+		device.Type = domain.DeviceType(match.Signature.DeviceType)
 	}
 }

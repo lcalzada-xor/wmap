@@ -15,3 +15,6 @@
 @import 'css/components/wps.css';
 @import 'css/components/deauth.css';
 @import 'css/components/health.css';
+@import 'css/components/vulnerability.css';
+@import 'css/components/audit.css';
+@import 'css/components/context_menu.css';

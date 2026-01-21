@@ -36,7 +36,7 @@ func setupServer(t *testing.T) (*server.Server, *web.MockNetworkService, *web.Mo
 	workspaceMgr, err := workspace.NewWorkspaceManager(tmpDir, storeMgr, mockRegistry)
 	assert.NoError(t, err)
 
-	srv := server.NewServer(":9999", mockService, workspaceMgr, mockAuth, nil)
+	srv := server.NewServer(":9999", mockService, workspaceMgr, mockAuth, nil, nil)
 
 	// Ensure temp dir Cleanup
 	t.Cleanup(func() {
@@ -174,40 +174,24 @@ func TestServer_HandleScan(t *testing.T) {
 	server, mockService, _, _ := setupServer(t)
 
 	// Success case
-	mockService.On("TriggerScan").Return(nil)
+	mockService.On("TriggerScan", mock.Anything).Return(nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/scan", nil)
 	w := httptest.NewRecorder()
-
-	// w := httptest.NewRecorder() // Removed specific redeclaration from previous tool call error?
-	// Actually, line 177 declared w.
-	// Step 451 added "w := httptest.NewRecorder()" at line 179.
-	// I should just use w declared at 177 or remove the extra line.
-	// The replacement added it.
 
 	server.ScanHandler.HandleScan(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// Failure case
-	mockService.On("TriggerScan").Return(context.DeadlineExceeded) // Simulate error error
-
-	// reqError := httptest.NewRequest(http.MethodPost, "/api/scan", nil)
-	// wError := httptest.NewRecorder()
-
-	// Re-mock or just expect call again depending on mock logic.
-	// Testify mocks are order dependent if not configured otherwise.
-	// But let's create a new mock expectation for the SECOND call since TriggerScan was already called once.
-	// Actually testify mock objects accumulate expectations.
-	// The previous return(nil) might be consumed? No, testify repeats unless .Once() is used.
-	// Let's reset for clarity or use .Once()
+	mockService.On("TriggerScan", mock.Anything).Return(context.DeadlineExceeded) // Simulate error
 }
 
 func TestServer_ChannelManagement(t *testing.T) {
 	server, mockService, _, _ := setupServer(t)
 
 	// Test GET global channels
-	mockService.On("GetChannels").Return([]int{1, 6, 11})
+	mockService.On("GetChannels", mock.Anything).Return([]int{1, 6, 11}, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/channels", nil)
 	w := httptest.NewRecorder()
 	server.ScanHandler.HandleChannels(w, req)
@@ -215,7 +199,7 @@ func TestServer_ChannelManagement(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "1,6,11")
 
 	// Test POST set interface channels
-	mockService.On("SetInterfaceChannels", "wlan0", []int{1, 2, 3}).Return()
+	mockService.On("SetInterfaceChannels", mock.Anything, "wlan0", []int{1, 2, 3}).Return(nil)
 	payload := map[string]interface{}{
 		"interface": "wlan0",
 		"channels":  []int{1, 2, 3},
@@ -241,7 +225,7 @@ func TestServer_HandleGetAuditLogs(t *testing.T) {
 	storeMgr := persistence.NewPersistenceManager(nil, 900)
 	workspaceMgr, _ := workspace.NewWorkspaceManager(tmpDir, storeMgr, mockRegistry)
 
-	srv := server.NewServer(":9999", mockService, workspaceMgr, mockAuth, mockAudit)
+	srv := server.NewServer(":9999", mockService, workspaceMgr, mockAuth, mockAudit, nil)
 
 	// Test Case
 	mockAudit.On("GetLogs", mock.Anything, 100).Return([]domain.AuditLog{
@@ -263,7 +247,7 @@ type MockAuditService struct {
 	mock.Mock
 }
 
-func (m *MockAuditService) Log(ctx context.Context, action, target, details string) error {
+func (m *MockAuditService) Log(ctx context.Context, action domain.AuditAction, target, details string) error {
 	args := m.Called(ctx, action, target, details)
 	return args.Error(0)
 }
@@ -288,17 +272,26 @@ func TestServer_HandleGenerateReport(t *testing.T) {
 	storeMgr := persistence.NewPersistenceManager(nil, 900)
 	workspaceMgr, _ := workspace.NewWorkspaceManager(tmpDir, storeMgr, mockRegistry)
 
-	srv := server.NewServer(":9999", mockService, workspaceMgr, mockAuth, mockAudit)
+	srv := server.NewServer(":9999", mockService, workspaceMgr, mockAuth, mockAudit, nil)
 
 	// Sample Data
-	mockService.On("GetGraph").Return(domain.GraphData{
+	mockService.On("GetGraph", mock.Anything).Return(domain.GraphData{
 		Nodes: []domain.GraphNode{
-			{ID: "1", MAC: "00:11:22:33:44:55", Vendor: "Apple", Security: "WPA2", Channel: 6, Group: "ap"},
-			{ID: "2", MAC: "AA:BB:CC:DD:EE:FF", Vendor: "Cisco", Security: "OPEN", Channel: 1, Group: "station"},
-			{ID: "3", MAC: "11:22:33:44:55:66", Vendor: "Unknown", Security: "WEP", Channel: 11, Group: "ap"},
+			{
+				NodeIdentity: domain.NodeIdentity{ID: "1", MAC: "00:11:22:33:44:55", Vendor: "Apple", Group: domain.GroupAP},
+				RadioDetails: domain.RadioDetails{Security: "WPA2", Channel: 6},
+			},
+			{
+				NodeIdentity: domain.NodeIdentity{ID: "2", MAC: "AA:BB:CC:DD:EE:FF", Vendor: "Cisco", Group: domain.GroupStation},
+				RadioDetails: domain.RadioDetails{Security: "OPEN", Channel: 1},
+			},
+			{
+				NodeIdentity: domain.NodeIdentity{ID: "3", MAC: "11:22:33:44:55:66", Vendor: "Unknown", Group: domain.GroupAP},
+				RadioDetails: domain.RadioDetails{Security: "WEP", Channel: 11},
+			},
 		},
-	})
-	mockService.On("GetAlerts").Return([]domain.Alert{})
+	}, nil)
+	mockService.On("GetAlerts", mock.Anything).Return([]domain.Alert{}, nil)
 	mockAudit.On("GetLogs", mock.Anything, 50).Return([]domain.AuditLog{}, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/reports/download", nil)

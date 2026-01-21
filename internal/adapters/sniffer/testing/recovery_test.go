@@ -21,7 +21,7 @@ func (p *PanicGeoProvider) Stop()        {}
 
 func TestHandlePacket_Recovery(t *testing.T) {
 	// Setup Handler with Panicking Dependency
-	handler := parser.NewPacketHandler(&PanicGeoProvider{}, true, nil, nil)
+	handler := parser.NewPacketHandler(&PanicGeoProvider{}, true, nil, nil, nil)
 
 	// Create a dummy packet
 	// We need a Dot11 layer to trigger the logic that calls Location

@@ -90,6 +90,10 @@ export const API = {
         return this.post('/api/workspaces/clear', {});
     },
 
+    async deleteWorkspace(name) {
+        return this.post('/api/workspaces/delete', { name });
+    },
+
     // Scanning
     async triggerScan() {
         return this.post('/api/scan', {});
@@ -133,5 +137,28 @@ export const API = {
     // Audit Logs
     async getAuditLogs() {
         return this.get('/api/audit-logs');
+    },
+
+    // Vulnerability Management
+    async getVulnerabilities(filters = {}) {
+        let url = '/api/vulnerabilities?';
+        const params = new URLSearchParams();
+        if (filters.device_mac) params.append('device_mac', filters.device_mac);
+        if (filters.status) params.append('status', filters.status);
+        if (filters.min_severity) params.append('min_severity', filters.min_severity);
+        return this.get(url + params.toString());
+    },
+
+    async updateVulnerabilityStatus(id, status) {
+        return this.request(`/api/vulnerabilities/${id}/status`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status })
+        });
+    },
+
+    // Captures
+    async openHandshakeFolder(mac) {
+        return this.post('/api/captures/open-folder', { mac });
     }
 };

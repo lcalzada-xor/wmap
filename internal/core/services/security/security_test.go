@@ -1,6 +1,7 @@
 package security
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -19,7 +20,7 @@ func TestSecurityIntelligenceAlerts(t *testing.T) {
 
 	// 1. High Retry Rate Detection
 	macRetry := "AA:AA:AA:AA:AA:AA"
-	svc.Analyze(domain.Device{
+	svc.Analyze(context.Background(), domain.Device{
 		MAC:            macRetry,
 		PacketsCount:   100,
 		RetryCount:     30, // 30% > 20%
@@ -32,7 +33,7 @@ func TestSecurityIntelligenceAlerts(t *testing.T) {
 	for i := 0; i < 7; i++ {
 		probes[string(rune('A'+i))] = time.Now()
 	}
-	svc.Analyze(domain.Device{
+	svc.Analyze(context.Background(), domain.Device{
 		MAC:            apMAC,
 		Type:           "ap",
 		ProbedSSIDs:    probes,
@@ -41,7 +42,7 @@ func TestSecurityIntelligenceAlerts(t *testing.T) {
 
 	// 3. Evil Twin Detection (Placeholder in logic, but test case exists)
 	ssid := "EvilTwinTest"
-	svc.Analyze(domain.Device{
+	svc.Analyze(context.Background(), domain.Device{
 		MAC:            "CC:CC:CC:CC:CC:CC",
 		Type:           "ap",
 		SSID:           ssid,
@@ -49,7 +50,7 @@ func TestSecurityIntelligenceAlerts(t *testing.T) {
 		LastPacketTime: time.Now(),
 	})
 	// Same SSID, different MAC, different security
-	svc.Analyze(domain.Device{
+	svc.Analyze(context.Background(), domain.Device{
 		MAC:            "DD:DD:DD:DD:DD:DD",
 		Type:           "ap",
 		SSID:           ssid,
@@ -57,7 +58,7 @@ func TestSecurityIntelligenceAlerts(t *testing.T) {
 		LastPacketTime: time.Now().Add(time.Second),
 	})
 
-	alerts := svc.GetAlerts()
+	alerts := svc.GetAlerts(context.Background())
 
 	hasRetry := false
 	hasKarma := false
@@ -104,7 +105,7 @@ func TestSecurityEngine_evaluateRules(t *testing.T) {
 		Value:   "TargetCorp",
 		Exact:   false, // Contains
 	}
-	svc.AddRule(ruleSSID)
+	svc.AddRule(context.Background(), ruleSSID)
 
 	ruleMAC := domain.AlertRule{
 		ID:      "rule-2",
@@ -112,23 +113,23 @@ func TestSecurityEngine_evaluateRules(t *testing.T) {
 		Type:    domain.AlertMAC,
 		Value:   "11:22:33:44:55:66",
 	}
-	svc.AddRule(ruleMAC)
+	svc.AddRule(context.Background(), ruleMAC)
 
 	// 1. Trigger SSID Rule
-	svc.Analyze(domain.Device{
+	svc.Analyze(context.Background(), domain.Device{
 		MAC:        "aa:bb:cc:dd:ee:ff",
 		SSID:       "TargetCorp_Guest",
 		Behavioral: &domain.BehavioralProfile{AnomalyDetails: make(map[string]float64)},
 	})
 
 	// 2. Trigger MAC Rule
-	svc.Analyze(domain.Device{
+	svc.Analyze(context.Background(), domain.Device{
 		MAC:        "11:22:33:44:55:66",
 		SSID:       "HomeWifi",
 		Behavioral: &domain.BehavioralProfile{AnomalyDetails: make(map[string]float64)},
 	})
 
-	alerts := svc.GetAlerts()
+	alerts := svc.GetAlerts(context.Background())
 	foundSSID := false
 	foundMAC := false
 
@@ -155,20 +156,16 @@ type MockRegistrySecurity struct {
 	ssidSecurity map[string]string
 }
 
-func (m *MockRegistrySecurity) GetSSIDSecurity(ssid string) (string, bool) {
+func (m *MockRegistrySecurity) GetSSIDSecurity(ctx context.Context, ssid string) (string, bool) {
 	if m.ssidSecurity == nil {
 		return "", false
 	}
 	sec, ok := m.ssidSecurity[ssid]
 	return sec, ok
 }
-func (m *MockRegistrySecurity) GetAllDevices() []domain.Device { return []domain.Device{} }
-func (m *MockRegistrySecurity) GetDevice(mac string) (domain.Device, bool) {
+func (m *MockRegistrySecurity) GetAllDevices(ctx context.Context) []domain.Device {
+	return []domain.Device{}
+}
+func (m *MockRegistrySecurity) GetDevice(ctx context.Context, mac string) (domain.Device, bool) {
 	return domain.Device{}, false
 }
-
-// Redefining helpers if missing, or we can just assume they exist if compilation passes.
-// But to be safe, if setupTestService is already defined in another file, we shouldn't redefine it.
-// We are in 'services' package.
-// If previous test run passed existing security tests, setupTestService must be there.
-// I will NOT redefine it.

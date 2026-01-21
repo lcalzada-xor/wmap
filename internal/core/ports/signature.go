@@ -1,8 +1,13 @@
 package ports
 
-import "github.com/lcalzada-xor/wmap/internal/core/domain"
+import (
+	"context"
 
-// SignatureMatcher defines the interface for matching device fingerprints to known models.
+	"github.com/lcalzada-xor/wmap/internal/core/domain"
+)
+
+// SignatureMatcher identifies device models and manufacturers based on captured attributes.
 type SignatureMatcher interface {
-	MatchSignature(device domain.Device) *domain.SignatureMatch
+	// MatchSignature compares device data against a library of known fingerprints.
+	MatchSignature(ctx context.Context, device domain.Device) *domain.SignatureMatch
 }

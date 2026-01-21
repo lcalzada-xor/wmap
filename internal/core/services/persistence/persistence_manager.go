@@ -104,7 +104,7 @@ func (p *PersistenceManager) flushBuffer(buffer map[string]domain.Device) {
 	for _, d := range buffer {
 		devices = append(devices, d)
 	}
-	if err := p.storage.SaveDevicesBatch(devices); err != nil {
+	if err := p.storage.SaveDevicesBatch(context.Background(), devices); err != nil {
 		fmt.Printf("[DB-ERR] Failed to batch save devices: %v\n", err)
 	}
 }

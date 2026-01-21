@@ -1,15 +1,25 @@
 package ports
 
-import "github.com/lcalzada-xor/wmap/internal/core/domain"
+import (
+	"context"
 
-// SecurityEngine analyzes device behavior and attributes to detect anomalies.
+	"github.com/lcalzada-xor/wmap/internal/core/domain"
+)
+
+// SecurityEngine analyzes device behavior and attributes to detect security anomalies.
 type SecurityEngine interface {
-	// Analyze performs security checks on a device and triggers alerts if necessary.
-	Analyze(device domain.Device)
+	// Analyze performs heuristic and rule-based checks on a device.
+	Analyze(ctx context.Context, device domain.Device)
 
-	// AddRule adds a dynamic alert rule.
-	AddRule(rule domain.AlertRule)
+	// AddRule injects a new detection rule at runtime.
+	AddRule(ctx context.Context, rule domain.AlertRule)
 
-	// GetAlerts returns the history of triggered alerts.
-	GetAlerts() []domain.Alert
+	// GetAlerts returns the history of detected security events.
+	GetAlerts(ctx context.Context) []domain.Alert
+}
+
+// VulnerabilityNotifier handles the real-time dissemination of security findings.
+type VulnerabilityNotifier interface {
+	// NotifyNewVulnerability emits a notification for a newly discovered weakness.
+	NotifyNewVulnerability(ctx context.Context, vuln domain.VulnerabilityRecord)
 }

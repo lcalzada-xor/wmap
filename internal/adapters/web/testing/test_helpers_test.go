@@ -45,7 +45,7 @@ func setupServer(t *testing.T) (*server.Server, *web.MockNetworkService, *web.Mo
 	workspaceMgr, err := workspace.NewWorkspaceManager(tmpDir, storeMgr, mockRegistry)
 	assert.NoError(t, err)
 
-	srv := server.NewServer(":9999", mockService, workspaceMgr, mockAuth, nil)
+	srv := server.NewServer(":9999", mockService, workspaceMgr, mockAuth, nil, nil)
 
 	// Ensure temp dir Cleanup
 	t.Cleanup(func() {

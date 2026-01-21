@@ -8,6 +8,7 @@ import (
 
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
 	"github.com/lcalzada-xor/wmap/internal/geo"
+	"github.com/lcalzada-xor/wmap/internal/telemetry"
 )
 
 // MockSniffer generates fake/random devices to test the UI pipeline.
@@ -32,75 +33,73 @@ func (s *MockSniffer) Scan(target string) error {
 
 // Start starts the mock generation loop.
 func (s *MockSniffer) Start(ctx context.Context) error {
-	log.Println("Starting Mock Sniffer (generating fake traffic)...")
+	log.Println("Starting Mock Sniffer (generating realistic mock data)...")
 
-	// Fake MAC addresses
+	// Simple device generation for the sniffer
+	// The WebSocket server will handle the real-time updates
 	macs := []string{
-		"AA:BB:CC:DD:EE:01",
-		"AA:BB:CC:DD:EE:02",
-		"AA:BB:CC:DD:EE:03",
-		"11:22:33:44:55:66",
-		"CA:FE:BA:BE:00:00",
+		"AA:BB:CC:DD:EE:01", "AA:BB:CC:DD:EE:02", "AA:BB:CC:DD:EE:03",
+		"11:22:33:44:55:66", "CA:FE:BA:BE:00:00", "DE:AD:BE:EF:00:01",
+		"00:17:F2:AA:BB:CC", "00:12:FB:11:22:33", // Apple, Samsung
 	}
 
-	// Fake SSIDs
-	ssids := []string{"Home_WiFi", "Free_Airport_WiFi", "Starbucks", "iPhone_Hotspot", ""}
+	ssids := []string{
+		"HomeNetwork", "NETGEAR-5G", "Starbucks WiFi", "TP-Link_2.4GHz",
+		"Office-Network", "Guest-WiFi", "iPhone", "",
+	}
+
+	deviceIndex := 0
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			log.Println("Mock Sniffer stopping...")
 			return nil
-		default:
-			// Continue
-		}
+		case <-ticker.C:
+			// Generate a device every 2 seconds
+			mac := macs[deviceIndex%len(macs)]
+			ssid := ssids[rand.Intn(len(ssids))]
+			rssi := -40 - rand.Intn(50) // -40 to -90
 
-		// Pick random device
-		idx := rand.Intn(len(macs))
-		mac := macs[idx]
-		ssid := ssids[rand.Intn(len(ssids))]
+			coords := s.Location.GetLocation()
+			jitterLat := (rand.Float64() - 0.5) * 0.0005
+			jitterLng := (rand.Float64() - 0.5) * 0.0005
 
-		// Randomize RSSI
-		rssi := -40 - rand.Intn(50) // -40 to -90
+			devType := domain.DeviceTypeStation
+			vendor := "Apple"
+			if rand.Float32() < 0.3 {
+				devType = domain.DeviceTypeAP
+				vendor = "Cisco"
+			}
 
-		// Get base location
-		coords := s.Location.GetLocation()
+			device := domain.Device{
+				MAC:            mac,
+				Type:           devType,
+				Vendor:         vendor,
+				RSSI:           rssi,
+				SSID:           ssid,
+				Latitude:       coords.Latitude + jitterLat,
+				Longitude:      coords.Longitude + jitterLng,
+				LastPacketTime: time.Now(),
+				LastSeen:       time.Now(),
+				ProbedSSIDs:    map[string]time.Time{ssid: time.Now()},
+				Capabilities:   []string{"Mock-Cap"},
+			}
 
-		// Jitter location slightly to show movement on map (~10-20 meters)
-		jitterLat := (rand.Float64() - 0.5) * 0.0005
-		jitterLng := (rand.Float64() - 0.5) * 0.0005
+			log.Printf("[MOCK] Device: %s (%s) RSSI: %d SSID: %s", device.MAC, device.Type, device.RSSI, device.SSID)
 
-		// Random type: Station or AP
-		devType := "station"
-		vendor := "Apple"
-		if rand.Float32() < 0.2 {
-			devType = "ap"
-			vendor = "Cisco"
-		}
+			telemetry.PacketsCaptured.WithLabelValues("mock0").Inc()
+			telemetry.PacketsProcessed.WithLabelValues("mock0").Inc()
 
-		device := domain.Device{
-			MAC:            mac,
-			Type:           devType,
-			Vendor:         vendor,
-			RSSI:           rssi,
-			SSID:           ssid,
-			Latitude:       coords.Latitude + jitterLat,
-			Longitude:      coords.Longitude + jitterLng,
-			LastPacketTime: time.Now(),
-			LastSeen:       time.Now(),
-			ProbedSSIDs:    map[string]time.Time{ssid: time.Now()},
-			Capabilities:   []string{"Mock-Cap"},
-		}
-
-		log.Printf("[MOCK] Detected Device: %s RSSI: %d SSID: %s", device.MAC, device.RSSI, device.SSID)
-		s.Output <- device
-
-		// Wait random interval or stop if context done
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-time.After(time.Duration(500+rand.Intn(1500)) * time.Millisecond):
-			// continue
+			// Send to channel (non-blocking)
+			select {
+			case s.Output <- device:
+				deviceIndex++
+			default:
+				log.Println("[MOCK] Channel full, skipping device")
+			}
 		}
 	}
 }
@@ -131,7 +130,7 @@ func (s *MockSniffer) GetInterfaceDetails() []domain.InterfaceInfo {
 	return []domain.InterfaceInfo{{
 		Name: "mock0",
 		Capabilities: domain.InterfaceCapabilities{
-			SupportedBands:    []string{"2.4ghz", "5ghz"},
+			SupportedBands:    []domain.WiFiBand{domain.Band24GHz, domain.Band5GHz},
 			SupportedChannels: []int{1, 6, 11, 36, 40, 44, 48},
 		},
 		CurrentChannels: []int{1, 6, 11},

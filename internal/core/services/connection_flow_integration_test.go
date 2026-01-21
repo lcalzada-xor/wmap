@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -12,7 +13,8 @@ import (
 // TestConnectionStateFlow_Integration tests the complete flow from device processing to graph building
 func TestConnectionStateFlow_Integration(t *testing.T) {
 	// 1. Create registry and graph builder
-	reg := registry.NewDeviceRegistry(nil)
+	ctx := context.Background()
+	reg := registry.NewDeviceRegistry(nil, nil)
 	builder := registry.NewGraphBuilder(reg)
 
 	// 2. Create AP device
@@ -22,7 +24,7 @@ func TestConnectionStateFlow_Integration(t *testing.T) {
 		SSID:           "TestNetwork",
 		LastPacketTime: time.Now(),
 	}
-	reg.ProcessDevice(ap)
+	reg.ProcessDevice(ctx, ap)
 
 	// 3. Create Station device with connection state
 	station := domain.Device{
@@ -32,14 +34,14 @@ func TestConnectionStateFlow_Integration(t *testing.T) {
 		ConnectionTarget: "00:11:22:33:44:55", // Connected to AP
 		LastPacketTime:   time.Now(),
 	}
-	merged, _ := reg.ProcessDevice(station)
+	merged, _ := reg.ProcessDevice(ctx, station)
 
 	// 4. Verify device was merged correctly
 	assert.Equal(t, domain.StateConnected, merged.ConnectionState, "ConnectionState should be preserved")
 	assert.Equal(t, "00:11:22:33:44:55", merged.ConnectionTarget, "ConnectionTarget should be preserved")
 
 	// 5. Build graph
-	graph := builder.BuildGraph()
+	graph := builder.BuildGraph(ctx)
 
 	// 6. Verify nodes exist
 	var apNode, stationNode *domain.GraphNode
@@ -87,7 +89,7 @@ func TestConnectionStateFlow_Integration(t *testing.T) {
 func TestConnectionStateFlow_AllStates(t *testing.T) {
 	testCases := []struct {
 		name           string
-		state          string
+		state          domain.ConnectionState
 		expectedDashed bool
 		expectedLabel  string
 	}{
@@ -119,7 +121,8 @@ func TestConnectionStateFlow_AllStates(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			reg := registry.NewDeviceRegistry(nil)
+			ctx := context.Background()
+			reg := registry.NewDeviceRegistry(nil, nil)
 			builder := registry.NewGraphBuilder(reg)
 
 			// Create AP
@@ -128,7 +131,7 @@ func TestConnectionStateFlow_AllStates(t *testing.T) {
 				Type:           "ap",
 				LastPacketTime: time.Now(),
 			}
-			reg.ProcessDevice(ap)
+			reg.ProcessDevice(ctx, ap)
 
 			// Create Station with specific state
 			station := domain.Device{
@@ -139,10 +142,10 @@ func TestConnectionStateFlow_AllStates(t *testing.T) {
 				RSSI:             -50, // Good signal
 				LastPacketTime:   time.Now(),
 			}
-			reg.ProcessDevice(station)
+			reg.ProcessDevice(ctx, station)
 
 			// Build graph
-			graph := builder.BuildGraph()
+			graph := builder.BuildGraph(ctx)
 
 			// Find edge
 			var edge *domain.GraphEdge
@@ -166,7 +169,8 @@ func TestConnectionStateFlow_AllStates(t *testing.T) {
 
 // TestConnectionStateFlow_Disconnected verifies disconnected state does NOT create edge
 func TestConnectionStateFlow_Disconnected(t *testing.T) {
-	reg := registry.NewDeviceRegistry(nil)
+	ctx := context.Background()
+	reg := registry.NewDeviceRegistry(nil, nil)
 	builder := registry.NewGraphBuilder(reg)
 
 	// Create AP
@@ -175,7 +179,7 @@ func TestConnectionStateFlow_Disconnected(t *testing.T) {
 		Type:           "ap",
 		LastPacketTime: time.Now(),
 	}
-	reg.ProcessDevice(ap)
+	reg.ProcessDevice(ctx, ap)
 
 	// Create disconnected station
 	station := domain.Device{
@@ -185,10 +189,10 @@ func TestConnectionStateFlow_Disconnected(t *testing.T) {
 		ConnectionTarget: "", // No target when disconnected
 		LastPacketTime:   time.Now(),
 	}
-	reg.ProcessDevice(station)
+	reg.ProcessDevice(ctx, station)
 
 	// Build graph
-	graph := builder.BuildGraph()
+	graph := builder.BuildGraph(ctx)
 
 	// Verify NO connection edge exists
 	for _, edge := range graph.Edges {

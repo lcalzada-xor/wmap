@@ -128,3 +128,121 @@
     color: var(--accent-color);
     box-shadow: 0 0 10px rgba(10, 132, 255, 0.1);
 }
+
+/* --- WORKSPACE MODAL SPECIFIC --- */
+#workspace-modal .modal-content {
+    background: rgba(28, 28, 30, 0.4);
+    /* Lighter base for glass */
+    backdrop-filter: blur(50px) saturate(200%);
+    -webkit-backdrop-filter: blur(50px) saturate(200%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 40px 80px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+    max-width: 500px;
+    padding: 40px;
+}
+
+.workspace-header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.workspace-header h3 {
+    justify-content: center;
+    font-size: 1.8rem;
+    border-bottom: none;
+    margin-bottom: 10px;
+    background: linear-gradient(135deg, #fff 0%, #aaa 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    display: inline-block;
+}
+
+.workspace-section {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 20px;
+    padding: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    transition: transform 0.2s, background 0.2s;
+}
+
+.workspace-section:hover {
+    background: rgba(0, 0, 0, 0.3);
+    /* transform: scale(1.02); */
+}
+
+.workspace-label {
+    display: block;
+    margin-bottom: 10px;
+    font-size: 0.85em;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.workspace-controls {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.workspace-controls select,
+.workspace-controls input {
+    flex: 1;
+    /* Take available space */
+    margin-bottom: 0 !important;
+    /* Override default margin */
+}
+
+/* Button Variants for Workspace */
+.btn-workspace-action {
+    flex: 0 0 auto;
+    /* Don't shrink, don't grow beyond content + padding */
+    padding: 12px 20px;
+    border-radius: 14px;
+    border: none;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 0.95em;
+    min-width: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-load {
+    background: var(--accent-color);
+    background: linear-gradient(135deg, #0A84FF, #007AFF);
+    color: white;
+    box-shadow: 0 4px 12px rgba(10, 132, 255, 0.3);
+}
+
+.btn-load:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(10, 132, 255, 0.5);
+}
+
+.btn-create {
+    background: var(--success-color);
+    background: linear-gradient(135deg, #30D158, #28cd41);
+    color: white;
+    box-shadow: 0 4px 12px rgba(48, 209, 88, 0.3);
+}
+
+.btn-create:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(48, 209, 88, 0.5);
+}
+
+.btn-delete {
+    background: rgba(255, 69, 58, 0.15);
+    color: var(--danger-color);
+    border: 1px solid rgba(255, 69, 58, 0.3);
+}
+
+.btn-delete:hover {
+    background: rgba(255, 69, 58, 0.25);
+    border-color: var(--danger-color);
+}

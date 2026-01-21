@@ -1,6 +1,7 @@
 package fingerprint
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
@@ -11,12 +12,17 @@ import (
 )
 
 // OUIDatabase provides vendor lookup from a comprehensive OUI database
+// It implements VendorRepository, VendorWriter, and VendorStats interfaces
 type OUIDatabase struct {
 	db       *sql.DB
 	cache    *OUICache
 	mu       sync.RWMutex
 	dbPath   string
-	fallback map[string]string // Fallback to static map if DB unavailable
+	fallback VendorRepository
+	closed   bool
+
+	// Prepared statements for better performance
+	lookupStmt *sql.Stmt
 }
 
 // OUIEntry represents a single OUI registry entry
@@ -30,15 +36,21 @@ type OUIEntry struct {
 }
 
 // NewOUIDatabase creates a new OUI database instance
-func NewOUIDatabase(dbPath string, cacheSize int, fallback map[string]string) (*OUIDatabase, error) {
+func NewOUIDatabase(dbPath string, cacheSize int, fallback VendorRepository) (*OUIDatabase, error) {
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open OUI database: %w", err)
+		return nil, &DatabaseError{Op: "open", Err: err}
 	}
+
+	// Configure connection pool
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(time.Hour)
 
 	// Test connection
 	if err := db.Ping(); err != nil {
-		return nil, fmt.Errorf("failed to ping OUI database: %w", err)
+		db.Close()
+		return nil, &DatabaseError{Op: "ping", Err: err}
 	}
 
 	oui := &OUIDatabase{
@@ -50,8 +62,17 @@ func NewOUIDatabase(dbPath string, cacheSize int, fallback map[string]string) (*
 
 	// Create table if not exists
 	if err := oui.initializeSchema(); err != nil {
-		return nil, fmt.Errorf("failed to initialize schema: %w", err)
+		db.Close()
+		return nil, &DatabaseError{Op: "initialize_schema", Err: err}
 	}
+
+	// Prepare lookup statement
+	stmt, err := db.Prepare("SELECT COALESCE(vendor_short, vendor) FROM oui_registry WHERE prefix = ?")
+	if err != nil {
+		db.Close()
+		return nil, &DatabaseError{Op: "prepare_statement", Err: err}
+	}
+	oui.lookupStmt = stmt
 
 	return oui, nil
 }
@@ -73,45 +94,57 @@ func (o *OUIDatabase) initializeSchema() error {
 	`
 
 	_, err := o.db.Exec(schema)
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to create schema: %w", err)
+	}
+	return nil
 }
 
-// LookupVendor looks up the vendor for a given MAC address
-func (o *OUIDatabase) LookupVendor(mac string) (string, error) {
-	if len(mac) < 8 {
-		return "Unknown", nil
+// LookupVendor implements VendorRepository interface
+func (o *OUIDatabase) LookupVendor(ctx context.Context, mac MACAddress) (string, error) {
+	o.mu.RLock()
+	if o.closed {
+		o.mu.RUnlock()
+		return "", ErrRepositoryClosed
+	}
+	o.mu.RUnlock()
+
+	if !mac.IsValid() {
+		return "", ErrInvalidMAC
 	}
 
-	prefix := normalizeMAC(mac[:8])
+	prefix := mac.OUI()
 
 	// Check cache first
 	if vendor, ok := o.cache.Get(prefix); ok {
 		return vendor, nil
 	}
 
-	// Query database
+	// Query database with context
 	var vendor string
-	err := o.db.QueryRow("SELECT COALESCE(vendor_short, vendor) FROM oui_registry WHERE prefix = ?", prefix).Scan(&vendor)
+	err := o.lookupStmt.QueryRowContext(ctx, prefix).Scan(&vendor)
 
 	if err == sql.ErrNoRows {
-		// Try fallback map
+		// Try fallback repository
 		if o.fallback != nil {
-			if v, ok := o.fallback[prefix]; ok {
+			v, err := o.fallback.LookupVendor(ctx, mac)
+			if err == nil && v != "" && v != "Unknown" {
 				o.cache.Set(prefix, v)
 				return v, nil
 			}
 		}
-		return "Unknown", nil
+		return "Unknown", ErrVendorNotFound
 	}
 
 	if err != nil {
 		// On error, try fallback
 		if o.fallback != nil {
-			if v, ok := o.fallback[prefix]; ok {
+			v, err := o.fallback.LookupVendor(ctx, mac)
+			if err == nil {
 				return v, nil
 			}
 		}
-		return "", fmt.Errorf("database query failed: %w", err)
+		return "", &DatabaseError{Op: "lookup", Err: err}
 	}
 
 	// Cache result
@@ -119,17 +152,21 @@ func (o *OUIDatabase) LookupVendor(mac string) (string, error) {
 	return vendor, nil
 }
 
-// InsertOUI inserts or updates an OUI entry
-func (o *OUIDatabase) InsertOUI(entry OUIEntry) error {
+// InsertOUI implements VendorWriter interface
+func (o *OUIDatabase) InsertOUI(ctx context.Context, entry OUIEntry) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+
+	if o.closed {
+		return ErrRepositoryClosed
+	}
 
 	query := `
 	INSERT OR REPLACE INTO oui_registry (prefix, vendor, vendor_short, address, country, last_updated)
 	VALUES (?, ?, ?, ?, ?, ?)
 	`
 
-	_, err := o.db.Exec(query,
+	_, err := o.db.ExecContext(ctx, query,
 		entry.Prefix,
 		entry.Vendor,
 		entry.VendorShort,
@@ -138,31 +175,39 @@ func (o *OUIDatabase) InsertOUI(entry OUIEntry) error {
 		entry.LastUpdated.Unix(),
 	)
 
-	return err
+	if err != nil {
+		return &DatabaseError{Op: "insert", Err: err}
+	}
+
+	return nil
 }
 
-// BulkInsertOUIs inserts multiple OUI entries in a transaction
-func (o *OUIDatabase) BulkInsertOUIs(entries []OUIEntry) error {
+// BulkInsertOUIs implements VendorWriter interface
+func (o *OUIDatabase) BulkInsertOUIs(ctx context.Context, entries []OUIEntry) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	tx, err := o.db.Begin()
+	if o.closed {
+		return ErrRepositoryClosed
+	}
+
+	tx, err := o.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return &DatabaseError{Op: "begin_transaction", Err: err}
 	}
 	defer tx.Rollback()
 
-	stmt, err := tx.Prepare(`
+	stmt, err := tx.PrepareContext(ctx, `
 		INSERT OR REPLACE INTO oui_registry (prefix, vendor, vendor_short, address, country, last_updated)
 		VALUES (?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
-		return err
+		return &DatabaseError{Op: "prepare_bulk_insert", Err: err}
 	}
 	defer stmt.Close()
 
 	for _, entry := range entries {
-		_, err := stmt.Exec(
+		_, err := stmt.ExecContext(ctx,
 			entry.Prefix,
 			entry.Vendor,
 			entry.VendorShort,
@@ -171,29 +216,75 @@ func (o *OUIDatabase) BulkInsertOUIs(entries []OUIEntry) error {
 			entry.LastUpdated.Unix(),
 		)
 		if err != nil {
-			return err
+			return &DatabaseError{Op: "bulk_insert_entry", Err: err}
 		}
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return &DatabaseError{Op: "commit_transaction", Err: err}
+	}
+
+	return nil
 }
 
-// GetStats returns statistics about the OUI database
-func (o *OUIDatabase) GetStats() (total int, lastUpdate time.Time, err error) {
+// GetStats implements VendorStats interface
+func (o *OUIDatabase) GetStats(ctx context.Context) (RepositoryStats, error) {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+
+	if o.closed {
+		return RepositoryStats{}, ErrRepositoryClosed
+	}
+
 	var count int
 	var lastUpdateUnix int64
 
-	err = o.db.QueryRow("SELECT COUNT(*), COALESCE(MAX(last_updated), 0) FROM oui_registry").Scan(&count, &lastUpdateUnix)
+	err := o.db.QueryRowContext(ctx,
+		"SELECT COUNT(*), COALESCE(MAX(last_updated), 0) FROM oui_registry",
+	).Scan(&count, &lastUpdateUnix)
+
 	if err != nil {
-		return 0, time.Time{}, err
+		return RepositoryStats{}, &DatabaseError{Op: "get_stats", Err: err}
 	}
 
-	return count, time.Unix(lastUpdateUnix, 0), nil
+	lastUpdate := time.Unix(lastUpdateUnix, 0).Format("2006-01-02")
+	cacheStats := o.cache.Stats()
+
+	return RepositoryStats{
+		TotalEntries: count,
+		CacheHits:    cacheStats.Hits,
+		CacheMisses:  cacheStats.Misses,
+		LastUpdated:  lastUpdate,
+	}, nil
 }
 
-// Close closes the database connection
+// Close implements VendorRepository interface
 func (o *OUIDatabase) Close() error {
-	return o.db.Close()
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	if o.closed {
+		return nil
+	}
+
+	o.closed = true
+
+	// Close prepared statement
+	if o.lookupStmt != nil {
+		o.lookupStmt.Close()
+	}
+
+	// Close cache
+	if o.cache != nil {
+		o.cache.Close()
+	}
+
+	// Close database
+	if o.db != nil {
+		return o.db.Close()
+	}
+
+	return nil
 }
 
 // normalizeMAC converts a MAC prefix to standard format (XX:XX:XX)

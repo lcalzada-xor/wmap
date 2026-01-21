@@ -34,31 +34,31 @@ func TestSniffer_Locking_ReferenceCounting(t *testing.T) {
 	assert.False(t, s.hopperPaused)
 
 	// 2. First Lock (Channel 6)
-	err := s.Lock("wlan0", 6)
+	err := s.Lock(context.Background(), "wlan0", 6)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, s.lockCount)
 	assert.Equal(t, 6, s.lockChannel)
 	assert.True(t, s.hopperPaused, "Hopper should be paused")
 
 	// 3. Second Lock (Same Channel) - Ref Count Increment
-	err = s.Lock("wlan0", 6)
+	err = s.Lock(context.Background(), "wlan0", 6)
 	assert.NoError(t, err)
 	assert.Equal(t, 2, s.lockCount, "Ref count should increment")
 
 	// 4. Conflicting Lock (Channel 1) - Error
-	err = s.Lock("wlan0", 1)
+	err = s.Lock(context.Background(), "wlan0", 1)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "busy")
 	assert.Equal(t, 2, s.lockCount, "Ref count should remain unchanged after error")
 
 	// 5. Unlock (Decrement)
-	err = s.Unlock("wlan0")
+	err = s.Unlock(context.Background(), "wlan0")
 	assert.NoError(t, err)
 	assert.Equal(t, 1, s.lockCount)
 	assert.True(t, s.hopperPaused, "Hopper should still be paused")
 
 	// 6. Last Unlock (Resume)
-	err = s.Unlock("wlan0")
+	err = s.Unlock(context.Background(), "wlan0")
 	assert.NoError(t, err)
 	assert.Equal(t, 0, s.lockCount)
 	assert.False(t, s.hopperPaused, "Hopper should resume")

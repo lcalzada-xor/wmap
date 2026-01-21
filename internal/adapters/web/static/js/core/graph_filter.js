@@ -3,7 +3,7 @@
  * Encapsulates filtering logic for the graph.
  */
 
-import { State } from '../core/state.js';
+import { Store } from '../core/store/store.js';
 import { NodeGroups } from '../core/constants.js';
 import { AttackTags } from '../core/attack_tags.js';
 
@@ -30,15 +30,18 @@ export const GraphFilter = {
      * Basic filters (existing logic)
      */
     applyBasicFilters(node) {
+        // Access State via Store
+        const filters = Store.state.filters;
+
         // Type filters
-        if (!State.filters.showAP && node.group === NodeGroups.AP) return false;
-        if (!State.filters.showSta && node.group === NodeGroups.STATION) return false;
+        if (!filters.showAP && node.group === NodeGroups.AP) return false;
+        if (!filters.showSta && node.group === NodeGroups.STATION) return false;
 
         // Legacy RSSI filter (kept for backwards compatibility)
-        if (node.rssi !== undefined && node.rssi < State.filters.minRSSI) return false;
+        if (node.rssi !== undefined && node.rssi < filters.minRSSI) return false;
 
         // Persist Findings Logic
-        if (!State.filters.persistFindings) {
+        if (!filters.persistFindings) {
             if (node.group === NodeGroups.NETWORK || node.group === NodeGroups.AP) return true;
             if (node.lastSeen) {
                 if (Date.now() - new Date(node.lastSeen).getTime() > 60000) return false;
@@ -79,24 +82,26 @@ export const GraphFilter = {
         // Traffic filter
         if (!this.filterByTraffic(node)) return false;
 
+        const filters = Store.state.filters;
+
         // New Boolean Filters
-        if (State.filters.hasHandshake && !node.has_handshake) return false;
+        if (filters.hasHandshake && !node.has_handshake) return false;
 
         // Hidden SSID: SSID is empty, null, or undefined
-        if (State.filters.hiddenSSID) {
+        if (filters.hiddenSSID) {
             const ssid = node.ssid || '';
             if (ssid.trim() !== '') return false; // Only show nodes with empty SSID
         }
 
         // WPS Active: Check wps_info or capabilities
-        if (State.filters.wpsActive) {
+        if (filters.wpsActive) {
             const hasWPS = (node.wps_info && node.wps_info !== '') ||
                 (node.capabilities && Array.isArray(node.capabilities) && node.capabilities.includes('WPS')) ||
                 (typeof node.capabilities === 'string' && node.capabilities.includes('WPS'));
             if (!hasWPS) return false;
         }
 
-        if (State.filters.randomizedMac && !node.is_randomized) return false;
+        if (filters.randomizedMac && !node.is_randomized) return false;
 
         return true;
     },
@@ -105,11 +110,13 @@ export const GraphFilter = {
      * Multi-field text search with wildcard support (*)
      */
     filterByText(node) {
-        if (!State.filters.searchQuery || State.filters.searchQuery.length === 0) {
+        const filters = Store.state.filters;
+
+        if (!filters.searchQuery || filters.searchQuery.length === 0) {
             return true;
         }
 
-        const query = State.filters.searchQuery.toLowerCase();
+        const query = filters.searchQuery.toLowerCase();
 
         // Helper for wildcard matching
         const matches = (text, pattern) => {
@@ -133,7 +140,9 @@ export const GraphFilter = {
         const mac = (node.mac || "").toLowerCase();
         const ssid = (node.ssid || "").toLowerCase();
         const vendor = (node.vendor || "").toLowerCase();
-        const alias = (State.getAlias(node.mac) || "").toLowerCase();
+
+        // Alias lookup via Store
+        const alias = (Store.state.aliases[node.mac] || "").toLowerCase();
 
         return matches(label, query) ||
             matches(mac, query) ||
@@ -147,28 +156,30 @@ export const GraphFilter = {
      * Only filters nodes that HAVE security info
      */
     filterBySecurity(node) {
-        if (!State.filters.security || State.filters.security.length === 0) {
+        const filters = Store.state.filters;
+        if (!filters.security || filters.security.length === 0) {
             return true;
         }
 
         // If node doesn't have security info, show it (don't filter unknown)
         if (!node.security) return true;
 
-        return State.filters.security.includes(node.security);
+        return filters.security.includes(node.security);
     },
 
     /**
      * Vulnerability filter
      */
     filterByVulnerability(node) {
-        if (!State.filters.vulnerabilities || State.filters.vulnerabilities.length === 0) {
+        const filters = Store.state.filters;
+        if (!filters.vulnerabilities || filters.vulnerabilities.length === 0) {
             return true;
         }
 
         const tags = AttackTags.getTags(node).map(t => t.label);
 
         // Check if node has ANY of the selected vulnerabilities
-        return State.filters.vulnerabilities.some(v => tags.includes(v));
+        return filters.vulnerabilities.some(v => tags.includes(v));
     },
 
     /**
@@ -176,7 +187,8 @@ export const GraphFilter = {
      * Only filters nodes that HAVE frequency info
      */
     filterByFrequency(node) {
-        if (!State.filters.frequency || State.filters.frequency.length === 0) {
+        const filters = Store.state.filters;
+        if (!filters.frequency || filters.frequency.length === 0) {
             return true;
         }
 
@@ -187,7 +199,7 @@ export const GraphFilter = {
         const freqGHz = freq / 1000; // Convert MHz to GHz
 
         // Check if frequency matches any selected band
-        return State.filters.frequency.some(band => {
+        return filters.frequency.some(band => {
             if (band === '2.4') {
                 return freqGHz >= 2.4 && freqGHz < 2.5;
             } else if (band === '5') {
@@ -202,14 +214,15 @@ export const GraphFilter = {
      * Only filters nodes that HAVE channel info
      */
     filterByChannel(node) {
-        if (!State.filters.channels || State.filters.channels.length === 0) {
+        const filters = Store.state.filters;
+        if (!filters.channels || filters.channels.length === 0) {
             return true;
         }
 
         // If node doesn't have channel info, show it (don't filter unknown)
         if (!node.channel) return true;
 
-        return State.filters.channels.includes(node.channel);
+        return filters.channels.includes(node.channel);
     },
 
     /**
@@ -217,23 +230,25 @@ export const GraphFilter = {
      * Only filters nodes that HAVE vendor info
      */
     filterByVendor(node) {
-        if (!State.filters.vendors || State.filters.vendors.length === 0) {
+        const filters = Store.state.filters;
+        if (!filters.vendors || filters.vendors.length === 0) {
             return true;
         }
 
         // If node doesn't have vendor info, show it (don't filter unknown)
         if (!node.vendor) return true;
 
-        return State.filters.vendors.includes(node.vendor);
+        return filters.vendors.includes(node.vendor);
     },
 
     /**
      * Signal range filter (custom RSSI range)
      */
     filterBySignalRange(node) {
-        if (!State.filters.signalRange) return true;
+        const filters = Store.state.filters;
+        if (!filters.signalRange) return true;
 
-        const { min, max } = State.filters.signalRange;
+        const { min, max } = filters.signalRange;
 
         // If default range, skip
         if (min === -100 && max === 0) return true;
@@ -249,7 +264,8 @@ export const GraphFilter = {
      * to maintain topology. Only Stations are filtered by time.
      */
     filterByTimeRange(node) {
-        if (!State.filters.timeRange || !State.filters.timeRange.lastSeen) {
+        const filters = Store.state.filters;
+        if (!filters.timeRange || !filters.timeRange.lastSeen) {
             return true;
         }
 
@@ -263,7 +279,7 @@ export const GraphFilter = {
 
         const lastSeen = new Date(node.last_seen || node.lastSeen);
         const now = Date.now();
-        const threshold = State.filters.timeRange.lastSeen; // milliseconds
+        const threshold = filters.timeRange.lastSeen; // milliseconds
 
         return (now - lastSeen.getTime()) <= threshold;
     },
@@ -274,9 +290,10 @@ export const GraphFilter = {
      * to maintain topology. Only Stations are filtered by traffic.
      */
     filterByTraffic(node) {
-        if (!State.filters.traffic) return true;
+        const filters = Store.state.filters;
+        if (!filters.traffic) return true;
 
-        const { minTx, minRx, minPackets } = State.filters.traffic;
+        const { minTx, minRx, minPackets } = filters.traffic;
 
         // If all zero, skip
         if (minTx === 0 && minRx === 0 && minPackets === 0) return true;

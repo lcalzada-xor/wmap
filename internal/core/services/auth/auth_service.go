@@ -18,14 +18,18 @@ var (
 	ErrUserNotFound       = errors.New("user not found")
 	ErrTokenExpired       = errors.New("token expired")
 	ErrRateLimitExceeded  = errors.New("rate limit exceeded")
+	ErrInvalidSession     = errors.New("invalid session")
 )
 
+// Session represents an active user session.
 type Session struct {
 	UserID    string
 	Role      domain.Role
 	ExpiresAt time.Time
 }
 
+// AuthService implements ports.AuthService.
+// It coordinates credentials validation and session management.
 type AuthService struct {
 	repo          ports.UserRepository
 	sessions      map[string]Session
@@ -34,6 +38,7 @@ type AuthService struct {
 	sessionTTL    time.Duration
 }
 
+// NewAuthService creates a new authentication service instance.
 func NewAuthService(repo ports.UserRepository) *AuthService {
 	return &AuthService{
 		repo:          repo,
@@ -43,67 +48,52 @@ func NewAuthService(repo ports.UserRepository) *AuthService {
 	}
 }
 
+// Login validates user credentials and returns a session token.
 func (s *AuthService) Login(ctx context.Context, creds domain.Credentials) (string, error) {
-	// Simple Rate Limiting (Reset periodically in a real app)
-	s.mu.Lock()
-	if s.loginAttempts[creds.Username] > 5 {
-		s.mu.Unlock()
-		return "", ErrRateLimitExceeded
+	if err := s.checkRateLimit(creds.Username); err != nil {
+		return "", err
 	}
-	s.mu.Unlock()
 
-	user, err := s.repo.GetByUsername(creds.Username)
+	user, err := s.repo.GetByUsername(ctx, creds.Username)
 	if err != nil {
-		s.mu.Lock()
-		s.loginAttempts[creds.Username]++
-		s.mu.Unlock()
+		s.incrementAttempts(creds.Username)
 		return "", ErrInvalidCredentials // Generic error to avoid enumeration
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(creds.Password)); err != nil {
-		s.mu.Lock()
-		s.loginAttempts[creds.Username]++
-		s.mu.Unlock()
+	if err := s.verifyPassword(user.PasswordHash, creds.Password); err != nil {
+		s.incrementAttempts(creds.Username)
 		return "", ErrInvalidCredentials
 	}
 
-	// Reset attempts on success
-	s.mu.Lock()
-	delete(s.loginAttempts, creds.Username)
-	s.mu.Unlock()
+	s.resetAttempts(creds.Username)
 
-	// Create Session
-	token := uuid.New().String()
-	s.mu.Lock()
-	s.sessions[token] = Session{
-		UserID:    user.ID,
-		Role:      user.Role,
-		ExpiresAt: time.Now().Add(s.sessionTTL),
-	}
-	s.mu.Unlock()
-
-	return token, nil
+	return s.createSession(user)
 }
 
+// ValidateToken verifies a session token and returns the associated user.
 func (s *AuthService) ValidateToken(ctx context.Context, token string) (*domain.User, error) {
 	s.mu.RLock()
 	session, ok := s.sessions[token]
 	s.mu.RUnlock()
 
 	if !ok {
-		return nil, errors.New("invalid session")
+		return nil, ErrInvalidSession
 	}
 
 	if time.Now().After(session.ExpiresAt) {
-		s.mu.Lock()
-		delete(s.sessions, token)
-		s.mu.Unlock()
+		s.Logout(ctx, token)
 		return nil, ErrTokenExpired
 	}
 
-	return s.repo.GetByID(session.UserID)
+	user, err := s.repo.GetByID(ctx, session.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve user: %w", err)
+	}
+
+	return user, nil
 }
 
+// Logout invalidates a session token.
 func (s *AuthService) Logout(ctx context.Context, token string) error {
 	s.mu.Lock()
 	delete(s.sessions, token)
@@ -111,17 +101,68 @@ func (s *AuthService) Logout(ctx context.Context, token string) error {
 	return nil
 }
 
+// CreateUser provision a new user with a hashed password.
 func (s *AuthService) CreateUser(ctx context.Context, user domain.User, password string) error {
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash, err := s.hashPassword(password)
 	if err != nil {
-		return fmt.Errorf("failed to hash password: %w", err)
+		return err
 	}
-	user.PasswordHash = string(hash)
+
+	user.PasswordHash = hash
 	user.CreatedAt = time.Now()
 
 	if user.ID == "" {
 		user.ID = uuid.New().String()
 	}
 
-	return s.repo.Save(user)
+	return s.repo.Save(ctx, user)
+}
+
+// Private helpers
+
+func (s *AuthService) checkRateLimit(username string) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.loginAttempts[username] >= 5 {
+		return ErrRateLimitExceeded
+	}
+	return nil
+}
+
+func (s *AuthService) incrementAttempts(username string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.loginAttempts[username]++
+}
+
+func (s *AuthService) resetAttempts(username string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.loginAttempts, username)
+}
+
+func (s *AuthService) verifyPassword(hash, password string) error {
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+}
+
+func (s *AuthService) hashPassword(password string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", fmt.Errorf("failed to hash password: %w", err)
+	}
+	return string(hash), nil
+}
+
+func (s *AuthService) createSession(user *domain.User) (string, error) {
+	token := uuid.New().String()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.sessions[token] = Session{
+		UserID:    user.ID,
+		Role:      user.Role,
+		ExpiresAt: time.Now().Add(s.sessionTTL),
+	}
+
+	return token, nil
 }

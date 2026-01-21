@@ -1,4 +1,4 @@
-package sniffer
+package manager
 
 import (
 	"reflect"

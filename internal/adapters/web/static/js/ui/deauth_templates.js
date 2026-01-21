@@ -32,12 +32,18 @@ export const DeauthTemplates = {
     renderAttackItem(attack, formattedDuration) {
         const statusClass = attack.status.toLowerCase();
         const interfaceInfo = attack.config.interface ? `<br><strong>Interface:</strong> ${attack.config.interface}` : '';
+        const handshakeBadge = attack.handshake_captured
+            ? `<span style="background:var(--success-color); color:black; padding:2px 6px; border-radius:4px; font-size:0.8em; font-weight:bold; margin-left:5px;"><i class="fas fa-key"></i> PWNED</span>`
+            : '';
 
         return `
             <div class="attack-item">
                 <div class="attack-header">
                     <span class="attack-id">${attack.id.substring(0, 8)}...</span>
-                    <span class="attack-status ${statusClass}">${attack.status}</span>
+                    <span>
+                        ${handshakeBadge}
+                        <span class="attack-status ${statusClass}">${attack.status}</span>
+                    </span>
                 </div>
                 <div style="font-size: 0.85em; margin: 6px 0;">
                     <strong>Target:</strong> ${attack.config.target_mac}<br>

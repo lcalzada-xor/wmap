@@ -3,7 +3,7 @@
  * Manages the animation loop and delegated renderers.
  */
 
-import { State } from '../core/state.js';
+import { Store } from '../core/store/store.js';
 
 export class Compositor {
     constructor() {

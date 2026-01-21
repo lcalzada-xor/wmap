@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -10,7 +11,7 @@ import (
 )
 
 func TestDeviceRegistry_CleanupStaleConnections(t *testing.T) {
-	registry := registry.NewDeviceRegistry(nil)
+	registry := registry.NewDeviceRegistry(nil, nil)
 
 	// Setup: 3 Devices
 	// 1. Active Connected (Just seen)
@@ -43,26 +44,27 @@ func TestDeviceRegistry_CleanupStaleConnections(t *testing.T) {
 		ConnectedSSID:   "",
 	}
 
-	registry.ProcessDevice(devActive)
-	registry.ProcessDevice(devStale)
-	registry.ProcessDevice(devAlreadyDisc)
+	ctx := context.Background()
+	registry.ProcessDevice(ctx, devActive)
+	registry.ProcessDevice(ctx, devStale)
+	registry.ProcessDevice(ctx, devAlreadyDisc)
 
 	// Run Cleanup with 2 minute timeout
-	count := registry.CleanupStaleConnections(2 * time.Minute)
+	count := registry.CleanupStaleConnections(ctx, 2*time.Minute)
 
 	// Assertions
 	assert.Equal(t, 1, count, "Should cleanup exactly 1 device")
 
 	// Verify States
-	d1, _ := registry.GetDevice(devActive.MAC)
+	d1, _ := registry.GetDevice(ctx, devActive.MAC)
 	assert.Equal(t, domain.StateConnected, d1.ConnectionState)
 	assert.Equal(t, "AA:AA:AA:AA:AA:AA", d1.ConnectionTarget)
 
-	d2, _ := registry.GetDevice(devStale.MAC)
+	d2, _ := registry.GetDevice(ctx, devStale.MAC)
 	assert.Equal(t, domain.StateDisconnected, d2.ConnectionState)
 	assert.Equal(t, "", d2.ConnectedSSID) // Should be cleared
 	assert.Equal(t, "", d2.ConnectionTarget)
 
-	d3, _ := registry.GetDevice(devAlreadyDisc.MAC)
+	d3, _ := registry.GetDevice(ctx, devAlreadyDisc.MAC)
 	assert.Equal(t, domain.StateDisconnected, d3.ConnectionState)
 }

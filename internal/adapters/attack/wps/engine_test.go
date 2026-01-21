@@ -92,7 +92,7 @@ func TestWPSEngine_StartAttack(t *testing.T) {
 	tests := []struct {
 		name           string
 		config         domain.WPSAttackConfig
-		expectedStatus string
+		expectedStatus domain.WPSStatus
 		expectedPin    string
 		wantError      bool
 	}{
@@ -104,7 +104,7 @@ func TestWPSEngine_StartAttack(t *testing.T) {
 				Channel:        6,
 				TimeoutSeconds: 2,
 			},
-			expectedStatus: "success",
+			expectedStatus: domain.WPSStatusSuccess,
 			expectedPin:    "12345678",
 			wantError:      false,
 		},
@@ -116,7 +116,7 @@ func TestWPSEngine_StartAttack(t *testing.T) {
 				Channel:        1,
 				TimeoutSeconds: 2,
 			},
-			expectedStatus: "failed", // Helper exits with 1
+			expectedStatus: domain.WPSStatusFailed, // Helper exits with 1
 			expectedPin:    "",
 			wantError:      false, // StartAttack itself shouldn't error, status updates later
 		},
@@ -128,7 +128,7 @@ func TestWPSEngine_StartAttack(t *testing.T) {
 				Channel:        6,
 				TimeoutSeconds: 5,
 			},
-			expectedStatus: "failed", // It exits 0 but finds no PIN, so "failed" (but logs should exist)
+			expectedStatus: domain.WPSStatusFailed, // It exits 0 but finds no PIN, so "failed" (but logs should exist)
 			expectedPin:    "",
 			wantError:      false,
 		},
@@ -140,7 +140,7 @@ func TestWPSEngine_StartAttack(t *testing.T) {
 				Channel:        6,
 				TimeoutSeconds: 1, // Short timeout
 			},
-			expectedStatus: "timeout", // Should timeout and fail
+			expectedStatus: domain.WPSStatusTimeout, // Should timeout and fail
 			expectedPin:    "",
 			wantError:      false,
 		},
@@ -157,7 +157,7 @@ func TestWPSEngine_StartAttack(t *testing.T) {
 			// OR we assume reaver is installed or we mock LookPath if we could (we can't easily).
 			// Instead let's handle the error gracefully or skip if "dependency missing"
 
-			id, err := engine.StartAttack(tt.config)
+			id, err := engine.StartAttack(context.Background(), tt.config)
 
 			// Hack: if local dev env doesnt have reaver, StartAttack fails early.
 			if err != nil && strings.Contains(err.Error(), "health check failed") {
@@ -181,7 +181,7 @@ func TestWPSEngine_StartAttack(t *testing.T) {
 			time.Sleep(waitDuration)
 
 			// Check Status
-			status, err := engine.GetStatus(id)
+			status, err := engine.GetStatus(context.Background(), id)
 			if err != nil {
 				t.Errorf("GetStatus() error = %v", err)
 				return

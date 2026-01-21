@@ -13,6 +13,7 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/pcap"
 	"github.com/google/gopacket/pcapgo"
+	"github.com/lcalzada-xor/wmap/internal/adapters/fingerprint"
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/driver"
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/handshake"
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/hopping"
@@ -20,6 +21,7 @@ import (
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/parser"
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
 	"github.com/lcalzada-xor/wmap/internal/geo"
+	"github.com/lcalzada-xor/wmap/internal/telemetry"
 )
 
 // Internal variable for testing
@@ -38,8 +40,8 @@ type SnifferConfig struct {
 
 // ChannelLocker overrides the channel hopper to lock on a specific channel.
 type ChannelLocker interface {
-	Lock(iface string, channel int) error
-	Unlock(iface string) error
+	Lock(ctx context.Context, iface string, channel int) error
+	Unlock(ctx context.Context, iface string) error
 	ExecuteWithLock(ctx context.Context, iface string, channel int, action func() error) error
 }
 
@@ -51,6 +53,7 @@ type Sniffer struct {
 	handler    *parser.PacketHandler
 	Injector   *injection.Injector
 	Hopper     *hopping.ChannelHopper
+	VendorRepo fingerprint.VendorRepository
 	pcapWriter *pcapgo.Writer
 	pcapFile   *os.File
 	handle     *pcap.Handle // Expose handle to get stats
@@ -71,21 +74,22 @@ type Sniffer struct {
 }
 
 // New creates a new Sniffer instance.
-func New(config SnifferConfig, out chan<- domain.Device, alerts chan<- domain.Alert, loc geo.Provider, hm *handshake.HandshakeManager) *Sniffer {
+func New(config SnifferConfig, out chan<- domain.Device, alerts chan<- domain.Alert, loc geo.Provider, hm *handshake.HandshakeManager, repo fingerprint.VendorRepository) *Sniffer {
 	inj, err := injection.NewInjector(config.Interface)
 	if err != nil {
 		log.Printf("Warning: Failed to initialize injector: %v", err)
 	}
 
 	s := &Sniffer{
-		Config:   config,
-		Output:   out,
-		Alerts:   alerts,
-		Injector: inj,
+		Config:     config,
+		Output:     out,
+		Alerts:     alerts,
+		Injector:   inj,
+		VendorRepo: repo,
 	}
 
 	// Create handler with pause callback
-	s.handler = parser.NewPacketHandler(loc, config.Debug, hm, s.PauseHopper)
+	s.handler = parser.NewPacketHandler(loc, config.Debug, hm, repo, s.PauseHopper)
 
 	// Initialize Hopper if channels are provided
 	if len(config.Channels) > 0 {
@@ -118,7 +122,7 @@ func (s *Sniffer) Close() {
 }
 
 // Scan performs an active scan by broadcasting probe requests.
-func (s *Sniffer) Scan(target string) error {
+func (s *Sniffer) Scan(ctx context.Context, target string) error {
 	if s.Injector == nil {
 		return fmt.Errorf("active injection not available (check permissions/interface)")
 	}
@@ -225,6 +229,9 @@ func (s *Sniffer) Start(ctx context.Context) error {
 			_ = s.pcapWriter.WritePacket(packet.Metadata().CaptureInfo, packet.Data())
 		}
 
+		// Metric: Packets Captured
+		telemetry.PacketsCaptured.WithLabelValues(s.Config.Interface).Inc()
+
 		// Non-blocking send
 		select {
 		case packetChan <- packet:
@@ -234,6 +241,9 @@ func (s *Sniffer) Start(ctx context.Context) error {
 			s.metricsMu.Lock()
 			s.metrics.AppPacketsDropped++
 			s.metricsMu.Unlock()
+
+			// Metric: App Packets Dropped
+			telemetry.PacketsDropped.WithLabelValues(s.Config.Interface, "buffer_full").Inc()
 		}
 	}
 }
@@ -250,6 +260,9 @@ func (s *Sniffer) worker(ctx context.Context, wg *sync.WaitGroup, packets <-chan
 				}
 			}()
 			device, alert := s.handler.HandlePacket(p)
+
+			// Metric: Packets Processed
+			telemetry.PacketsProcessed.WithLabelValues(s.Config.Interface).Inc()
 
 			if device != nil {
 				select {
@@ -398,9 +411,9 @@ func (s *Sniffer) GetInterfaceDetails() []domain.InterfaceInfo {
 		}}
 	}
 
-	var bands []string
+	var bands []domain.WiFiBand
 	for b := range bandsMap {
-		bands = append(bands, b)
+		bands = append(bands, domain.WiFiBand(b))
 	}
 
 	caps := domain.InterfaceCapabilities{
@@ -423,7 +436,7 @@ func (s *Sniffer) GetInterfaceDetails() []domain.InterfaceInfo {
 }
 
 // Lock stops channel hopping and sets a specific channel for the interface.
-func (s *Sniffer) Lock(iface string, channel int) error {
+func (s *Sniffer) Lock(ctx context.Context, iface string, channel int) error {
 	s.lockMu.Lock()
 	defer s.lockMu.Unlock()
 
@@ -474,7 +487,7 @@ func (s *Sniffer) Lock(iface string, channel int) error {
 }
 
 // Unlock resumes channel hopping if it was paused.
-func (s *Sniffer) Unlock(iface string) error {
+func (s *Sniffer) Unlock(ctx context.Context, iface string) error {
 	s.lockMu.Lock()
 	defer s.lockMu.Unlock()
 
@@ -510,10 +523,10 @@ func (s *Sniffer) Unlock(iface string) error {
 
 // ExecuteWithLock runs an action while holding a channel lock
 func (s *Sniffer) ExecuteWithLock(ctx context.Context, iface string, channel int, action func() error) error {
-	if err := s.Lock(iface, channel); err != nil {
+	if err := s.Lock(ctx, iface, channel); err != nil {
 		return err
 	}
-	defer s.Unlock(iface)
+	defer s.Unlock(ctx, iface)
 
 	// We can check context before running action
 	select {
@@ -555,6 +568,15 @@ func (s *Sniffer) collectMetrics(ctx context.Context) {
 				s.metrics.PacketsIfDropped = int64(stats.PacketsIfDropped)
 				// AppPacketsDropped is updated in the loop
 				s.metricsMu.Unlock()
+
+				// Update Prometheus Gauges/Counters for Driver Drops?
+				// Since these are cumulative stats from pcap, we might want to use a Gauge or just log/observe.
+				// For now, let's rely on the internal counters if we wanted to export them precisely,
+				// but Prometheus typical pattern for "drops" is a Counter.
+				// Since pcap stats are cumulative, we can't easily validly .Inc() without tracking previous delta.
+				// Let's explicitly just export App Drops for now (buffer_full) which we track manually above.
+				// Or, we could use a Gauge for these:
+				// telemetry.DriverPacketsDropped.WithLabelValues(s.Config.Interface).Set(float64(stats.PacketsDropped))
 			}
 		}
 	}

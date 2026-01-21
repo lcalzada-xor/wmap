@@ -12,6 +12,12 @@ export class DeauthController {
         this.targetSelect = document.getElementById('deauth-target');
         this.interfaceSelect = document.getElementById('deauth-interface');
         this.attackList = document.getElementById('attack-list');
+        this.presetSelect = document.getElementById('deauth-preset');
+        this.advancedToggle = document.getElementById('btn-toggle-advanced-deauth');
+        this.advancedOptions = document.getElementById('deauth-advanced-options');
+        this.spoofCheck = document.getElementById('deauth-spoof');
+        this.jitterCheck = document.getElementById('deauth-jitter');
+        this.reasonFuzzCheck = document.getElementById('deauth-reason-fuzz');
         this.activeAttacks = new Map();
         this.updateInterval = null;
 
@@ -34,6 +40,19 @@ export class DeauthController {
             this.startAttack();
         });
 
+        // Toggle Advanced Options
+        this.advancedToggle?.addEventListener('click', () => {
+            this.toggleAdvancedOptions();
+        });
+
+        // Presets
+        this.presetSelect?.addEventListener('change', () => {
+            this.applyPreset();
+        });
+
+        // Start periodic updates
+        this.startPeriodicUpdates();
+
         // Update target dropdown when nodes change
         // Debounce slightly to avoid heavy re-rendering on high traffic
         let debounce = null;
@@ -47,14 +66,6 @@ export class DeauthController {
         if (this.nodes) {
             this.nodes.on('*', debouncedUpdate);
         }
-
-        // MitM Preset Button
-        document.getElementById('mitm-prep-btn')?.addEventListener('click', () => {
-            this.applyMitmPreset();
-        });
-
-        // Start periodic updates
-        this.startPeriodicUpdates();
     }
 
     openPanel(targetMAC = null, clientMAC = null, channel = null) {
@@ -183,6 +194,33 @@ export class DeauthController {
             return labelA.localeCompare(labelB);
         });
 
+        // Check if current selection is in the filtered list
+        const inList = targets.some(n => n.mac === currentSelection);
+
+        // If current selection is valid but filtered out (e.g. not identified as AP yet), add it back
+        let preservedOption = null;
+        if (currentSelection && !inList && this.nodes) {
+            const missedNode = this.nodes.get(currentSelection);
+            if (missedNode) {
+                preservedOption = {
+                    mac: missedNode.mac,
+                    ssid: missedNode.ssid,
+                    label: missedNode.label
+                };
+                // Add to start of list
+                targets.unshift(preservedOption);
+            } else {
+                // If not in nodes anymore, we can't really do much unless we want to keep a stale value
+                // But manual append logic in openPanel creates an option. 
+                // If that node is not in this.nodes at all, we lose it.
+                // We should assume if value is set, we want to keep it.
+                const option = document.createElement('option');
+                option.value = currentSelection;
+                option.textContent = currentSelection + " (Preserved)";
+                this.targetSelect.appendChild(option);
+            }
+        }
+
         targets.forEach(node => {
             const option = document.createElement('option');
             option.value = node.mac;
@@ -197,47 +235,72 @@ export class DeauthController {
         }
     }
 
-    applyMitmPreset() {
+    toggleAdvancedOptions() {
+        if (!this.advancedOptions || !this.advancedToggle) return;
+
+        const icon = this.advancedToggle.querySelector('i');
+        const isHidden = this.advancedOptions.style.display === 'none';
+
+        this.advancedOptions.style.display = isHidden ? 'block' : 'none';
+
+        if (icon) {
+            icon.style.transform = isHidden ? 'rotate(90deg)' : 'rotate(0deg)';
+        }
+    }
+
+    applyPreset() {
+        const preset = this.presetSelect.value;
         const typeSelect = document.getElementById('deauth-type');
         const countInput = document.getElementById('deauth-count');
+        const intervalInput = document.getElementById('deauth-interval');
         const reasonInput = document.getElementById('deauth-reason');
-        const stealthCheck = document.getElementById('deauth-stealth');
-        const btn = document.getElementById('mitm-prep-btn');
 
-        if (typeSelect) {
-            typeSelect.value = 'targeted';
-            this.highlightField(typeSelect);
-        }
-        if (countInput) {
-            countInput.value = '20'; // Short burst to trigger roam
-            this.highlightField(countInput);
-        }
-        if (reasonInput) {
-            reasonInput.value = '7';
-            this.highlightField(reasonInput);
-        }
-        if (stealthCheck) {
-            stealthCheck.checked = true;
-            // Checkbox highlight might be subtle, but okay
+        if (preset === 'custom') return;
+
+        // Default Reset function
+        const setVal = (el, val) => {
+            if (el) {
+                el.value = val;
+                this.highlightField(el);
+            }
+        };
+
+        const setStealth = (spoof, jitter, fuzz) => {
+            if (this.spoofCheck) this.spoofCheck.checked = spoof;
+            if (this.jitterCheck) this.jitterCheck.checked = jitter;
+            if (this.reasonFuzzCheck) this.reasonFuzzCheck.checked = fuzz;
+        };
+
+        switch (preset) {
+            case 'handshake':
+                setVal(typeSelect, 'targeted');
+                setVal(countInput, '25');
+                setVal(intervalInput, '100');
+                setVal(reasonInput, '7');
+                setStealth(true, true, true);
+                break;
+            case 'disconnect':
+                setVal(typeSelect, 'broadcast');
+                setVal(countInput, '0'); // Continuous
+                setVal(intervalInput, '10'); // Fast flood
+                setVal(reasonInput, '2'); // Previous auth invalid
+                setStealth(false, false, false); // Max power
+                break;
+            case 'stealth':
+                setVal(countInput, '0');
+                setVal(intervalInput, '500'); // Slow
+                setStealth(true, true, true);
+                break;
+            case 'annoy':
+                setVal(typeSelect, 'broadcast');
+                setVal(countInput, '5');
+                setVal(intervalInput, '2000'); // Every 2s
+                setVal(reasonInput, '1');
+                setStealth(true, true, true);
+                break;
         }
 
-        // Button Feedback
-        if (btn) {
-            const originalText = btn.textContent;
-            btn.textContent = "Applied!";
-            btn.style.color = "var(--success-color)";
-            btn.style.borderColor = "var(--success-color)";
-            btn.style.background = "rgba(40, 167, 69, 0.1)"; // Subtle green bg
-
-            setTimeout(() => {
-                btn.textContent = originalText;
-                btn.style.color = "";
-                btn.style.borderColor = "";
-                btn.style.background = "";
-            }, 1000);
-        }
-
-        this.showNotification("MitM Preset Applied", "success");
+        this.showNotification(`Applied preset: ${preset}`, "success");
     }
 
     highlightField(element) {
@@ -267,7 +330,6 @@ export class DeauthController {
         const packetInterval = parseInt(document.getElementById('deauth-interval').value);
         const reasonCode = parseInt(document.getElementById('deauth-reason').value);
         const legalAck = document.getElementById('deauth-legal-ack').checked;
-        const stealth = document.getElementById('deauth-stealth')?.checked || false;
         const interfaceName = this.interfaceSelect ? this.interfaceSelect.value : "";
         const channelVal = parseInt(document.getElementById('deauth-channel').value);
 
@@ -299,9 +361,9 @@ export class DeauthController {
             legal_acknowledgment: legalAck,
             interface: interfaceName,
             // Stealth & Optimizations
-            spoof_source: stealth,
-            use_jitter: stealth,
-            use_reason_fuzzing: stealth || (reasonCode === 0)
+            spoof_source: this.spoofCheck ? this.spoofCheck.checked : false,
+            use_jitter: this.jitterCheck ? this.jitterCheck.checked : false,
+            use_reason_fuzzing: this.reasonFuzzCheck ? this.reasonFuzzCheck.checked : false
         };
 
         try {

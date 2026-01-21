@@ -14,7 +14,7 @@ func TestHandlePacket_HandshakeAlert(t *testing.T) {
 	tmpDir := t.TempDir()
 	hm := handshake.NewHandshakeManager(tmpDir)
 	mockLoc := MockGeo{}
-	handler := parser.NewPacketHandler(mockLoc, true, hm, nil)
+	handler := parser.NewPacketHandler(mockLoc, true, hm, nil, nil)
 
 	bssid := "00:11:22:33:44:55"
 	client := "aa:bb:cc:dd:ee:ff"
@@ -24,8 +24,13 @@ func TestHandlePacket_HandshakeAlert(t *testing.T) {
 	// 1. Inject Beacon to learn ESSID
 	hm.RegisterNetwork(bssid, essid)
 
+	// 4. Inject M3 check prep
+	anonce := make([]byte, 32)
+	anonce[0] = 0xAA
+
 	// 2. Inject M1 (No Alert Expected)
-	p1 := createEAPOLPacket(bssid, client, bssid, 1)
+	// Use explicit Replay Counter 1 and Nonce
+	p1 := createEAPOLPacket(bssid, client, bssid, 1, EAPOLOptions{ReplayCounter: 1, Nonce: anonce})
 	device, alert := handler.HandlePacket(p1)
 
 	if alert != nil {
@@ -33,7 +38,8 @@ func TestHandlePacket_HandshakeAlert(t *testing.T) {
 	}
 
 	// 3. Inject M2 (Alert Expected)
-	p2 := createEAPOLPacket(client, bssid, bssid, 2)
+	// RC must match M1
+	p2 := createEAPOLPacket(client, bssid, bssid, 2, EAPOLOptions{ReplayCounter: 1})
 	device, alert = handler.HandlePacket(p2)
 
 	if alert == nil {
@@ -51,7 +57,13 @@ func TestHandlePacket_HandshakeAlert(t *testing.T) {
 		// Expect nil because alert returns early
 	}
 
-	p3 := createEAPOLPacket(bssid, client, bssid, 3)
+	// 4. Inject M3 (Alert Expected because it completes Anonce if missing, or just updates session)
+	// RC should be M1+1 usually for M3? Or sometimes M1.
+	// HandshakeManager logic: expectedRC := session.ReplayCounter + 1.
+	// So let's use RC=2.
+	// Also provide Anonce (M3 has it).
+	// anonce defined above
+	p3 := createEAPOLPacket(bssid, client, bssid, 3, EAPOLOptions{ReplayCounter: 2, Nonce: anonce})
 	time.Sleep(1 * time.Millisecond)
 
 	_, alert3 := handler.HandlePacket(p3)

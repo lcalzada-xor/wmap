@@ -26,6 +26,401 @@ select option {
     color: var(--warning-color);
 }
 
+/* --- iOS 19 BUTTON SYSTEM --- */
+
+/* Base Button - Glassmorphism */
+button {
+    font-family: var(--font-body);
+    cursor: pointer;
+    outline: none;
+    border: none;
+    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Primary Action Button */
+.action-btn {
+    padding: 12px 24px;
+    border-radius: 14px;
+    font-weight: 600;
+    font-size: 0.95em;
+    color: white;
+    background: linear-gradient(135deg, var(--accent-color), #007AFF);
+    box-shadow: 0 4px 16px rgba(10, 132, 255, 0.3);
+    border: 1px solid rgba(10, 132, 255, 0.4);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.action-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(10, 132, 255, 0.5);
+    background: linear-gradient(135deg, #1a94ff, #0070f0);
+}
+
+.action-btn:active {
+    transform: translateY(0);
+}
+
+/* Secondary Action Button - Glass */
+.action-btn-secondary {
+    padding: 10px 18px;
+    border-radius: 12px;
+    font-weight: 500;
+    font-size: 0.9em;
+    color: var(--text-color);
+    background: rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.action-btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.25);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.action-btn-secondary:active {
+    transform: translateY(0);
+}
+
+/* Modal Buttons */
+.modal-buttons button {
+    padding: 12px 24px;
+    border-radius: 14px;
+    font-weight: 600;
+    font-size: 0.95em;
+    min-width: 100px;
+    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+#btn-modal-cancel,
+.modal-buttons button:first-child {
+    background: rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: var(--text-color);
+}
+
+#btn-modal-cancel:hover,
+.modal-buttons button:first-child:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.25);
+    transform: translateY(-2px);
+}
+
+#btn-modal-confirm,
+.modal-buttons button:last-child {
+    background: linear-gradient(135deg, var(--accent-color), #007AFF);
+    border: 1px solid rgba(10, 132, 255, 0.4);
+    color: white;
+    box-shadow: 0 4px 12px rgba(10, 132, 255, 0.3);
+}
+
+#btn-modal-confirm:hover,
+.modal-buttons button:last-child:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(10, 132, 255, 0.5);
+}
+
+#btn-channel-modal-close {
+    background: rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: var(--text-color);
+    padding: 12px 24px;
+    border-radius: 14px;
+    font-weight: 600;
+}
+
+#btn-channel-modal-close:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.25);
+    transform: translateY(-2px);
+}
+
+/* --- iOS 19 FORM ELEMENTS --- */
+
+/* Custom Checkbox */
+input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+    margin-right: 8px;
+    vertical-align: middle;
+    flex-shrink: 0;
+}
+
+input[type="checkbox"]:hover {
+    border-color: rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.08);
+}
+
+input[type="checkbox"]:checked {
+    background: linear-gradient(135deg, var(--accent-color), #007AFF);
+    border-color: var(--accent-color);
+    box-shadow: 0 0 10px rgba(10, 132, 255, 0.3);
+}
+
+input[type="checkbox"]:checked::after {
+    content: "";
+    position: absolute;
+    left: 5px;
+    top: 2px;
+    width: 5px;
+    height: 10px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+input[type="checkbox"]:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* Custom Radio Button */
+input[type="radio"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+    margin-right: 8px;
+    vertical-align: middle;
+    flex-shrink: 0;
+}
+
+input[type="radio"]:hover {
+    border-color: rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.08);
+}
+
+input[type="radio"]:checked {
+    border-color: var(--accent-color);
+    background: rgba(10, 132, 255, 0.15);
+    box-shadow: 0 0 10px rgba(10, 132, 255, 0.2);
+}
+
+input[type="radio"]:checked::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent-color);
+}
+
+input[type="radio"]:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* Text Inputs, Number Inputs, Textareas */
+input[type="text"],
+input[type="number"],
+input[type="password"],
+input[type="email"],
+textarea {
+    width: 100%;
+    padding: 12px 16px;
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 12px;
+    color: var(--text-color);
+    font-family: var(--font-body);
+    font-size: 0.95em;
+    outline: none;
+    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+    box-sizing: border-box;
+}
+
+input[type="text"]:focus,
+input[type="number"]:focus,
+input[type="password"]:focus,
+input[type="email"]:focus,
+textarea:focus {
+    border-color: var(--accent-color);
+    background: rgba(255, 255, 255, 0.08);
+    box-shadow: 0 0 0 4px rgba(10, 132, 255, 0.15);
+}
+
+input[type="text"]::placeholder,
+input[type="number"]::placeholder,
+input[type="password"]::placeholder,
+input[type="email"]::placeholder,
+textarea::placeholder {
+    color: rgba(255, 255, 255, 0.4);
+}
+
+input[type="text"]:disabled,
+input[type="number"]:disabled,
+input[type="password"]:disabled,
+input[type="email"]:disabled,
+textarea:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+input[readonly] {
+    background: rgba(0, 0, 0, 0.2);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: var(--text-secondary);
+    cursor: default;
+}
+
+/* Select Dropdowns */
+select {
+    width: 100%;
+    padding: 12px 16px;
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 12px;
+    color: var(--text-color);
+    font-family: var(--font-body);
+    font-size: 0.95em;
+    outline: none;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+    box-sizing: border-box;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23F5F5F7' d='M1.41 0L6 4.58 10.59 0 12 1.41l-6 6-6-6z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 40px;
+}
+
+select:hover {
+    border-color: rgba(255, 255, 255, 0.25);
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+select:focus {
+    border-color: var(--accent-color);
+    background-color: rgba(255, 255, 255, 0.08);
+    box-shadow: 0 0 0 4px rgba(10, 132, 255, 0.15);
+}
+
+select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Range Sliders */
+input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    outline: none;
+    transition: all 0.2s;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: white;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1);
+    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+    transform: scale(1.1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4), 0 0 0 2px var(--accent-color);
+}
+
+input[type="range"]::-webkit-slider-thumb:active {
+    transform: scale(1.05);
+}
+
+input[type="range"]::-moz-range-thumb {
+    width: 22px;
+    height: 22px;
+    border: none;
+    border-radius: 50%;
+    background: white;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1);
+    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+input[type="range"]::-moz-range-thumb:hover {
+    transform: scale(1.1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4), 0 0 0 2px var(--accent-color);
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+    height: 6px;
+    background: transparent;
+}
+
+input[type="range"]::-moz-range-track {
+    height: 6px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+}
+
+/* Label Enhancements */
+label {
+    cursor: pointer;
+    user-select: none;
+    display: inline-flex;
+    align-items: center;
+    transition: color 0.2s;
+}
+
+label:hover {
+    color: var(--text-color);
+}
+
+/* Textarea Specific */
+textarea {
+    resize: vertical;
+    min-height: 80px;
+    line-height: 1.5;
+}
+
 /* Font Awesome Icon Fixes */
 /* Ensure Font Awesome icons render correctly */
 i.fas,

@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 // TestDeviceRegistry_MergeConnectionState verifies that connection state fields
 // are properly merged when processing an existing device.
 func TestDeviceRegistry_MergeConnectionState(t *testing.T) {
-	registry := NewDeviceRegistry(nil)
+	registry := NewDeviceRegistry(nil, nil)
 	mac := "AA:BB:CC:DD:EE:FF"
 	apMAC := "00:11:22:33:44:55"
 
@@ -22,9 +23,9 @@ func TestDeviceRegistry_MergeConnectionState(t *testing.T) {
 		LastPacketTime:  time.Now().Add(-10 * time.Second),
 		ConnectionState: domain.StateDisconnected,
 	}
-	registry.ProcessDevice(dev1)
+	registry.ProcessDevice(context.Background(), dev1)
 
-	stored, _ := registry.GetDevice(mac)
+	stored, _ := registry.GetDevice(context.Background(), mac)
 	assert.Equal(t, domain.StateDisconnected, stored.ConnectionState)
 	assert.Equal(t, "", stored.ConnectionTarget)
 
@@ -36,9 +37,9 @@ func TestDeviceRegistry_MergeConnectionState(t *testing.T) {
 		ConnectionState:  domain.StateAuthenticating,
 		ConnectionTarget: apMAC,
 	}
-	registry.ProcessDevice(dev2)
+	registry.ProcessDevice(context.Background(), dev2)
 
-	stored, _ = registry.GetDevice(mac)
+	stored, _ = registry.GetDevice(context.Background(), mac)
 	assert.Equal(t, domain.StateAuthenticating, stored.ConnectionState, "Should update to Authenticating state")
 	assert.Equal(t, apMAC, stored.ConnectionTarget, "Should set ConnectionTarget to AP MAC")
 
@@ -50,9 +51,9 @@ func TestDeviceRegistry_MergeConnectionState(t *testing.T) {
 		ConnectionState:  domain.StateAssociating,
 		ConnectionTarget: apMAC,
 	}
-	registry.ProcessDevice(dev3)
+	registry.ProcessDevice(context.Background(), dev3)
 
-	stored, _ = registry.GetDevice(mac)
+	stored, _ = registry.GetDevice(context.Background(), mac)
 	assert.Equal(t, domain.StateAssociating, stored.ConnectionState, "Should update to Associating state")
 	assert.Equal(t, apMAC, stored.ConnectionTarget, "Should maintain ConnectionTarget")
 
@@ -64,9 +65,9 @@ func TestDeviceRegistry_MergeConnectionState(t *testing.T) {
 		ConnectionState:  domain.StateConnected,
 		ConnectionTarget: apMAC,
 	}
-	registry.ProcessDevice(dev4)
+	registry.ProcessDevice(context.Background(), dev4)
 
-	stored, _ = registry.GetDevice(mac)
+	stored, _ = registry.GetDevice(context.Background(), mac)
 	assert.Equal(t, domain.StateConnected, stored.ConnectionState, "Should update to Connected state")
 	assert.Equal(t, apMAC, stored.ConnectionTarget, "Should maintain ConnectionTarget")
 
@@ -79,25 +80,25 @@ func TestDeviceRegistry_MergeConnectionState(t *testing.T) {
 		ConnectionError:  "auth_failed",
 		ConnectionTarget: "",
 	}
-	registry.ProcessDevice(dev5)
+	registry.ProcessDevice(context.Background(), dev5)
 
-	stored, _ = registry.GetDevice(mac)
+	stored, _ = registry.GetDevice(context.Background(), mac)
 	assert.Equal(t, domain.StateDisconnected, stored.ConnectionState, "Should update to Disconnected state")
 	assert.Equal(t, "auth_failed", stored.ConnectionError, "Should set ConnectionError")
 }
 
 // TestDeviceRegistry_ConnectionStateTransitions verifies all state transitions
 func TestDeviceRegistry_ConnectionStateTransitions(t *testing.T) {
-	registry := NewDeviceRegistry(nil)
+	registry := NewDeviceRegistry(nil, nil)
 	mac := "11:22:33:44:55:66"
 	apMAC := "AA:BB:CC:DD:EE:FF"
 
 	testCases := []struct {
 		name           string
-		state          string
+		state          domain.ConnectionState
 		target         string
 		error          string
-		expectedState  string
+		expectedState  domain.ConnectionState
 		expectedTarget string
 		expectedError  string
 	}{
@@ -167,9 +168,9 @@ func TestDeviceRegistry_ConnectionStateTransitions(t *testing.T) {
 				ConnectionTarget: tc.target,
 				ConnectionError:  tc.error,
 			}
-			registry.ProcessDevice(dev)
+			registry.ProcessDevice(context.Background(), dev)
 
-			stored, found := registry.GetDevice(mac)
+			stored, found := registry.GetDevice(context.Background(), mac)
 			assert.True(t, found)
 			assert.Equal(t, tc.expectedState, stored.ConnectionState, "State mismatch in %s", tc.name)
 			assert.Equal(t, tc.expectedTarget, stored.ConnectionTarget, "Target mismatch in %s", tc.name)

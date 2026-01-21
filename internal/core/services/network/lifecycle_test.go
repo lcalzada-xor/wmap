@@ -5,13 +5,14 @@ import (
 
 	"github.com/lcalzada-xor/wmap/internal/core/services/registry"
 	"github.com/lcalzada-xor/wmap/internal/core/services/security"
+	"github.com/stretchr/testify/mock"
 )
 
 // TestNetworkService_Close_Lifecycle verifies that calling Close() on NetworkService
 // initiates the cleanup sequence for all registered engines (Deauth, WPS, AuthFlood).
 func TestNetworkService_Close_Lifecycle(t *testing.T) {
 	// Setup Dependencies
-	reg := registry.NewDeviceRegistry(nil)
+	reg := registry.NewDeviceRegistry(nil, nil)
 	sec := security.NewSecurityEngine(reg)
 
 	// Create Mocks
@@ -27,7 +28,7 @@ func TestNetworkService_Close_Lifecycle(t *testing.T) {
 	svc.SetDeauthEngine(mockDeauth)
 
 	// Expectation: StopAll called
-	mockDeauth.On("StopAll").Return()
+	mockDeauth.On("StopAll", mock.Anything).Return()
 
 	// Execute: Close
 	svc.Close()

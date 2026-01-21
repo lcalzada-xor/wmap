@@ -2,7 +2,7 @@
  * Trails Renderer
  */
 
-import { State } from '../core/state.js';
+import { Store } from '../core/store/store.js';
 
 export class TrailsRenderer {
     constructor(networkInstance, getCurrentNodes) {
@@ -12,7 +12,7 @@ export class TrailsRenderer {
     }
 
     enabled() {
-        return State.config.trails;
+        return Store.state.config.trails;
     }
 
     draw(ctx, w, h) {

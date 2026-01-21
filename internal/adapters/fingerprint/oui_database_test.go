@@ -1,6 +1,7 @@
 package fingerprint
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"testing"
@@ -19,6 +20,8 @@ func TestOUIDatabaseBasic(t *testing.T) {
 	}
 	defer db.Close()
 
+	ctx := context.Background()
+
 	// Insert test entries
 	entries := []OUIEntry{
 		{
@@ -36,13 +39,14 @@ func TestOUIDatabaseBasic(t *testing.T) {
 	}
 
 	for _, entry := range entries {
-		if err := db.InsertOUI(entry); err != nil {
+		if err := db.InsertOUI(ctx, entry); err != nil {
 			t.Fatalf("Failed to insert OUI: %v", err)
 		}
 	}
 
 	// Test lookup
-	vendor, err := db.LookupVendor("00:00:00:11:22:33")
+	mac := MustParseMAC("00:00:00:11:22:33")
+	vendor, err := db.LookupVendor(ctx, mac)
 	if err != nil {
 		t.Fatalf("Lookup failed: %v", err)
 	}
@@ -51,12 +55,12 @@ func TestOUIDatabaseBasic(t *testing.T) {
 	}
 
 	// Test stats
-	count, _, err := db.GetStats()
+	stats, err := db.GetStats(ctx)
 	if err != nil {
 		t.Fatalf("GetStats failed: %v", err)
 	}
-	if count != 2 {
-		t.Errorf("Expected 2 entries, got %d", count)
+	if stats.TotalEntries != 2 {
+		t.Errorf("Expected 2 entries, got %d", stats.TotalEntries)
 	}
 }
 
@@ -69,6 +73,8 @@ func TestOUIDatabaseBulkInsert(t *testing.T) {
 		t.Fatalf("Failed to create database: %v", err)
 	}
 	defer db.Close()
+
+	ctx := context.Background()
 
 	// Create 100 test entries
 	entries := make([]OUIEntry, 100)
@@ -84,17 +90,17 @@ func TestOUIDatabaseBulkInsert(t *testing.T) {
 	}
 
 	// Bulk insert
-	if err := db.BulkInsertOUIs(entries); err != nil {
+	if err := db.BulkInsertOUIs(ctx, entries); err != nil {
 		t.Fatalf("Bulk insert failed: %v", err)
 	}
 
 	// Verify count
-	count, _, err := db.GetStats()
+	stats, err := db.GetStats(ctx)
 	if err != nil {
 		t.Fatalf("GetStats failed: %v", err)
 	}
-	if count != 100 {
-		t.Errorf("Expected 100 entries, got %d", count)
+	if stats.TotalEntries != 100 {
+		t.Errorf("Expected 100 entries, got %d", stats.TotalEntries)
 	}
 }
 
@@ -102,10 +108,10 @@ func TestOUIDatabaseFallback(t *testing.T) {
 	tmpDB := "test_oui_fallback.db"
 	defer os.Remove(tmpDB)
 
-	// Create fallback map
-	fallback := map[string]string{
+	// Create fallback repository
+	fallback := NewStaticVendorRepository(map[string]string{
 		"AA:BB:CC": "Fallback Vendor",
-	}
+	})
 
 	db, err := NewOUIDatabase(tmpDB, 100, fallback)
 	if err != nil {
@@ -113,8 +119,11 @@ func TestOUIDatabaseFallback(t *testing.T) {
 	}
 	defer db.Close()
 
+	ctx := context.Background()
+
 	// Lookup should use fallback
-	vendor, err := db.LookupVendor("AA:BB:CC:11:22:33")
+	mac := MustParseMAC("AA:BB:CC:11:22:33")
+	vendor, err := db.LookupVendor(ctx, mac)
 	if err != nil {
 		t.Fatalf("Lookup failed: %v", err)
 	}
@@ -150,16 +159,20 @@ func BenchmarkOUIDatabaseLookup(b *testing.B) {
 	db, _ := NewOUIDatabase(tmpDB, 1000, nil)
 	defer db.Close()
 
+	ctx := context.Background()
+
 	// Insert test entry
-	db.InsertOUI(OUIEntry{
+	db.InsertOUI(ctx, OUIEntry{
 		Prefix:      "00:00:00",
 		Vendor:      "Test",
 		VendorShort: "T",
 		LastUpdated: time.Now(),
 	})
 
+	mac := MustParseMAC("00:00:00:11:22:33")
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		db.LookupVendor("00:00:00:11:22:33")
+		db.LookupVendor(ctx, mac)
 	}
 }

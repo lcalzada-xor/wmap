@@ -155,3 +155,107 @@ func TestHopper_SwitcherErrors(t *testing.T) {
 		t.Errorf("Hopper stopped hopping on errors, expected retries. Got %d attempts", count)
 	}
 }
+func TestHopper_LockUnlock(t *testing.T) {
+	mock := &MockSwitcher{}
+	channels := []int{1, 6, 11}
+	h := NewHopper("wlan0", channels, 10*time.Millisecond, mock)
+
+	go h.Start()
+	time.Sleep(20 * time.Millisecond)
+
+	// Verify Initial State
+	if h.GetState() != StateHopping {
+		t.Errorf("Expected state Hopping, got %s", h.GetState())
+	}
+
+	// Lock
+	err := h.Lock(6)
+	if err != nil {
+		t.Fatalf("Lock failed: %v", err)
+	}
+
+	// Verify State Locked
+	if h.GetState() != StateLocked {
+		t.Errorf("Expected state Locked, got %s", h.GetState())
+	}
+
+	// Check if channel was set to 6
+	mock.mu.Lock()
+	lastCall := mock.calls[len(mock.calls)-1]
+	mock.mu.Unlock()
+	if lastCall != 6 {
+		t.Errorf("Expected last call to be channel 6, got %d", lastCall)
+	}
+
+	// Wait, ensure no more hops (mock shouldn't receive calls)
+	mock.mu.Lock()
+	countBefore := len(mock.calls)
+	mock.mu.Unlock()
+
+	time.Sleep(30 * time.Millisecond)
+
+	mock.mu.Lock()
+	countAfter := len(mock.calls)
+	mock.mu.Unlock()
+
+	if countAfter > countBefore {
+		t.Errorf("Hopper continued hopping while Locked (diff: %d)", countAfter-countBefore)
+	}
+
+	// Unlock
+	h.Unlock()
+
+	// Verify State Hopping
+	if h.GetState() != StateHopping {
+		t.Errorf("Expected state Hopping after Unlock, got %s", h.GetState())
+	}
+
+	// Ensure hopping resumed
+	time.Sleep(20 * time.Millisecond)
+	mock.mu.Lock()
+	countResumed := len(mock.calls)
+	mock.mu.Unlock()
+
+	if countResumed <= countAfter {
+		t.Errorf("Hopper did not resume hopping after Unlock")
+	}
+
+	h.Stop()
+}
+
+func TestHopper_StateTransitions(t *testing.T) {
+	mock := &MockSwitcher{}
+	h := NewHopper("wlan0", []int{1}, 50*time.Millisecond, mock)
+
+	if h.GetState() != StateIdle {
+		t.Errorf("New hopper should be Idle")
+	}
+
+	go h.Start()
+	time.Sleep(10 * time.Millisecond)
+	if h.GetState() != StateHopping {
+		t.Errorf("Started hopper should be Hopping")
+	}
+
+	h.Pause(100 * time.Millisecond)
+	time.Sleep(10 * time.Millisecond)
+	// Pause is handled via channel, might take a moment.
+	// But state should flip to Paused in the loop.
+	// Using retry/sleep because it's async
+	time.Sleep(10 * time.Millisecond)
+	if h.GetState() != StatePaused {
+		t.Errorf("Paused hopper should be StatePaused, got %s", h.GetState())
+	}
+
+	// Wait for auto-resume
+	time.Sleep(150 * time.Millisecond)
+	if h.GetState() != StateHopping {
+		t.Errorf("Resumed hopper should be Hopping, got %s", h.GetState())
+	}
+
+	h.Stop()
+	time.Sleep(10 * time.Millisecond)
+	if h.GetState() != StateStopped {
+		t.Errorf("Stopped hopper should be StateStopped")
+	}
+}

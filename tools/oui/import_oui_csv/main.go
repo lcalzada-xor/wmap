@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/csv"
 	"flag"
 	"io"
@@ -43,6 +44,8 @@ func main() {
 		log.Fatalf("Failed to open database: %v", err)
 	}
 	defer db.Close()
+
+	ctx := context.Background()
 
 	entries := []fingerprint.OUIEntry{}
 	lineNum := 0
@@ -90,7 +93,7 @@ func main() {
 
 		// Batch insert every 1000 entries
 		if len(entries) >= 1000 {
-			if err := db.BulkInsertOUIs(entries); err != nil {
+			if err := db.BulkInsertOUIs(ctx, entries); err != nil {
 				log.Fatalf("Bulk insert failed: %v", err)
 			}
 			if *verbose {
@@ -102,20 +105,20 @@ func main() {
 
 	// Insert remaining entries
 	if len(entries) > 0 {
-		if err := db.BulkInsertOUIs(entries); err != nil {
+		if err := db.BulkInsertOUIs(ctx, entries); err != nil {
 			log.Fatalf("Bulk insert failed: %v", err)
 		}
 	}
 
 	// Get final stats
-	count, lastUpdate, err := db.GetStats()
+	stats, err := db.GetStats(ctx)
 	if err != nil {
 		log.Fatalf("Failed to get stats: %v", err)
 	}
 
 	log.Printf("✓ Import complete!")
-	log.Printf("  Total entries: %d", count)
-	log.Printf("  Last updated: %s", lastUpdate.Format(time.RFC3339))
+	log.Printf("  Total entries: %d", stats.TotalEntries)
+	log.Printf("  Last updated: %s", stats.LastUpdated)
 }
 
 func extractShortVendor(vendor string) string {

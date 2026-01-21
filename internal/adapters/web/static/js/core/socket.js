@@ -3,49 +3,90 @@
  * Handles real-time data updates.
  */
 
+import { Actions } from './store/actions.js';
+import { Store } from './store/store.js';
+
 export class SocketClient {
-    constructor(onMessage, onStatusChange) {
-        this.url = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/ws';
-        this.ws = null;
-        this.reconnectInterval = 3000;
-        this.onMessage = onMessage;
-        this.onStatusChange = onStatusChange || (() => { });
+    constructor() {
+        this.socket = null;
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 5;
     }
 
     connect() {
-        this.ws = new WebSocket(this.url);
+        Store.dispatch(Actions.SOCKET_CONNECTING);
 
-        this.ws.onopen = () => {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        this.socket = new WebSocket(`${protocol}//${window.location.host}/ws`);
 
-            this.onStatusChange("ONLINE", "success");
+        this.socket.onopen = () => {
+            console.log("WebSocket connected");
+            this.reconnectAttempts = 0;
+            Store.dispatch(Actions.SOCKET_CONNECTED);
         };
 
-        this.ws.onmessage = (event) => {
+        this.socket.onmessage = (event) => {
             try {
-                const data = JSON.parse(event.data);
-                if (this.onMessage) this.onMessage(data);
+                const msg = JSON.parse(event.data);
+                this.handleMessage(msg);
             } catch (e) {
-                console.error("WS Parse Error", e);
+                console.error("Failed to parse WS message", e);
             }
         };
 
-        this.ws.onclose = (event) => {
-            console.warn("WS Disconnected", event.code, event.reason);
-
-            // Check if it's an authentication error (401 Unauthorized or 403 Forbidden)
-            if (event.code === 1008 || event.code === 1011) {
-                console.error("WebSocket authentication failed - redirecting to login");
-                window.location.href = '/login.html';
-                return;
-            }
-
-            this.onStatusChange("OFFLINE", "danger");
-            setTimeout(() => this.connect(), this.reconnectInterval);
+        this.socket.onclose = () => {
+            console.log("WebSocket disconnected");
+            Store.dispatch(Actions.SOCKET_DISCONNECTED);
+            this.handleReconnect();
         };
 
-        this.ws.onerror = (err) => {
-            console.error("WS Error", err);
-            // Don't close here, let onclose handle it
+        this.socket.onerror = (error) => {
+            console.error("WebSocket error", error);
+            Store.dispatch(Actions.SOCKET_ERROR, error);
         };
+    }
+
+    handleMessage(msg) {
+        // Dispatch specific actions based on message type
+        // This replaces the switch statement in main.js
+
+        let type = msg.type;
+        let payload = msg.payload;
+
+        // Legacy format fallback
+        if (!type && msg.nodes && msg.edges) {
+            type = 'graph';
+            payload = msg;
+        }
+
+        switch (type) {
+            case 'graph':
+                Store.dispatch(Actions.GRAPH_UPDATED, payload);
+                break;
+            case 'log':
+                Store.dispatch(Actions.LOG_RECEIVED, payload);
+                break;
+            case 'alert':
+                Store.dispatch(Actions.ALERT_RECEIVED, payload);
+                break;
+            case 'wps.log':
+                Store.dispatch(Actions.WPS_LOG_RECEIVED, payload);
+                break;
+            case 'wps.status':
+                Store.dispatch(Actions.WPS_STATUS_UPDATED, payload);
+                break;
+            case 'vulnerability:new':
+                Store.dispatch(Actions.VULNERABILITY_DETECTED, payload);
+                break;
+            default:
+                console.warn("Unknown message type:", type);
+        }
+    }
+
+    handleReconnect() {
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+            this.reconnectAttempts++;
+            setTimeout(() => this.connect(), 2000 * this.reconnectAttempts);
+        }
     }
 }

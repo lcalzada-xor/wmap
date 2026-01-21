@@ -170,26 +170,49 @@
 }
 
 /* Advanced Filters Panel */
+/* Advanced Filters Panel */
 .advanced-filters {
-    margin-top: 15px;
+    position: absolute;
+    top: 100%;
+    /* Relative to search-section */
+    left: 10px;
+    right: 10px;
+    margin-top: 12px;
     padding: 0;
     border-radius: 16px;
+    /* max-height controlled by active state? */
     max-height: 0;
     overflow: hidden;
     opacity: 0;
-    transition: all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
-    background: rgba(28, 28, 30, 0.75);
-    backdrop-filter: blur(30px) saturate(180%);
-    -webkit-backdrop-filter: blur(30px) saturate(180%);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+
+    background: rgba(20, 20, 25, 0.98);
+    /* Solid glass */
+    backdrop-filter: blur(40px) saturate(180%);
+    -webkit-backdrop-filter: blur(40px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.1);
+
+    z-index: 2000;
+    /* High Z-Index to overlay everything */
+    transform-origin: top center;
+    transform: scaleY(0.95);
+    transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+
+    /* Ensure scrollability if content is tall */
+    display: flex;
+    flex-direction: column;
 }
 
 .advanced-filters.active {
-    max-height: 2000px;
+    max-height: 80vh;
+    /* Allow tall content */
+    overflow-y: auto;
     opacity: 1;
+    transform: scaleY(1);
     padding: 20px;
-    margin-bottom: 20px;
+    /* Scrollbar styling */
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 }
 
 .filter-section {

@@ -59,6 +59,7 @@ func SetupRoutes(s *Server) http.Handler {
 	mux.Handle("/api/workspaces/new", protect(s.WorkspaceHandler.HandleCreateWorkspace))
 	mux.Handle("/api/workspaces/load", protect(s.WorkspaceHandler.HandleLoadWorkspace))
 	mux.Handle("/api/workspace/status", protect(s.WorkspaceHandler.HandleStatus))
+	mux.Handle("/api/workspaces/delete", protect(s.WorkspaceHandler.HandleDeleteWorkspace))
 
 	mux.Handle("/api/channels", protect(s.ScanHandler.HandleChannels))
 	mux.Handle("/api/interfaces", protect(s.ScanHandler.HandleListInterfaces))
@@ -83,6 +84,13 @@ func SetupRoutes(s *Server) http.Handler {
 	mux.Handle("/api/attack/auth-flood/start", protectOp(s.AuthFloodHandler.HandleStart))
 	mux.Handle("/api/attack/auth-flood/stop", protectOp(s.AuthFloodHandler.HandleStop))
 	mux.Handle("/api/attack/auth-flood/status", protect(s.AuthFloodHandler.HandleStatus))
+
+	// Vulnerability Management API
+	mux.Handle("/api/vulnerabilities", protect(http.HandlerFunc(s.VulnHandler.GetVulnerabilities)))
+	mux.Handle("PUT /api/vulnerabilities/{id}/status", protect(http.HandlerFunc(s.VulnHandler.UpdateStatus)))
+
+	// Capture/Handshake Management
+	mux.Handle("/api/captures/open-folder", protect(http.HandlerFunc(s.CaptureHandler.HandleOpenHandshakeFolder)))
 
 	return mux
 }

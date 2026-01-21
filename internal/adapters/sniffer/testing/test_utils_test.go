@@ -3,12 +3,18 @@ package sniffer
 import (
 	"encoding/binary"
 	"net"
+	"time"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 )
 
-func createEAPOLPacket(src, dst, bssid string, messageNum int) gopacket.Packet {
+type EAPOLOptions struct {
+	ReplayCounter uint64
+	Nonce         []byte
+}
+
+func createEAPOLPacket(src, dst, bssid string, messageNum int, opts ...EAPOLOptions) gopacket.Packet {
 	buffer := gopacket.NewSerializeBuffer()
 	options := gopacket.SerializeOptions{}
 
@@ -33,13 +39,13 @@ func createEAPOLPacket(src, dst, bssid string, messageNum int) gopacket.Packet {
 
 	var keyInfo uint16
 	if messageNum == 1 {
-		keyInfo = 0x0080 // Ack=1, No MIC
+		keyInfo = 0x0088 // Ack=1, No MIC, Pairwise=1
 	} else if messageNum == 2 {
-		keyInfo = 0x0100 // MIC=1, No Ack
+		keyInfo = 0x0108 // MIC=1, No Ack, Pairwise=1
 	} else if messageNum == 3 {
-		keyInfo = 0x0180 // MIC=1, Ack=1
+		keyInfo = 0x0188 // MIC=1, Ack=1, Pairwise=1
 	} else {
-		keyInfo = 0x0100 // M4: MIC=1
+		keyInfo = 0x0108 // M4: MIC=1, Pairwise=1
 	}
 
 	eapol := &layers.EAPOL{
@@ -52,9 +58,25 @@ func createEAPOLPacket(src, dst, bssid string, messageNum int) gopacket.Packet {
 	payload := make([]byte, 100)
 	binary.BigEndian.PutUint16(payload[1:3], keyInfo)
 
+	// Apply Options
+	if len(opts) > 0 {
+		opt := opts[0]
+		binary.BigEndian.PutUint64(payload[5:13], opt.ReplayCounter)
+		if len(opt.Nonce) == 32 {
+			copy(payload[13:45], opt.Nonce)
+		}
+	}
+
 	if messageNum == 2 {
 		// Set Key Data Len for M2 detection
 		binary.BigEndian.PutUint16(payload[93:95], 20) // Some data
+	}
+
+	// Determine if MIC is needed (Bit 8 of KeyInfo)
+	if (keyInfo & 0x0100) != 0 {
+		for i := 77; i < 93; i++ {
+			payload[i] = 0x77 // Dummy valid MIC
+		}
 	}
 
 	// LLC/SNAP Headers for EAPOL
@@ -78,5 +100,9 @@ func createEAPOLPacket(src, dst, bssid string, messageNum int) gopacket.Packet {
 		gopacket.Payload(payload),
 	)
 
-	return gopacket.NewPacket(buffer.Bytes(), layers.LayerTypeDot11, gopacket.Default)
+	pkt := gopacket.NewPacket(buffer.Bytes(), layers.LayerTypeDot11, gopacket.Default)
+	pkt.Metadata().CaptureInfo.CaptureLength = len(buffer.Bytes())
+	pkt.Metadata().CaptureInfo.Length = len(buffer.Bytes())
+	pkt.Metadata().CaptureInfo.Timestamp = time.Now()
+	return pkt
 }

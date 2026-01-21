@@ -2,7 +2,7 @@
  * Heatmap Renderer
  */
 
-import { State } from '../core/state.js';
+import { Store } from '../core/store/store.js';
 
 export class HeatmapRenderer {
     constructor(networkInstance, nodesDataSet) {
@@ -11,7 +11,7 @@ export class HeatmapRenderer {
     }
 
     enabled() {
-        return State.config.heatmap;
+        return Store.state.config.heatmap;
     }
 
     draw(ctx, w, h) {
@@ -41,24 +41,24 @@ export class HeatmapRenderer {
             // "Heat" Colors - Spatial Palette
             // Using mapped RGB values for smoother mixing
             let color = '10, 132, 255'; // Default Blue
-            let opacityBase = 0.3;
+            let opacityBase = 0.12; // Reduced from 0.3
             let radiusBase = 120;
 
             if (rssi >= -50) {
                 color = '48, 209, 88'; // Green
-                opacityBase = 0.6;
+                opacityBase = 0.25; // Reduced from 0.6
                 radiusBase = 250;
             } else if (rssi >= -65) {
                 color = '94, 92, 230'; // Indigo
-                opacityBase = 0.5;
+                opacityBase = 0.2; // Reduced from 0.5
                 radiusBase = 200;
             } else if (rssi >= -75) {
                 color = '191, 90, 242'; // Purple
-                opacityBase = 0.4;
+                opacityBase = 0.15; // Reduced from 0.4
                 radiusBase = 150;
             } else if (rssi >= -90) {
                 color = '255, 69, 58'; // Red
-                opacityBase = 0.25;
+                opacityBase = 0.1; // Reduced from 0.25
                 radiusBase = 100;
             }
 

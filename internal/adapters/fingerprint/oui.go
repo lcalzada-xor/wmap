@@ -2,6 +2,7 @@ package fingerprint
 
 import (
 	"bufio"
+	"context"
 	"log"
 	"os"
 	"strings"
@@ -9,89 +10,80 @@ import (
 )
 
 var (
-	// Global OUI database instance
-	ouiDB     *OUIDatabase
-	ouiDBOnce sync.Once
-	ouiDBErr  error
-
-	// externalOUIs holds vendors loaded from a file (legacy support)
-	externalOUIs = make(map[string]string)
-	ouiMutex     sync.RWMutex
+	// Global repository instance for backward compatibility
+	globalRepo     VendorRepository
+	globalRepoOnce sync.Once
+	globalRepoErr  error
+	globalRepoMu   sync.RWMutex
 )
 
-// InitOUIDatabase initializes the OUI database
+// InitOUIDatabase initializes the global OUI database repository
 // This should be called once at application startup
+// Deprecated: Use NewCompositeVendorRepository directly for better testability
 func InitOUIDatabase(dbPath string, cacheSize int) error {
-	ouiDBOnce.Do(func() {
-		ouiDB, ouiDBErr = NewOUIDatabase(dbPath, cacheSize, CommonOUIs)
-		if ouiDBErr != nil {
-			log.Printf("Warning: Failed to initialize OUI database: %v. Using fallback static map.", ouiDBErr)
-		} else {
-			count, lastUpdate, err := ouiDB.GetStats()
-			if err == nil {
-				log.Printf("OUI Database initialized: %d entries, last updated %s", count, lastUpdate.Format("2006-01-02"))
-			}
+	globalRepoOnce.Do(func() {
+		// Create static repository from common OUIs
+		staticRepo := NewStaticVendorRepository(CommonOUIs)
+
+		// Create database repository with static as fallback
+		ouiDB, err := NewOUIDatabase(dbPath, cacheSize, staticRepo)
+		if err != nil {
+			log.Printf("Warning: Failed to initialize OUI database: %v. Using fallback static map.", err)
+			globalRepo = staticRepo
+			globalRepoErr = err
+			return
 		}
+
+		ctx := context.Background()
+		stats, err := ouiDB.GetStats(ctx)
+		if err == nil {
+			log.Printf("OUI Database initialized: %d entries, last updated %s", stats.TotalEntries, stats.LastUpdated)
+		}
+
+		globalRepo = ouiDB
 	})
-	return ouiDBErr
+	return globalRepoErr
 }
 
 // LookupVendor attempts to find a vendor for a given MAC address.
-// It uses the following priority:
-// 1. Randomization Check (Locally Administered Bit)
-// 2. OUI Database (if initialized)
-// 3. Static Common List
-// 4. Loaded External List
+// It uses the global repository initialized by InitOUIDatabase.
+// Deprecated: Use VendorRepository.LookupVendor directly for better testability
 func LookupVendor(mac string) string {
-	if len(mac) < 8 {
+	globalRepoMu.RLock()
+	repo := globalRepo
+	globalRepoMu.RUnlock()
+
+	// If not initialized, use static repository
+	if repo == nil {
+		repo = NewStaticVendorRepository(CommonOUIs)
+	}
+
+	// Parse MAC address
+	macAddr, err := ParseMAC(mac)
+	if err != nil {
+		// Check for randomization using legacy method
+		if len(mac) >= 2 && isLocallyAdministered(mac[1]) {
+			return "Randomized"
+		}
 		return "Unknown"
 	}
 
-	// 1. Randomization Check (Locally Administered Bit)
-	// Check if the 2nd least significant bit of the first byte is set.
-	// In the string representation (hex), this corresponds to the second character.
-	// First byte bits: 76543210. LAA is bit 1.
-	// Hex: High Nibble (7654), Low Nibble (3210).
-	// LAA bit is bit 1 of the Low Nibble.
-	// Values with bit 1 set: 2 (0010), 3 (0011), 6 (0110), 7 (0111),
-	// A (1010), B (1011), E (1110), F (1111).
-	if len(mac) >= 2 {
-		c := mac[1]
-		// Check against '2','3','6','7','A','B','E','F' (case insensitive)
-		// Simpler: decode the hex char/byte
-		if isLocallyAdministered(c) {
-			return "Randomized"
-		}
+	// Check for randomization first
+	if macAddr.IsRandomized() {
+		return "Randomized"
 	}
 
-	prefix := strings.ToUpper(mac[0:8])
-	prefix = strings.ReplaceAll(prefix, "-", ":") // Normalize
-
-	// 2. Try OUI Database first (if available)
-	if ouiDB != nil {
-		vendor, err := ouiDB.LookupVendor(mac)
-		if err == nil && vendor != "Unknown" {
-			return vendor
-		}
-		// On error or Unknown, fall through to other methods
+	// Lookup vendor
+	ctx := context.Background()
+	vendor, err := repo.LookupVendor(ctx, macAddr)
+	if err != nil {
+		return "Unknown"
 	}
 
-	// 3. Check Static Common List
-	if vendor, ok := CommonOUIs[prefix]; ok {
-		return vendor
-	}
-
-	// 4. Check Loaded External List
-	ouiMutex.RLock()
-	if vendor, ok := externalOUIs[prefix]; ok {
-		ouiMutex.RUnlock()
-		return vendor
-	}
-	ouiMutex.RUnlock()
-
-	return "Unknown"
+	return vendor
 }
 
+// isLocallyAdministered checks if a hex character indicates LAA bit is set
 func isLocallyAdministered(hexChar byte) bool {
 	// 2, 6, A, E are basic unicast LAA
 	// 3, 7, B, F are multicast LAA (shouldn't be source, but possible)
@@ -102,16 +94,29 @@ func isLocallyAdministered(hexChar byte) bool {
 	return false
 }
 
-// LoadOUIFile loads a text file containing "OUI Vendor" lines.
+// FileVendorRepository loads vendors from a text file
+type FileVendorRepository struct {
+	vendors map[string]string
+	mu      sync.RWMutex
+}
+
+// NewFileVendorRepository creates a new file-based vendor repository
+func NewFileVendorRepository() *FileVendorRepository {
+	return &FileVendorRepository{
+		vendors: make(map[string]string),
+	}
+}
+
+// LoadFromFile loads OUI data from a file
 // Supports format: "XX:XX:XX Vendor Name" or "XX-XX-XX   Vendor Name"
-func LoadOUIFile(path string) error {
-	f, err := os.Open(path)
+func (f *FileVendorRepository) LoadFromFile(path string) error {
+	file, err := os.Open(path)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer file.Close()
 
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(file)
 	newOUIs := make(map[string]string)
 
 	for scanner.Scan() {
@@ -140,12 +145,61 @@ func LoadOUIFile(path string) error {
 		return err
 	}
 
-	// Merge into external map
-	ouiMutex.Lock()
+	// Merge into vendor map
+	f.mu.Lock()
 	for k, v := range newOUIs {
-		externalOUIs[k] = v
+		f.vendors[k] = v
 	}
-	ouiMutex.Unlock()
+	f.mu.Unlock()
+
+	return nil
+}
+
+// LookupVendor implements VendorRepository interface
+func (f *FileVendorRepository) LookupVendor(ctx context.Context, mac MACAddress) (string, error) {
+	oui := mac.OUI()
+
+	f.mu.RLock()
+	vendor, ok := f.vendors[oui]
+	f.mu.RUnlock()
+
+	if !ok {
+		return "", ErrVendorNotFound
+	}
+
+	return vendor, nil
+}
+
+// Close implements VendorRepository interface
+func (f *FileVendorRepository) Close() error {
+	f.mu.Lock()
+	f.vendors = make(map[string]string)
+	f.mu.Unlock()
+	return nil
+}
+
+// LoadOUIFile loads a text file containing "OUI Vendor" lines into the global repository.
+// Deprecated: Use FileVendorRepository directly for better testability
+func LoadOUIFile(path string) error {
+	fileRepo := NewFileVendorRepository()
+	if err := fileRepo.LoadFromFile(path); err != nil {
+		return err
+	}
+
+	// Add file repository to global composite
+	globalRepoMu.Lock()
+	defer globalRepoMu.Unlock()
+
+	if globalRepo == nil {
+		globalRepo = fileRepo
+	} else {
+		// Wrap in composite if not already
+		if composite, ok := globalRepo.(*CompositeVendorRepository); ok {
+			composite.repositories = append(composite.repositories, fileRepo)
+		} else {
+			globalRepo = NewCompositeVendorRepository(globalRepo, fileRepo)
+		}
+	}
 
 	return nil
 }

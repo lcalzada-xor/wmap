@@ -45,8 +45,15 @@ func (h *ReportHandler) HandleGenerateReport(w http.ResponseWriter, r *http.Requ
 	}
 
 	// 2. Fetch Data from Services
-	graphData := h.Service.GetGraph()
-	alerts := h.Service.GetAlerts()
+	graphData, err := h.Service.GetGraph(r.Context())
+	if err != nil {
+		http.Error(w, "Failed to get graph data: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	alerts, err := h.Service.GetAlerts(r.Context())
+	if err != nil {
+		alerts = []domain.Alert{} // Graceful degradation
+	}
 
 	// Default limit for report logs
 	auditLogs, err := h.AuditService.GetLogs(r.Context(), 50)
@@ -66,11 +73,11 @@ func (h *ReportHandler) HandleGenerateReport(w http.ResponseWriter, r *http.Requ
 	vendorMap := make(map[string]int)
 
 	for _, node := range graphData.Nodes {
-		if node.Group == "network" {
+		if node.Group == domain.GroupNetwork {
 			continue
 		}
 
-		if node.Group == "ap" || node.Group == "access_point" {
+		if node.Group == domain.GroupAP {
 			stats.APCount++
 		} else {
 			stats.ClientCount++
@@ -97,7 +104,7 @@ func (h *ReportHandler) HandleGenerateReport(w http.ResponseWriter, r *http.Requ
 		// Convert GraphNode -> Device (Simplified)
 		devices = append(devices, domain.Device{
 			MAC:      node.MAC,
-			Type:     node.Group,
+			Type:     domain.DeviceType(node.Group),
 			Vendor:   node.Vendor,
 			SSID:     node.Label, // Graph uses Label for SSID usually, or ID
 			RSSI:     node.RSSI,

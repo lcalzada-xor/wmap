@@ -4,6 +4,7 @@ package sniffer
 import (
 	"context"
 
+	"github.com/lcalzada-xor/wmap/internal/adapters/fingerprint"
 	manager "github.com/lcalzada-xor/wmap/internal/adapters/sniffer/manager"
 	testing "github.com/lcalzada-xor/wmap/internal/adapters/sniffer/testing"
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
@@ -14,8 +15,8 @@ import (
 type SnifferManager = manager.SnifferManager
 
 // NewManager creates a new SnifferManager
-func NewManager(interfaces []string, dwell int, debug bool, loc geo.Provider) *SnifferManager {
-	return manager.NewManager(interfaces, dwell, debug, loc)
+func NewManager(interfaces []string, dwell int, debug bool, loc geo.Provider, repo fingerprint.VendorRepository) *SnifferManager {
+	return manager.NewManager(interfaces, dwell, debug, loc, repo)
 }
 
 // MockSniffer is re-exported from the testing subpackage

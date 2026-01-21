@@ -57,5 +57,32 @@ export const GraphConfig = {
             shadow: { enabled: true, color: 'rgba(48, 209, 88, 0.4)', size: 10 }
         }
     },
-    interaction: { hover: true, tooltipDelay: 200 }
+    /* selection: {
+        enabled: true,
+        // Node selection styling
+        node: {
+            borderWidth: 2,
+            borderColor: '#0A84FF', // iOS Blue for selection border
+            background: '#0A84FF', // iOS Blue for selection background
+            highlight: {
+                borderWidth: 2,
+                borderColor: '#0A84FF',
+                background: '#0A84FF'
+            }
+        },
+        // Edge selection styling
+        edge: {
+            color: {
+                color: '#0A84FF', // iOS Blue for selected edge
+                highlight: '#0A84FF'
+            },
+            width: 2
+        }
+    }, */
+    interaction: {
+        hover: true,
+        tooltipDelay: 200,
+        hideEdgesOnDrag: true,  // Performance: hide edges while dragging
+        hideEdgesOnZoom: true   // Performance: hide edges while zooming
+    }
 };

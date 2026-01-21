@@ -134,7 +134,7 @@ func (h *DeauthHandler) HandleStop(w http.ResponseWriter, r *http.Request) {
 
 	force := r.URL.Query().Get("force") == "true"
 
-	if err := h.Service.StopDeauthAttack(attackID, force); err != nil {
+	if err := h.Service.StopDeauthAttack(r.Context(), attackID, force); err != nil {
 		log.Printf("[DEAUTH API] Failed to stop attack %s: %v", attackID, err)
 		http.Error(w, "Failed to stop attack: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -163,7 +163,7 @@ func (h *DeauthHandler) HandleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	status, err := h.Service.GetDeauthStatus(attackID)
+	status, err := h.Service.GetDeauthStatus(r.Context(), attackID)
 	if err != nil {
 		http.Error(w, "Attack not found", http.StatusNotFound)
 		return
@@ -180,7 +180,11 @@ func (h *DeauthHandler) HandleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	attacks := h.Service.ListDeauthAttacks()
+	attacks, err := h.Service.ListDeauthAttacks(r.Context())
+	if err != nil {
+		http.Error(w, "Failed to list attacks: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{

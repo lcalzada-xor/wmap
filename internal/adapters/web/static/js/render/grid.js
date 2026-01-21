@@ -2,7 +2,7 @@
  * Grid Renderer
  */
 
-import { State } from '../core/state.js';
+import { Store } from '../core/store/store.js';
 
 export class GridRenderer {
     constructor(networkInstance) {
@@ -10,7 +10,7 @@ export class GridRenderer {
     }
 
     enabled() {
-        return State.config.grid;
+        return Store.state.config.grid;
     }
 
     draw(ctx, w, h) {

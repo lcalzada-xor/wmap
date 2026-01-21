@@ -47,7 +47,7 @@ func TestWPSEngine_StatusFlow(t *testing.T) {
 	defer func() { execCmd = originalExecCmd }()
 
 	// Capture statuses
-	statusChan := make(chan string, 10)
+	statusChan := make(chan domain.WPSStatus, 10)
 	engine.SetCallbacks(nil, func(s domain.WPSAttackStatus) {
 		statusChan <- s.Status
 	})
@@ -63,16 +63,16 @@ func TestWPSEngine_StatusFlow(t *testing.T) {
 	// Actually StartAttack calls HealthCheck which checks real filesystem.
 	// We already put 'ls' as paths, so HealthCheck should pass.
 
-	_, err := engine.StartAttack(config)
+	_, err := engine.StartAttack(context.Background(), config)
 	if err != nil {
 		t.Fatalf("Failed to start attack: %v", err)
 	}
 
 	// Collected statuses
-	var history []string
+	var history []domain.WPSStatus
 	timeout := time.After(2 * time.Second)
 
-	expectedOrder := []string{"running", "associating", "exchanging_keys", "cracking", "success"}
+	expectedOrder := []domain.WPSStatus{domain.WPSStatusRunning, domain.WPSStatusAssociating, domain.WPSStatusExchangingKeys, domain.WPSStatusCracking, domain.WPSStatusSuccess}
 	expectedIndex := 0
 
 Loop:
@@ -84,7 +84,7 @@ Loop:
 			if expectedIndex < len(expectedOrder) && s == expectedOrder[expectedIndex] {
 				expectedIndex++
 			}
-			if s == "success" || s == "failed" || s == "timeout" {
+			if s == domain.WPSStatusSuccess || s == domain.WPSStatusFailed || s == domain.WPSStatusTimeout {
 				break Loop
 			}
 		case <-timeout:
@@ -108,7 +108,7 @@ Loop:
 	// Check if we hit "associating"
 	foundAssoc := false
 	for _, h := range history {
-		if h == "associating" {
+		if h == domain.WPSStatusAssociating {
 			foundAssoc = true
 		}
 	}
@@ -118,7 +118,7 @@ Loop:
 
 	foundCrack := false
 	for _, h := range history {
-		if h == "cracking" {
+		if h == domain.WPSStatusCracking {
 			foundCrack = true
 		}
 	}

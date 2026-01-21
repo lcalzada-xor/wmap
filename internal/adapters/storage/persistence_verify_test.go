@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"os"
 	"testing"
 	"time"
@@ -33,7 +34,7 @@ func TestConnectionStatePersistence(t *testing.T) {
 	}
 
 	// 3. Save Device
-	if err := store.SaveDevice(originalDevice); err != nil {
+	if err := store.SaveDevice(context.Background(), originalDevice); err != nil {
 		t.Fatalf("Failed to save device: %v", err)
 	}
 
@@ -46,7 +47,7 @@ func TestConnectionStatePersistence(t *testing.T) {
 	}
 
 	// 5. Load Device
-	loadedDevice, err := store2.GetDevice(originalDevice.MAC)
+	loadedDevice, err := store2.GetDevice(context.Background(), originalDevice.MAC)
 	if err != nil {
 		t.Fatalf("Failed to load device: %v", err)
 	}

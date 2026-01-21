@@ -1,4 +1,4 @@
-package sniffer
+package manager
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/lcalzada-xor/wmap/internal/adapters/fingerprint"
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/capture"
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/handshake"
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/injection"
@@ -39,10 +40,11 @@ type SnifferManager struct {
 
 	// Shared components
 	HandshakeManager *handshake.HandshakeManager
+	VendorRepo       fingerprint.VendorRepository
 }
 
 // NewManager creates a manager for the given interfaces.
-func NewManager(interfaces []string, dwell int, debug bool, loc geo.Provider) *SnifferManager {
+func NewManager(interfaces []string, dwell int, debug bool, loc geo.Provider, repo fingerprint.VendorRepository) *SnifferManager {
 	// Use XDG-compliant path for handshakes
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -56,6 +58,7 @@ func NewManager(interfaces []string, dwell int, debug bool, loc geo.Provider) *S
 		DwellTime:  dwell,
 		Debug:      debug,
 		Loc:        loc,
+		VendorRepo: repo,
 		Output:     make(chan domain.Device, 1000), // Aggregated output
 		Alerts:     make(chan domain.Alert, 100),   // Aggregated alerts
 		statuses:   make(map[string]*SnifferStatus),
@@ -108,7 +111,7 @@ func (m *SnifferManager) Start(ctx context.Context) error {
 		// Note: We need to bridge the individual Output channels to the manager's aggregated Output
 		// Or we can pass the manager's channel directly IF it was send-only, but Sniffer expects chan<-
 		// Yes, we can pass m.Output directly.
-		sniff := capture.New(cfg, m.Output, m.Alerts, m.Loc, m.HandshakeManager)
+		sniff := capture.New(cfg, m.Output, m.Alerts, m.Loc, m.HandshakeManager, m.VendorRepo)
 		m.Sniffers = append(m.Sniffers, sniff)
 
 		wg.Add(1)
@@ -212,7 +215,7 @@ func partitionChannels(channels []int, n int) [][]int {
 }
 
 // GetChannels returns the list of all channels being scanned across all sniffers.
-func (m *SnifferManager) GetChannels() []int {
+func (m *SnifferManager) GetChannels(ctx context.Context) []int {
 	var all []int
 	for _, s := range m.Sniffers {
 		if s.Hopper != nil {
@@ -226,18 +229,18 @@ func (m *SnifferManager) GetChannels() []int {
 // For now, this is complex to implement dynamically for all sniffers.
 // Let's implement a dummy one or a simple one to satisfy interface if needed.
 // The port probably requires it.
-func (m *SnifferManager) SetChannels(channels []int) {
+func (m *SnifferManager) SetChannels(ctx context.Context, channels []int) {
 	// Re-partitioning at runtime is tricky because sniffers are running.
 	// For now, let's just log a warning or partial implementation.
 	log.Printf("Warning: SetChannels not fully implemented for SnifferManager yet")
 }
 
 // Scan performs an active scan by broadcasting probe requests.
-func (m *SnifferManager) Scan(target string) error {
+func (m *SnifferManager) Scan(ctx context.Context, target string) error {
 	// Broadcast scan on all interfaces? Or just one?
 	// Probably all to maximize chance of hitting the AP.
 	for _, s := range m.Sniffers {
-		if err := s.Scan(target); err != nil {
+		if err := s.Scan(ctx, target); err != nil {
 			log.Printf("Active scan failed on %s: %v", s.Config.Interface, err)
 		}
 	}
@@ -245,22 +248,22 @@ func (m *SnifferManager) Scan(target string) error {
 }
 
 // GetInterfaces returns the list of managed interfaces.
-func (m *SnifferManager) GetInterfaces() []string {
-	return m.Interfaces
+func (m *SnifferManager) GetInterfaces(ctx context.Context) ([]string, error) {
+	return m.Interfaces, nil
 }
 
 // GetInterfaceChannels returns the channel list for a specific interface.
-func (m *SnifferManager) GetInterfaceChannels(iface string) []int {
+func (m *SnifferManager) GetInterfaceChannels(ctx context.Context, iface string) ([]int, error) {
 	for _, s := range m.Sniffers {
 		if s.Config.Interface == iface && s.Hopper != nil {
-			return s.Hopper.GetChannels()
+			return s.Hopper.GetChannels(), nil
 		}
 	}
-	return []int{}
+	return []int{}, nil
 }
 
 // SetInterfaceChannels updates the channels for a specific interface.
-func (m *SnifferManager) SetInterfaceChannels(iface string, channels []int) {
+func (m *SnifferManager) SetInterfaceChannels(ctx context.Context, iface string, channels []int) {
 	for _, s := range m.Sniffers {
 		if s.Config.Interface == iface {
 			// Update runtime
@@ -341,7 +344,7 @@ func (m *SnifferManager) getChannelConfigPath() string {
 }
 
 // GetInterfaceDetails returns detailed capabilities for all managed interfaces.
-func (m *SnifferManager) GetInterfaceDetails() []domain.InterfaceInfo {
+func (m *SnifferManager) GetInterfaceDetails(ctx context.Context) ([]domain.InterfaceInfo, error) {
 	infos := []domain.InterfaceInfo{}
 	for _, s := range m.Sniffers {
 		// Use the Sniffer's own capability method if possible, or utility directly
@@ -350,24 +353,24 @@ func (m *SnifferManager) GetInterfaceDetails() []domain.InterfaceInfo {
 		// Let's delegate to Sniffer as it holds the config.
 		infos = append(infos, s.GetInterfaceDetails()...)
 	}
-	return infos
+	return infos, nil
 }
 
 // Lock delegates to the appropriate sniffer.
-func (m *SnifferManager) Lock(iface string, channel int) error {
+func (m *SnifferManager) Lock(ctx context.Context, iface string, channel int) error {
 	for _, s := range m.Sniffers {
 		if s.Config.Interface == iface {
-			return s.Lock(iface, channel)
+			return s.Lock(ctx, iface, channel)
 		}
 	}
 	return fmt.Errorf("interface %s not found in manager", iface)
 }
 
 // Unlock delegates to the appropriate sniffer.
-func (m *SnifferManager) Unlock(iface string) error {
+func (m *SnifferManager) Unlock(ctx context.Context, iface string) error {
 	for _, s := range m.Sniffers {
 		if s.Config.Interface == iface {
-			return s.Unlock(iface)
+			return s.Unlock(ctx, iface)
 		}
 	}
 	return nil
@@ -394,7 +397,7 @@ func (m *SnifferManager) GetInjector(iface string) *injection.Injector {
 }
 
 // Close releases all resources managed by the manager.
-func (m *SnifferManager) Close() {
+func (m *SnifferManager) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -406,4 +409,5 @@ func (m *SnifferManager) Close() {
 	for _, s := range m.Sniffers {
 		s.Close()
 	}
+	return nil
 }

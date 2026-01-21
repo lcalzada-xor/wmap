@@ -15,7 +15,7 @@ type MockStorage struct {
 	mu           sync.Mutex
 }
 
-func (m *MockStorage) SaveDevicesBatch(devices []domain.Device) error {
+func (m *MockStorage) SaveDevicesBatch(ctx context.Context, devices []domain.Device) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.SavedDevices = append(m.SavedDevices, devices...)
@@ -23,21 +23,37 @@ func (m *MockStorage) SaveDevicesBatch(devices []domain.Device) error {
 }
 
 // Implement other interface methods as no-ops or panics if not needed
-func (m *MockStorage) SaveDevice(device domain.Device) error              { return nil }
-func (m *MockStorage) GetDevice(mac string) (*domain.Device, error)       { return &domain.Device{}, nil }
-func (m *MockStorage) GetDevices() ([]domain.Device, error)               { return nil, nil }
-func (m *MockStorage) GetAllDevices() ([]domain.Device, error)            { return nil, nil }
-func (m *MockStorage) SaveProbe(mac string, ssid string) error            { return nil }
-func (m *MockStorage) SaveAlert(alert domain.Alert) error                 { return nil }
-func (m *MockStorage) GetAlerts(limit int) ([]domain.Alert, error)        { return nil, nil }
-func (m *MockStorage) Close() error                                       { return nil }
-func (m *MockStorage) GetDeviceCount() (int, error)                       { return 0, nil }
-func (m *MockStorage) GetAlertCount() (int, error)                        { return 0, nil }
-func (m *MockStorage) GetVendorStats() (map[string]int, error)            { return nil, nil }
-func (m *MockStorage) GetSecurityStats() (map[string]int, error)          { return nil, nil }
-func (m *MockStorage) SaveUser(user domain.User) error                    { return nil }
-func (m *MockStorage) GetUser(id string) (domain.User, error)             { return domain.User{}, nil }
-func (m *MockStorage) GetByUsername(username string) (domain.User, error) { return domain.User{}, nil }
+func (m *MockStorage) SaveDevice(ctx context.Context, device domain.Device) error { return nil }
+func (m *MockStorage) GetDevice(ctx context.Context, mac string) (*domain.Device, error) {
+	return &domain.Device{}, nil
+}
+func (m *MockStorage) GetDevices() ([]domain.Device, error)                         { return nil, nil } // Deprecated/Not in interface? Check ports.
+func (m *MockStorage) GetAllDevices(ctx context.Context) ([]domain.Device, error)   { return nil, nil }
+func (m *MockStorage) SaveProbe(ctx context.Context, mac string, ssid string) error { return nil }
+func (m *MockStorage) SaveAlert(alert domain.Alert) error                           { return nil }
+func (m *MockStorage) GetAlerts(limit int) ([]domain.Alert, error)                  { return nil, nil }
+func (m *MockStorage) Close() error                                                 { return nil }
+func (m *MockStorage) GetDeviceCount() (int, error)                                 { return 0, nil }
+func (m *MockStorage) GetAlertCount() (int, error)                                  { return 0, nil }
+func (m *MockStorage) GetVendorStats() (map[string]int, error)                      { return nil, nil }
+func (m *MockStorage) GetSecurityStats() (map[string]int, error)                    { return nil, nil }
+func (m *MockStorage) SaveUser(user domain.User) error                              { return nil }
+func (m *MockStorage) GetUser(id string) (domain.User, error)                       { return domain.User{}, nil }
+func (m *MockStorage) GetByUsername(username string) (domain.User, error)           { return domain.User{}, nil }
+
+// Vulnerability Persistence mocks
+func (m *MockStorage) SaveVulnerability(ctx context.Context, record domain.VulnerabilityRecord) error {
+	return nil
+}
+func (m *MockStorage) GetVulnerabilities(ctx context.Context, filter domain.VulnerabilityFilter) ([]domain.VulnerabilityRecord, error) {
+	return nil, nil
+}
+func (m *MockStorage) GetVulnerability(ctx context.Context, id string) (*domain.VulnerabilityRecord, error) {
+	return nil, nil
+}
+func (m *MockStorage) UpdateVulnerabilityStatus(ctx context.Context, id string, status domain.VulnerabilityStatus, notes string) error {
+	return nil
+}
 
 func TestPersistenceManager_Persist_Batching(t *testing.T) {
 	mockStore := &MockStorage{}

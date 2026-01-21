@@ -40,22 +40,30 @@ func (h *ExportHandler) HandleExport(w http.ResponseWriter, r *http.Request) {
 
 	// Handle alerts export
 	if dataType == "alerts" {
-		alerts := h.Service.GetAlerts()
+		alerts, err := h.Service.GetAlerts(r.Context())
+		if err != nil {
+			http.Error(w, "Failed to get alerts: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 		h.exportAlerts(w, alerts, format)
 		return
 	}
 
 	// Export devices - convert from GraphData
-	graphData := h.Service.GetGraph()
+	graphData, err := h.Service.GetGraph(r.Context())
+	if err != nil {
+		http.Error(w, "Failed to get graph data: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	devices := make([]domain.Device, 0)
 
 	for _, node := range graphData.Nodes {
-		if node.Group == "network" {
+		if node.Group == domain.GroupNetwork {
 			continue
 		}
 		device := domain.Device{
 			MAC:      node.MAC,
-			Type:     node.Group,
+			Type:     domain.DeviceType(node.Group),
 			Vendor:   node.Vendor,
 			RSSI:     node.RSSI,
 			Security: node.Security,

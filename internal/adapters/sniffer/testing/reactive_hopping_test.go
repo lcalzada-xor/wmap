@@ -22,7 +22,7 @@ func TestPacketHandler_TriggersPause(t *testing.T) {
 		pauseDuration = d
 	}
 
-	handler := parser.NewPacketHandler(mockLoc, false, hm, mockPause)
+	handler := parser.NewPacketHandler(mockLoc, false, hm, nil, mockPause)
 
 	bssid := "00:11:22:33:44:55"
 	client := "aa:bb:cc:dd:ee:ff"

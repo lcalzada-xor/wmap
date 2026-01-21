@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -13,7 +14,7 @@ import (
 )
 
 func setupSignatureTestService(sigStore ports.SignatureMatcher) *NetworkService {
-	reg := registry.NewDeviceRegistry(sigStore)
+	reg := registry.NewDeviceRegistry(sigStore, nil)
 	sec := security.NewSecurityEngine(reg)
 	persistence := persistence.NewPersistenceManager(nil, 100)
 	return NewNetworkService(reg, sec, persistence, nil, nil)
@@ -24,6 +25,7 @@ func TestSignatureMatching(t *testing.T) {
 	testSigs := []domain.DeviceSignature{
 		{
 			ID:         "sig_iphone",
+			Vendor:     "Apple",
 			Model:      "iPhone (iOS 16+)",
 			OS:         "iOS",
 			IEPattern:  []int{0, 1, 50, 45, 127, 221, 221},
@@ -35,7 +37,7 @@ func TestSignatureMatching(t *testing.T) {
 
 	// 1. Device with iPhone IE Pattern
 	iphoneMAC := "00:17:F2:AA:BB:CC"
-	svc.ProcessDevice(domain.Device{
+	svc.ProcessDevice(context.Background(), domain.Device{
 		MAC:            iphoneMAC,
 		Vendor:         "Apple",
 		Type:           "station",
@@ -43,7 +45,7 @@ func TestSignatureMatching(t *testing.T) {
 		LastPacketTime: time.Now(),
 	})
 
-	graph := svc.GetGraph()
+	graph, _ := svc.GetGraph(context.Background())
 	var node *domain.GraphNode
 	for _, n := range graph.Nodes {
 		if n.MAC == iphoneMAC {
@@ -66,7 +68,7 @@ func TestOUISpoofingDetection(t *testing.T) {
 
 	// Device claiming to be Apple but having generic/no IEs
 	spoofedMAC := "00:17:F2:DE:AD:BE"
-	svc.ProcessDevice(domain.Device{
+	svc.ProcessDevice(context.Background(), domain.Device{
 		MAC:            spoofedMAC,
 		Vendor:         "Apple", // Claims OUI
 		Type:           "station",
@@ -74,7 +76,7 @@ func TestOUISpoofingDetection(t *testing.T) {
 		LastPacketTime: time.Now(),
 	})
 
-	alerts := svc.GetAlerts()
+	alerts, _ := svc.GetAlerts(context.Background())
 	found := false
 	for _, alert := range alerts {
 		if alert.DeviceMAC == spoofedMAC && alert.Subtype == "OUI_SPOOFING" {

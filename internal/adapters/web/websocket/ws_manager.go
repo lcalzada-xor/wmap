@@ -118,8 +118,11 @@ func (m *WSManager) processAndBroadcast(ctx context.Context) {
 }
 
 func (m *WSManager) broadcastGraph() {
-	// Get Data from Service (Decoupled)
-	graphData := m.Service.GetGraph()
+	graphData, err := m.Service.GetGraph(context.Background())
+	if err != nil {
+		log.Println("Error getting graph:", err)
+		return
+	}
 
 	msg := WSMessage{
 		Type:    "graph",
@@ -173,6 +176,15 @@ func (m *WSManager) BroadcastWPSStatus(status domain.WPSAttackStatus) {
 		Payload: status,
 	}
 
+	m.broadcastMessage(msg)
+}
+
+// NotifyNewVulnerability broadcasts a new vulnerability detection.
+func (m *WSManager) NotifyNewVulnerability(vuln domain.VulnerabilityRecord) {
+	msg := WSMessage{
+		Type:    "vulnerability:new",
+		Payload: vuln,
+	}
 	m.broadcastMessage(msg)
 }
 

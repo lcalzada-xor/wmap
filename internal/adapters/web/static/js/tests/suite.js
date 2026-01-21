@@ -1,7 +1,7 @@
 import { describe, it, expect } from './test_runner.js';
 import { EventBus } from '../core/event_bus.js';
 import { html } from '../core/html.js';
-import { State } from '../core/state.js';
+import { Store } from '../core/store/store.js';
 import { Events } from '../core/constants.js';
 import { AuditManager } from '../ui/audit_manager.js';
 
@@ -61,24 +61,15 @@ export async function runTests() {
         });
     });
 
-    await describe('Reactive State', async () => {
+    await describe('Reactive Store', async () => {
         it('should notify subscribers on mutation', async () => {
             let notified = false;
 
             // Subscribe
-            State.subscribe('filters', () => { notified = true; });
+            Store.subscribe(Events.FILTER_UPDATED, () => { notified = true; });
 
-            // Mutate
-            State.filters.searchQuery = 'test mutation';
-
-            expect(notified).toBe(true);
-        });
-
-        it('should notify on array mutation (assignment)', async () => {
-            let notified = false;
-            State.subscribe('filters', () => { notified = true; });
-
-            State.filters.channels = [1, 6, 11];
+            // Dispatch
+            Store.dispatch(Events.FILTER_UPDATED, { key: 'searchQuery', value: 'test mutation' });
 
             expect(notified).toBe(true);
         });

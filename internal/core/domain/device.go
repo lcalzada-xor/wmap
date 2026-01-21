@@ -1,61 +1,95 @@
 package domain
 
-import "time"
+import (
+	"time"
+)
 
-// Device represents a WiFi device/entity detected.
+// DeviceType defines the role of a WiFi device.
+type DeviceType string
+
+const (
+	DeviceTypeAP      DeviceType = "ap"
+	DeviceTypeStation DeviceType = "station"
+	DeviceTypeUnknown DeviceType = "unknown"
+)
+
+// ConnectionState defines the current association status.
+type ConnectionState string
+
+const (
+	StateDisconnected   ConnectionState = "disconnected"
+	StateAuthenticating ConnectionState = "authenticating"
+	StateAssociating    ConnectionState = "associating"
+	StateHandshake      ConnectionState = "handshake"
+	StateConnected      ConnectionState = "connected"
+)
+
+// Device represents a WiFi entity (AP or Station) detected in the environment.
+// It serves as the primary aggregate root for RF and security data.
 type Device struct {
-	MAC          string   `json:"mac"`
-	Type         string   `json:"type"`   // "station", "ap"
-	Vendor       string   `json:"vendor"` // Resolved from OUI
-	RSSI         int      `json:"rssi"`
-	SSID         string   `json:"ssid,omitempty"` // For APs: Beacon SSID. For Stas: Probed SSID.
-	Channel      int      `json:"channel,omitempty"`
-	Capabilities []string `json:"capabilities,omitempty"` // e.g. "HT", "VHT", "WPS"
-	Crypto       string   `json:"crypto,omitempty"`       // e.g. "WPA2", "OPEN"
-	Security     string   `json:"security,omitempty"`     // e.g. "WPA3", "WPA2", "WEP", "OPEN"
-	Standard     string   `json:"standard,omitempty"`     // e.g. "802.11ax"
-	Model        string   `json:"model,omitempty"`        // e.g. "Sonos One"
-	OS           string   `json:"os,omitempty"`           // e.g. "iOS", "Android"
-	Frequency    int      `json:"freq,omitempty"`         // e.g. 2412, 5180
+	// --- Identity & Meta ---
+	MAC          string     `json:"mac"`
+	Type         DeviceType `json:"type"`   // "station", "ap"
+	Vendor       string     `json:"vendor"` // Resolved from OUI
+	Model        string     `json:"model,omitempty"`
+	OS           string     `json:"os,omitempty"`
+	IsRandomized bool       `json:"is_randomized"`
 
-	// Traffic & RF Analytics
+	// --- RF & Radio State ---
+	RSSI           int       `json:"rssi"`
+	Channel        int       `json:"channel,omitempty"`
+	Frequency      int       `json:"freq,omitempty"`
+	ChannelWidth   int       `json:"bw,omitempty"`
+	Standard       string    `json:"standard,omitempty"` // e.g. "802.11ax"
+	IsWiFi6        bool      `json:"is_wifi6"`
+	IsWiFi7        bool      `json:"is_wifi7"`
+	LastPacketTime time.Time `json:"last_packet_time"`
+	FirstSeen      time.Time `json:"first_seen"`
+	LastSeen       time.Time `json:"last_seen"`
+
+	// --- Network Protocol & Security ---
+	SSID         string      `json:"ssid,omitempty"` // Beacon SSID (AP) or last probed (Sta)
+	Capabilities []string    `json:"capabilities,omitempty"`
+	Crypto       string      `json:"crypto,omitempty"`
+	Security     string      `json:"security,omitempty"`
+	WPSInfo      string      `json:"wps_info,omitempty"`
+	RSNInfo      *RSNInfo    `json:"rsn_info,omitempty"`
+	WPSDetails   *WPSDetails `json:"wps_details,omitempty"`
+
+	// --- Traffic Analytics ---
 	DataTransmitted int64 `json:"data_tx"`
 	DataReceived    int64 `json:"data_rx"`
 	PacketsCount    int   `json:"packets"`
 	RetryCount      int   `json:"retries"`
-	ChannelWidth    int   `json:"bw,omitempty"` // e.g. 20, 40, 80
 
-	Latitude       float64              `json:"lat"`
-	Longitude      float64              `json:"lng"`
-	LastPacketTime time.Time            `json:"last_packet_time"`
-	FirstSeen      time.Time            `json:"first_seen"`
-	LastSeen       time.Time            `json:"last_seen"`
-	ProbedSSIDs    map[string]time.Time `json:"probed_ssids,omitempty"`
-	ConnectedSSID  string               `json:"connected_ssid,omitempty"`
-	IsRandomized   bool                 `json:"is_randomized"`
-	IsWiFi6        bool                 `json:"is_wifi6"` // 802.11ax
-	IsWiFi7        bool                 `json:"is_wifi7"` // 802.11be
-	IETags         []int                `json:"ie_tags,omitempty"`
-	Signature      string               `json:"signature,omitempty"` // IE Hash for model identification
-	WPSInfo        string               `json:"wps_info,omitempty"`  // WPS State/Version
+	// --- Geospatial ---
+	Latitude  float64 `json:"lat"`
+	Longitude float64 `json:"lng"`
 
-	// Security & Advanced Protocols (Phase C)
-	Has11k       bool `json:"has11k,omitempty"` // 802.11k
-	Has11v       bool `json:"has11v,omitempty"` // 802.11v
-	Has11r       bool `json:"has11r,omitempty"` // 802.11r
-	HasHandshake bool `json:"has_handshake,omitempty"`
+	// --- Connectivity & Behavioral ---
+	ConnectionState  ConnectionState      `json:"connection_state,omitempty"`
+	ConnectionTarget string               `json:"connection_target,omitempty"` // BSSID of the AP
+	ConnectionError  string               `json:"connection_error,omitempty"`
+	HasHandshake     bool                 `json:"has_handshake,omitempty"`
+	ProbedSSIDs      map[string]time.Time `json:"probed_ssids,omitempty"`
+	ConnectedSSID    string               `json:"connected_ssid,omitempty"`
 
-	// Behavioral Intelligence (Phase A)
-	Behavioral *BehavioralProfile `json:"behavioral,omitempty"`
+	// Protocol Flags (802.11k/v/r)
+	Has11k bool `json:"has11k,omitempty"`
+	Has11v bool `json:"has11v,omitempty"`
+	Has11r bool `json:"has11r,omitempty"`
 
-	// Connection State (Logic 2.0)
-	ConnectionState  string `json:"connection_state,omitempty"`  // "disconnected", "associating", "handshake", "connected"
-	ConnectionTarget string `json:"connection_target,omitempty"` // BSSID of the AP
-	ConnectionError  string `json:"connection_error,omitempty"`  // e.g. "auth_failed"
-	// Vulnerability Detection (Passive)
+	// --- Advanced Fingerprinting ---
+	IEFingerprint    string  `json:"ie_fingerprint,omitempty"`
+	IETags           []int   `json:"ie_tags,omitempty"`
+	Signature        string  `json:"signature,omitempty"`
+	ProbeHash        string  `json:"probe_hash,omitempty"`
+	ManufacturerRaw  string  `json:"manuf_raw,omitempty"`
+	VendorConfidence float32 `json:"vendor_confidence,omitempty"`
+
+	// --- Domain Relations ---
+	Behavioral      *BehavioralProfile `json:"behavioral,omitempty"`
 	Vulnerabilities []VulnerabilityTag `json:"vulnerabilities,omitempty"`
-	RSNInfo         *RSNInfo           `json:"rsn_info,omitempty"`
-	WPSDetails      *WPSDetails        `json:"wps_details,omitempty"`
 }
 
 // RSNInfo contains parsed RSN IE details
@@ -89,11 +123,41 @@ type WPSDetails struct {
 	DeviceName    string   `json:"device_name"`
 }
 
-// Connection States
-const (
-	StateDisconnected   = "disconnected"
-	StateAuthenticating = "authenticating"
-	StateAssociating    = "associating"
-	StateHandshake      = "handshake"
-	StateConnected      = "connected"
-)
+// --- Domain Methods (Encapsulating Logic) ---
+
+// IsAP returns true if the device is acting as an Access Point.
+func (d *Device) IsAP() bool {
+	return d.Type == DeviceTypeAP
+}
+
+// IsStation returns true if the device is acting as a client station.
+func (d *Device) IsStation() bool {
+	return d.Type == DeviceTypeStation
+}
+
+// IsBypassingPrivacy check if the device uses randomized MACs or other privacy techniques.
+func (d *Device) IsBypassingPrivacy() bool {
+	return d.IsRandomized || d.ProbeHash != ""
+}
+
+// IsActive returns true if the device has been seen within the provided duration.
+func (d *Device) IsActive(timeout time.Duration) bool {
+	return time.Since(d.LastSeen) < timeout
+}
+
+// UpdateTraffic increments the traffic statistics for the device.
+func (d *Device) UpdateTraffic(tx, rx int64, packets int) {
+	d.DataTransmitted += tx
+	d.DataReceived += rx
+	d.PacketsCount += packets
+}
+
+// HasVulnerability checks if a specific vulnerability has been detected.
+func (d *Device) HasVulnerability(name string) bool {
+	for _, v := range d.Vulnerabilities {
+		if v.Name == name {
+			return true
+		}
+	}
+	return false
+}

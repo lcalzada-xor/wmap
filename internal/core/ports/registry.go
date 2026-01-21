@@ -1,44 +1,38 @@
 package ports
 
 import (
+	"context"
 	"time"
 
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
 )
 
-// DeviceRegistry manages the in-memory state of discovered devices.
+// DeviceRegistry manages the volatile, in-memory state of discovered devices.
+// Optimized for fast retrieval and real-time updates during capture.
 type DeviceRegistry interface {
-	// ProcessDevice updates or adds a device to the registry.
-	// Returns the merged device and whether it was newly discovered (missing or cache invalidated).
-	ProcessDevice(device domain.Device) (domain.Device, bool)
+	// ProcessDevice updates or adds a device based on newly captured data.
+	// Returns the merged result and discovery state.
+	ProcessDevice(ctx context.Context, device domain.Device) (merged domain.Device, discovered bool)
 
-	// LoadDevice restores a device from storage without triggering new device logic (timestamps, discovery).
-	LoadDevice(device domain.Device)
+	// LoadDevice populates the registry from persistence without triggering discovery logic.
+	LoadDevice(ctx context.Context, device domain.Device)
 
-	// GetDevice returns a device by MAC.
-	GetDevice(mac string) (domain.Device, bool)
+	// GetDevice retrieves a device by MAC address.
+	GetDevice(ctx context.Context, mac string) (domain.Device, bool)
 
-	// GetAllDevices returns all known devices.
-	GetAllDevices() []domain.Device
+	// GetAllDevices returns a snapshot of all current registry entries.
+	GetAllDevices(ctx context.Context) []domain.Device
 
-	// PruneOldDevices removes devices inactive for more than the given TTL.
-	PruneOldDevices(ttl time.Duration) int
+	// Maintenance operations
+	PruneOldDevices(ctx context.Context, ttl time.Duration) (count int)
+	CleanupStaleConnections(ctx context.Context, timeout time.Duration) (count int)
+	GetActiveCount(ctx context.Context) int
 
-	// CleanupStaleConnections degrades connections to "disconnected" if silent for too long.
-	CleanupStaleConnections(timeout time.Duration) int
+	// SSID Intelligence
+	UpdateSSID(ctx context.Context, ssid, security string)
+	GetSSIDs(ctx context.Context) map[string]bool
+	GetSSIDSecurity(ctx context.Context, ssid string) (security string, found bool)
 
-	// GetActiveCount returns the number of devices currently in the registry.
-	GetActiveCount() int
-
-	// UpdateSSID records seen SSIDs and their security types.
-	UpdateSSID(ssid, security string)
-
-	// GetSSIDs returns all seen SSIDs.
-	GetSSIDs() map[string]bool
-
-	// GetSSIDSecurity returns the recorded security for an SSID.
-	GetSSIDSecurity(ssid string) (string, bool)
-
-	// Clear wipes all in-memory state.
-	Clear()
+	// Clear resets the registry state.
+	Clear(ctx context.Context)
 }

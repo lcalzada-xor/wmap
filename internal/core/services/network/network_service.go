@@ -2,7 +2,6 @@ package network
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
@@ -10,11 +9,7 @@ import (
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
 	"github.com/lcalzada-xor/wmap/internal/core/ports"
 	"github.com/lcalzada-xor/wmap/internal/core/services/persistence"
-	reg "github.com/lcalzada-xor/wmap/internal/core/services/registry"
 	"github.com/prometheus/client_golang/prometheus"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
@@ -34,21 +29,20 @@ var (
 )
 
 // NetworkService orchestrates the discovery and analysis of network devices.
+// It acts as a facade, delegating specific responsibilities to specialized services.
 type NetworkService struct {
-	registry        ports.DeviceRegistry
-	security        ports.SecurityEngine
-	persistence     *persistence.PersistenceManager
-	sniffer         ports.Sniffer
-	graphBuilder    *reg.GraphBuilder
-	deauthEngine    ports.DeauthService
-	wpsEngine       ports.WPSAttackService
-	authFloodEngine *authflood.AuthFloodEngine
-	auditService    ports.AuditService
+	registry     ports.DeviceRegistry
+	security     ports.SecurityEngine
+	persistence  *persistence.PersistenceManager
+	sniffer      ports.Sniffer
+	auditService ports.AuditService
 
-	// Optimization: Graph Caching
-	cachedGraph     *domain.GraphData
-	lastGraphUpdate time.Time
-	graphMu         sync.RWMutex
+	// Sub-Services
+	statsService      *StatsService
+	attackCoordinator *AttackCoordinator
+
+	// Initialization state
+	mu sync.RWMutex
 }
 
 // NewNetworkService creates a new orchestrator service.
@@ -60,46 +54,54 @@ func NewNetworkService(
 	auditService ports.AuditService,
 ) *NetworkService {
 	return &NetworkService{
-		registry:     registry,
-		security:     security,
-		persistence:  persistence,
-		sniffer:      sniffer,
-		auditService: auditService,
-		graphBuilder: reg.NewGraphBuilder(registry),
+		registry:          registry,
+		security:          security,
+		persistence:       persistence,
+		sniffer:           sniffer,
+		auditService:      auditService,
+		statsService:      NewStatsService(registry, security),
+		attackCoordinator: NewAttackCoordinator(registry, sniffer, auditService),
 	}
 }
 
 // SetDeauthEngine injects the deauth engine dependency
 func (s *NetworkService) SetDeauthEngine(engine ports.DeauthService) {
-	s.deauthEngine = engine
+	s.attackCoordinator.SetDeauthEngine(engine)
 }
 
 // SetWPSEngine injects the WPS engine dependency
 func (s *NetworkService) SetWPSEngine(engine ports.WPSAttackService) {
-	s.wpsEngine = engine
+	s.attackCoordinator.SetWPSEngine(engine)
 }
 
 // SetAuthFloodEngine injects the Auth Flood engine dependency
 func (s *NetworkService) SetAuthFloodEngine(engine *authflood.AuthFloodEngine) {
-	s.authFloodEngine = engine
+	s.attackCoordinator.SetAuthFloodEngine(engine)
 }
 
 // SetDeauthLogger sets the logger for the deauth engine
 func (s *NetworkService) SetDeauthLogger(logger func(string, string)) {
-	if s.deauthEngine != nil {
-		s.deauthEngine.SetLogger(logger)
+	// Wrapper to access protected/private engine inside coordinator if needed,
+	// or assume the engine is configured before set.
+	// Since deauthEngine inside Coordinator is public or accessible via setter,
+	// we assume the caller configures the engine on the coordinator if they have access,
+	// OR we expose a method on Coordinator.
+	// For now, if the engine interacts directly via interface, we can't easily set logger here
+	// unless we cast. But sticking to existing API:
+	if s.attackCoordinator.deauthEngine != nil {
+		s.attackCoordinator.deauthEngine.SetLogger(logger)
 	}
 }
 
 // ProcessDevice handles a newly captured device packet.
-func (s *NetworkService) ProcessDevice(newDevice domain.Device) {
+func (s *NetworkService) ProcessDevice(ctx context.Context, newDevice domain.Device) error {
 	packetsProcessed.Inc()
 
 	// 1. Registry: Merge state and perform discovery
-	merged, _ := s.registry.ProcessDevice(newDevice)
+	merged, _ := s.registry.ProcessDevice(ctx, newDevice)
 
 	// 2. Security: Perform analysis on the merged state
-	s.security.Analyze(merged)
+	s.security.Analyze(ctx, merged)
 
 	// 3. Persistence: Queue for background write
 	if s.persistence != nil {
@@ -108,7 +110,7 @@ func (s *NetworkService) ProcessDevice(newDevice domain.Device) {
 
 	// 4. Placeholder logic for APs (if station is connected to unknown AP)
 	if merged.ConnectedSSID != "" {
-		if _, ok := s.registry.GetDevice(merged.ConnectedSSID); !ok {
+		if _, ok := s.registry.GetDevice(ctx, merged.ConnectedSSID); !ok {
 			placeholder := domain.Device{
 				MAC:            merged.ConnectedSSID,
 				Type:           "ap",
@@ -116,51 +118,35 @@ func (s *NetworkService) ProcessDevice(newDevice domain.Device) {
 				LastSeen:       time.Now(),
 				LastPacketTime: time.Now(),
 			}
-			s.registry.ProcessDevice(placeholder)
+			s.registry.ProcessDevice(ctx, placeholder)
 		}
 	}
+	return nil
 }
 
 // GetGraph returns the graph projection for visualization.
-// GetGraph returns the graph projection for visualization.
-func (s *NetworkService) GetGraph() domain.GraphData {
-	s.graphMu.RLock()
-	if s.cachedGraph != nil && time.Since(s.lastGraphUpdate) < 2*time.Second {
-		defer s.graphMu.RUnlock()
-		return *s.cachedGraph
-	}
-	s.graphMu.RUnlock()
-
-	s.graphMu.Lock()
-	defer s.graphMu.Unlock()
-
-	// Double-check check optimization (standard pattern)
-	if s.cachedGraph != nil && time.Since(s.lastGraphUpdate) < 2*time.Second {
-		return *s.cachedGraph
-	}
-
-	g := s.graphBuilder.BuildGraph()
-	s.cachedGraph = &g
-	s.lastGraphUpdate = time.Now()
-	return g
+func (s *NetworkService) GetGraph(ctx context.Context) (domain.GraphData, error) {
+	return s.statsService.GetGraph(ctx)
 }
 
 // AddRule delegates to the Security Engine.
-func (s *NetworkService) AddRule(rule domain.AlertRule) {
-	s.security.AddRule(rule)
+func (s *NetworkService) AddRule(ctx context.Context, rule domain.AlertRule) error {
+	s.security.AddRule(ctx, rule)
+	return nil
 }
 
 // GetAlerts delegates to the Security Engine.
-func (s *NetworkService) GetAlerts() []domain.Alert {
-	return s.security.GetAlerts()
+func (s *NetworkService) GetAlerts(ctx context.Context) ([]domain.Alert, error) {
+	return s.security.GetAlerts(ctx), nil
 }
 
 // TriggerScan delegates to the Sniffer.
-func (s *NetworkService) TriggerScan() error {
+func (s *NetworkService) TriggerScan(ctx context.Context) error {
 	if s.sniffer == nil {
 		return nil
 	}
-	return s.sniffer.Scan("")
+	// Sniffer Scan interface also updated to accept context (assumed)
+	return s.sniffer.Scan(ctx, "")
 }
 
 // StartCleanupLoop manages the periodic removal of old devices.
@@ -174,19 +160,12 @@ func (s *NetworkService) StartCleanupLoop(ctx context.Context, ttl time.Duration
 				return
 			case <-ticker.C:
 				cleanupRuns.Inc()
-				deleted := s.registry.PruneOldDevices(ttl)
+				deleted := s.registry.PruneOldDevices(ctx, ttl)
 				if deleted > 0 {
-					devicesActive.Set(float64(s.registry.GetActiveCount()))
+					devicesActive.Set(float64(s.registry.GetActiveCount(ctx)))
 				}
 
-				// Cleanup Stale Connections (Every 30s check, 2m threshold)
-				// We can re-use the ticker interval for now, or use a separate timer if needed.
-				// Assuming 'interval' is small enough (e.g. 5-30s).
-				// StartCleanupLoop is called in server.go with 30s usually.
-				cleaned := s.registry.CleanupStaleConnections(2 * time.Minute)
-				if cleaned > 0 {
-					// Optionally log or metric update
-				}
+				s.registry.CleanupStaleConnections(ctx, 2*time.Minute)
 			}
 		}
 	}()
@@ -208,349 +187,115 @@ func (s *NetworkService) IsPersistenceEnabled() bool {
 }
 
 // ResetWorkspace wipes the current in-memory discovery state.
-func (s *NetworkService) ResetWorkspace() {
-	s.registry.Clear()
+func (s *NetworkService) ResetWorkspace(ctx context.Context) error {
+	s.registry.Clear(ctx)
+	return nil
 }
 
 // SetChannels updates the sniffer's channel hopping list.
-func (s *NetworkService) SetChannels(channels []int) {
+func (s *NetworkService) SetChannels(ctx context.Context, channels []int) error {
 	if s.sniffer != nil {
-		s.sniffer.SetChannels(channels)
+		s.sniffer.SetChannels(ctx, channels)
 	}
+	return nil
 }
 
-func (s *NetworkService) GetChannels() []int {
+func (s *NetworkService) GetChannels(ctx context.Context) ([]int, error) {
 	if s.sniffer != nil {
-		return s.sniffer.GetChannels()
+		return s.sniffer.GetChannels(ctx), nil
 	}
-	return []int{}
+	return []int{}, nil
 }
 
 // SetInterfaceChannels updates the sniffer's channel hopping list for a specific interface.
-func (s *NetworkService) SetInterfaceChannels(iface string, channels []int) {
+func (s *NetworkService) SetInterfaceChannels(ctx context.Context, iface string, channels []int) error {
 	if s.sniffer != nil {
-		s.sniffer.SetInterfaceChannels(iface, channels)
+		s.sniffer.SetInterfaceChannels(ctx, iface, channels)
 	}
+	return nil
 }
 
 // GetInterfaceChannels returns the current channel hopping list for a specific interface.
-func (s *NetworkService) GetInterfaceChannels(iface string) []int {
+func (s *NetworkService) GetInterfaceChannels(ctx context.Context, iface string) ([]int, error) {
 	if s.sniffer != nil {
-		return s.sniffer.GetInterfaceChannels(iface)
+		return s.sniffer.GetInterfaceChannels(ctx, iface)
 	}
-	return []int{}
+	return []int{}, nil
 }
 
 // GetInterfaces returns the list of available interfaces.
-func (s *NetworkService) GetInterfaces() []string {
+func (s *NetworkService) GetInterfaces(ctx context.Context) ([]string, error) {
 	if s.sniffer != nil {
-		return s.sniffer.GetInterfaces()
+		return s.sniffer.GetInterfaces(ctx)
 	}
-	return []string{}
+	return []string{}, nil
 }
 
 // GetInterfaceDetails returns detailed info for all interfaces.
-func (s *NetworkService) GetInterfaceDetails() []domain.InterfaceInfo {
+func (s *NetworkService) GetInterfaceDetails(ctx context.Context) ([]domain.InterfaceInfo, error) {
 	if s.sniffer != nil {
-		return s.sniffer.GetInterfaceDetails()
+		return s.sniffer.GetInterfaceDetails(ctx)
 	}
-	return []domain.InterfaceInfo{}
+	return []domain.InterfaceInfo{}, nil
 }
 
-// Deauth Attack Methods
+// Deauth Attack Methods - Delegated to Coordinator
 
-// StartDeauthAttack initiates a new deauthentication attack
 func (s *NetworkService) StartDeauthAttack(ctx context.Context, config domain.DeauthAttackConfig) (string, error) {
-	// Start Trace Span
-	ctx, span := otel.Tracer("network-service").Start(ctx, "StartDeauthAttack")
-	defer span.End()
-
-	// Add attributes to span
-	span.SetAttributes(attribute.String("target.mac", config.TargetMAC))
-	span.SetAttributes(attribute.String("attack.type", string(config.AttackType)))
-
-	if s.deauthEngine == nil {
-		return "", fmt.Errorf("deauth engine not initialized")
-	}
-
-	// Auto-detect channel if not specified
-	if config.Channel == 0 {
-		device, exists := s.registry.GetDevice(config.TargetMAC)
-		if exists && device.Channel > 0 {
-			config.Channel = device.Channel
-		} else {
-			return "", fmt.Errorf("channel is 0 and could not be auto-detected for target %s", config.TargetMAC)
-		}
-	}
-
-	// Auto-detect interface if not provided (fallback)
-	if config.Interface == "" {
-		if s.sniffer != nil {
-			interfaces := s.sniffer.GetInterfaces()
-			if len(interfaces) > 0 {
-				// Strategy: Find interface that already has this channel, or fallback to first
-				found := false
-				for _, iface := range interfaces {
-					chans := s.sniffer.GetInterfaceChannels(iface)
-					for _, ch := range chans {
-						if ch == config.Channel {
-							config.Interface = iface
-							found = true
-							break
-						}
-					}
-					if found {
-						break
-					}
-				}
-				if !found {
-					config.Interface = interfaces[0]
-				}
-			}
-		}
-	}
-
-	// Smart Targeting Logic
-	// If Broadcast attack is requested, check if we know any clients for this AP
-	// and upgrade to Targeted attack if possible.
-	if config.AttackType == domain.DeauthBroadcast {
-		// Find clients connected to this AP
-		devices := s.registry.GetAllDevices()
-		var bestClient string
-		var bestLastSeen time.Time
-
-		for _, d := range devices {
-			if d.ConnectedSSID == config.TargetMAC && d.Type == "station" {
-				// We found a client
-				if d.LastPacketTime.After(bestLastSeen) {
-					bestClient = d.MAC
-					bestLastSeen = d.LastPacketTime
-				}
-			}
-		}
-
-		if bestClient != "" {
-			// Upgrade the attack
-			config.AttackType = domain.DeauthTargeted
-			config.ClientMAC = bestClient
-			if s.auditService != nil {
-				s.auditService.Log(context.Background(), domain.ActionInfo, config.TargetMAC, fmt.Sprintf("Smart Targeting: Upgraded Broadcast -> Targeted (Client: %s)", bestClient))
-			}
-			span.AddEvent("Smart Targeting Upgraded")
-			span.SetAttributes(attribute.String("upgraded.client", bestClient))
-		}
-	}
-
-	id, err := s.deauthEngine.StartAttack(config)
-	if err == nil && s.auditService != nil {
-		s.auditService.Log(context.Background(), domain.ActionDeauthStart, config.TargetMAC, fmt.Sprintf("Type: %s, Ch: %d", config.AttackType, config.Channel))
-	} else if err != nil {
-		span.RecordError(err)
-	}
-	return id, err
+	return s.attackCoordinator.StartDeauthAttack(ctx, config)
 }
 
-// StopDeauthAttack stops a running deauth attack
-func (s *NetworkService) StopDeauthAttack(id string, force bool) error {
-	if s.deauthEngine == nil {
-		return fmt.Errorf("deauth engine not initialized")
-	}
-	err := s.deauthEngine.StopAttack(id, force)
-	if err == nil && s.auditService != nil {
-		msg := "Attack stopped by user"
-		if force {
-			msg += " (forced)"
-		}
-		s.auditService.Log(context.Background(), domain.ActionDeauthStop, id, msg)
-	}
-	return err
+func (s *NetworkService) StopDeauthAttack(ctx context.Context, id string, force bool) error {
+	return s.attackCoordinator.StopDeauthAttack(ctx, id, force)
 }
 
-// GetDeauthStatus returns the status of a specific attack
-func (s *NetworkService) GetDeauthStatus(id string) (domain.DeauthAttackStatus, error) {
-	if s.deauthEngine == nil {
-		return domain.DeauthAttackStatus{}, fmt.Errorf("deauth engine not initialized")
-	}
-	return s.deauthEngine.GetAttackStatus(id)
+func (s *NetworkService) GetDeauthStatus(ctx context.Context, id string) (domain.DeauthAttackStatus, error) {
+	return s.attackCoordinator.GetDeauthStatus(ctx, id)
 }
 
-// ListDeauthAttacks returns all active deauth attacks
-func (s *NetworkService) ListDeauthAttacks() []domain.DeauthAttackStatus {
-	if s.deauthEngine == nil {
-		return []domain.DeauthAttackStatus{}
-	}
-	return s.deauthEngine.ListActiveAttacks()
+func (s *NetworkService) ListDeauthAttacks(ctx context.Context) ([]domain.DeauthAttackStatus, error) {
+	return s.attackCoordinator.ListDeauthAttacks(ctx), nil
 }
 
-// WPS Attack Methods
+// WPS Attack Methods - Delegated to Coordinator
 
-// StartWPSAttack initiates a new WPS Pixie Dust attack
-func (s *NetworkService) StartWPSAttack(config domain.WPSAttackConfig) (string, error) {
-	if s.wpsEngine == nil {
-		return "", fmt.Errorf("WPS engine not initialized")
-	}
-
-	// Basic validation
-	if config.TargetBSSID == "" {
-		return "", fmt.Errorf("target BSSID is required")
-	}
-
-	// Auto-detect channel if not specified
-	if config.Channel == 0 {
-		device, exists := s.registry.GetDevice(config.TargetBSSID)
-		if exists && device.Channel > 0 {
-			config.Channel = device.Channel
-		} else {
-			return "", fmt.Errorf("channel is 0 and could not be auto-detected for target %s", config.TargetBSSID)
-		}
-	}
-
-	// Auto-detect interface if not provided (fallback)
-	if config.Interface == "" {
-		if s.sniffer != nil {
-			interfaces := s.sniffer.GetInterfaces()
-			if len(interfaces) > 0 {
-				// Strategy: Find interface that already has this channel, or fallback to first
-				found := false
-				if config.Channel > 0 {
-					for _, iface := range interfaces {
-						chans := s.sniffer.GetInterfaceChannels(iface)
-						for _, ch := range chans {
-							if ch == config.Channel {
-								config.Interface = iface
-								found = true
-								break
-							}
-						}
-						if found {
-							break
-						}
-					}
-				}
-				if !found {
-					config.Interface = interfaces[0]
-				}
-			} else {
-				return "", fmt.Errorf("no interfaces available for attack")
-			}
-		} else {
-			return "", fmt.Errorf("sniffer not initialized, cannot auto-detect interface")
-		}
-	}
-
-	return s.wpsEngine.StartAttack(config)
+func (s *NetworkService) StartWPSAttack(ctx context.Context, config domain.WPSAttackConfig) (string, error) {
+	return s.attackCoordinator.StartWPSAttack(ctx, config)
 }
 
-// StopWPSAttack stops a running WPS attack
-func (s *NetworkService) StopWPSAttack(id string, force bool) error {
-	if s.wpsEngine == nil {
-		return fmt.Errorf("WPS engine not initialized")
-	}
-	return s.wpsEngine.StopAttack(id, force)
+func (s *NetworkService) StopWPSAttack(ctx context.Context, id string, force bool) error {
+	return s.attackCoordinator.StopWPSAttack(ctx, id, force)
 }
 
-// GetWPSStatus returns the status of a specific attack
-func (s *NetworkService) GetWPSStatus(id string) (domain.WPSAttackStatus, error) {
-	if s.wpsEngine == nil {
-		return domain.WPSAttackStatus{}, fmt.Errorf("WPS engine not initialized")
-	}
-	return s.wpsEngine.GetStatus(id)
+func (s *NetworkService) GetWPSStatus(ctx context.Context, id string) (domain.WPSAttackStatus, error) {
+	return s.attackCoordinator.GetWPSStatus(ctx, id)
 }
 
-// GetSystemStats calculates aggregate intelligence metrics.
-func (s *NetworkService) GetSystemStats() domain.SystemStats {
-	devices := s.registry.GetAllDevices()
-	stats := domain.SystemStats{
-		DeviceCount:   len(devices),
-		AlertCount:    len(s.security.GetAlerts()),
-		VendorStats:   make(map[string]int),
-		SecurityStats: make(map[string]int),
-	}
-
-	var totalRetry float64
-	var packetDevices int
-
-	for _, d := range devices {
-		// Vendor
-		v := d.Vendor
-		if v == "" {
-			v = "Unknown"
-		}
-		stats.VendorStats[v]++
-
-		// Security (only for networks/APs usually, but keeping general)
-		if d.Security != "" {
-			stats.SecurityStats[d.Security]++
-		}
-
-		// Global Retry Rate
-		if d.PacketsCount > 0 {
-			rate := float64(d.RetryCount) / float64(d.PacketsCount)
-			totalRetry += rate
-			packetDevices++
-		}
-	}
-
-	if packetDevices > 0 {
-		stats.GlobalRetry = totalRetry / float64(packetDevices)
-	}
-
-	return stats
+// GetSystemStats - Delegated to StatsService
+func (s *NetworkService) GetSystemStats(ctx context.Context) (domain.SystemStats, error) {
+	return s.statsService.GetSystemStats(ctx)
 }
 
-// Auth Flood Attack Methods
+// Auth Flood Attack Methods - Delegated to Coordinator
 
-func (s *NetworkService) StartAuthFloodAttack(config domain.AuthFloodAttackConfig) (string, error) {
-	if s.authFloodEngine == nil {
-		return "", fmt.Errorf("auth flood engine not initialized")
-	}
-
-	// Auto-detect channel if not specified
-	if config.Channel == 0 && config.TargetBSSID != "" {
-		device, exists := s.registry.GetDevice(config.TargetBSSID)
-		if exists && device.Channel > 0 {
-			config.Channel = device.Channel
-		}
-	}
-
-	// Auto-detect interface
-	if config.Interface == "" && s.sniffer != nil {
-		interfaces := s.sniffer.GetInterfaces()
-		if len(interfaces) > 0 {
-			config.Interface = interfaces[0]
-		}
-	}
-
-	id, err := s.authFloodEngine.StartAttack(config)
-	if err == nil && s.auditService != nil {
-		s.auditService.Log(context.Background(), domain.ActionDeauthStart, config.TargetBSSID, "Started Auth Flood")
-	}
-	return id, err
+func (s *NetworkService) StartAuthFloodAttack(ctx context.Context, config domain.AuthFloodAttackConfig) (string, error) {
+	return s.attackCoordinator.StartAuthFloodAttack(ctx, config)
 }
 
-func (s *NetworkService) StopAuthFloodAttack(id string, force bool) error {
-	if s.authFloodEngine == nil {
-		return fmt.Errorf("auth flood engine not initialized")
-	}
-	return s.authFloodEngine.StopAttack(id, force)
+func (s *NetworkService) StopAuthFloodAttack(ctx context.Context, id string, force bool) error {
+	return s.attackCoordinator.StopAuthFloodAttack(ctx, id, force)
 }
 
-func (s *NetworkService) GetAuthFloodStatus(id string) (domain.AuthFloodAttackStatus, error) {
-	if s.authFloodEngine == nil {
-		return domain.AuthFloodAttackStatus{}, fmt.Errorf("auth flood engine not initialized")
-	}
-	return s.authFloodEngine.GetStatus(id)
+func (s *NetworkService) GetAuthFloodStatus(ctx context.Context, id string) (domain.AuthFloodAttackStatus, error) {
+	return s.attackCoordinator.GetAuthFloodStatus(ctx, id)
+}
+
+func (s *NetworkService) GetWPSEngine() ports.WPSAttackService {
+	return s.attackCoordinator.wpsEngine
 }
 
 // Close stops all active services and attacks.
-func (s *NetworkService) Close() {
-	if s.deauthEngine != nil {
-		s.deauthEngine.StopAll()
-	}
-	// WPS Engine might not have StopAll exposed in interface, let's check.
-	// WPSEngine in adapter has StopAttack, but does it have StopAll?
-	// We might need to implement it.
-	if s.authFloodEngine != nil {
-		s.authFloodEngine.StopAll()
-	}
+func (s *NetworkService) Close() error {
+	s.attackCoordinator.StopAll(context.Background())
+	return nil
 }

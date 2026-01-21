@@ -28,7 +28,7 @@ func (h *ScanHandler) HandleScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Trigger Scan
-	err := h.Service.TriggerScan()
+	err := h.Service.TriggerScan(r.Context())
 	if err != nil {
 		log.Printf("Scan failed: %v", err)
 		http.Error(w, "Scan failed: "+err.Error(), http.StatusInternalServerError)
@@ -41,16 +41,25 @@ func (h *ScanHandler) HandleScan(w http.ResponseWriter, r *http.Request) {
 
 // HandleChannels returns available channels or updates them
 func (h *ScanHandler) HandleChannels(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	switch r.Method {
 	case http.MethodGet:
 		iface := r.URL.Query().Get("interface")
 		var channels []int
+		var err error
+
 		if iface != "" {
-			channels = h.Service.GetInterfaceChannels(iface)
+			channels, err = h.Service.GetInterfaceChannels(ctx, iface)
 		} else {
 			// Fallback or Global
-			channels = h.Service.GetChannels()
+			channels, err = h.Service.GetChannels(ctx)
 		}
+
+		if err != nil {
+			http.Error(w, "Failed to get channels: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"channels": channels,
@@ -66,11 +75,18 @@ func (h *ScanHandler) HandleChannels(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		var err error
 		if req.Interface != "" {
-			h.Service.SetInterfaceChannels(req.Interface, req.Channels)
+			err = h.Service.SetInterfaceChannels(ctx, req.Interface, req.Channels)
 		} else {
-			h.Service.SetChannels(req.Channels)
+			err = h.Service.SetChannels(ctx, req.Channels)
 		}
+
+		if err != nil {
+			http.Error(w, "Failed to set channels: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"channels_updated"}`))
 	default:
@@ -86,7 +102,12 @@ func (h *ScanHandler) HandleListInterfaces(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Use new detailed method
-	details := h.Service.GetInterfaceDetails()
+	details, err := h.Service.GetInterfaceDetails(r.Context())
+	if err != nil {
+		http.Error(w, "Failed to list interfaces: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"interfaces": details,
@@ -100,7 +121,12 @@ func (h *ScanHandler) HandleGetStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stats := h.Service.GetSystemStats()
+	stats, err := h.Service.GetSystemStats(r.Context())
+	if err != nil {
+		http.Error(w, "Failed to get stats: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(stats)
 }

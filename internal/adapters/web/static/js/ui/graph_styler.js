@@ -3,14 +3,14 @@
  * Encapsulates visual logic for Nodes and Edges.
  */
 
-import { State } from '../core/state.js';
+import { Store } from '../core/store/store.js';
 import { NodeGroups } from '../core/constants.js';
 
 export const GraphStyler = {
     styleNode(n) {
         // Notifications & Aliases
-        if (State.getAlias(n.mac)) {
-            n.label = State.getAlias(n.mac);
+        if (Store.state.aliases[n.mac]) {
+            n.label = Store.state.aliases[n.mac];
             n.font = { color: '#FFD60A' };
         }
 
@@ -70,7 +70,7 @@ export const GraphStyler = {
             n.icon = { face: '"Font Awesome 6 Free"', code: iconCode, size: 24, color: color, weight: 'bold' };
 
             // Highlight Alias with Gold Icon
-            if (State.getAlias(n.mac)) n.icon.color = '#FFD60A';
+            if (Store.state.aliases[n.mac]) n.icon.color = '#FFD60A';
 
         } else if (n.group === NodeGroups.AP) {
             n.shape = 'icon';
@@ -84,6 +84,24 @@ export const GraphStyler = {
                     n.label += ' 🔒';
                 }
             }
+        }
+
+        // Generate Tooltip (Hover Info) - Optimized
+        const tooltipParts = [];
+        if (n.ssid) tooltipParts.push(`📡 ${n.ssid}`);
+        else if (n.group === NodeGroups.STATION) tooltipParts.push('📱 Station');
+
+        if (n.security) tooltipParts.push(`🔒 ${n.security}`);
+        if (n.rssi) tooltipParts.push(`📶 ${n.rssi} dBm`);
+        if (n.vendor) tooltipParts.push(`🏭 ${n.vendor}`);
+
+        n.title = tooltipParts.join('\n');
+
+        // Stale Node Indicator
+        if (n.is_stale) {
+            n.opacity = 0.4;
+            if (!n.label) n.label = '';
+            if (!n.label.includes('⚠️')) n.label = '⚠️ ' + n.label;
         }
 
         return n;
@@ -110,12 +128,20 @@ export const GraphStyler = {
             }
         }
 
+        // Add descriptive labels for edge types
+        let edgeLabel = e.label || '';
+        if (!edgeLabel) {
+            if (e.type === 'connection') edgeLabel = '✓';
+            else if (e.type === 'probe') edgeLabel = '?';
+            else if (e.type === 'correlation') edgeLabel = '≈';
+        }
+
         return {
             id: `${e.from}-${e.to}`,
             from: e.from,
             to: e.to,
             dashes: e.dashed || false,
-            label: e.label,
+            label: edgeLabel,
             width: width,
             color: { color: color, highlight: color },
             font: { size: 10, align: 'middle', color: '#888' }

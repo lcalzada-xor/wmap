@@ -1,16 +1,25 @@
 package ports
 
-import "github.com/lcalzada-xor/wmap/internal/core/domain"
+import (
+	"context"
 
-// WPSAttackService defines the interface for executing WPS attacks
+	"github.com/lcalzada-xor/wmap/internal/core/domain"
+)
+
+// WPSAttackService defines the operational interface for WPS-related vulnerability testing.
 type WPSAttackService interface {
-	// StartAttack initiates a new Pixie Dust attack
-	StartAttack(config domain.WPSAttackConfig) (string, error)
-	// StopAttack stops an active attack. Force stops it immediately.
-	StopAttack(id string, force bool) error
-	// GetStatus returns the status of an attack
-	GetStatus(id string) (domain.WPSAttackStatus, error)
-	StopAll()
-	// HealthCheck verifies if the necessary tools (reaver, pixiewps) are installed
-	HealthCheck() error
+	// StartAttack initiates a targeted WPS attack (e.g., Pixie Dust).
+	StartAttack(ctx context.Context, config domain.WPSAttackConfig) (id string, err error)
+
+	// StopAttack terminates a specific running WPS task.
+	StopAttack(ctx context.Context, id string, force bool) error
+
+	// GetStatus retrieves the current progress/result of an attack.
+	GetStatus(ctx context.Context, id string) (domain.WPSAttackStatus, error)
+
+	// StopAll ensures a clean state by stopping all ongoing WPS assessments.
+	StopAll(ctx context.Context)
+
+	// HealthCheck verifies the presence and compatibility of required external tools (e.g., reaver).
+	HealthCheck(ctx context.Context) error
 }

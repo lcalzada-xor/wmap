@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	wmap_grpc "github.com/lcalzada-xor/wmap/api/proto"
+	"github.com/lcalzada-xor/wmap/internal/adapters/fingerprint"
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer"
 	"github.com/lcalzada-xor/wmap/internal/geo"
 	"google.golang.org/grpc"
@@ -50,7 +51,15 @@ func main() {
 
 	// Create Manager
 	// Dwell time hardcoded/flag? currently implicit. Let's say 300ms default.
-	manager := sniffer.NewManager(ifaceList, 300, false, geo.NewStaticProvider(*lat, *lng))
+	// Init OUI DB
+	ouiDB, _ := fingerprint.NewOUIDatabase("/data/oui.txt", 10000, nil)
+	// Create manager (using OUI DB, even if nil/empty, or use static fallback)
+	var repo fingerprint.VendorRepository = ouiDB
+	if ouiDB == nil {
+		repo = fingerprint.NewStaticVendorRepository(nil)
+	}
+
+	manager := sniffer.NewManager(ifaceList, 300, false, geo.NewStaticProvider(*lat, *lng), repo)
 	// Override output channels to ours?
 	// The manager creates its own output channels. We should use them.
 	// But wait, NewManager creates them. We can just read from manager.Output / manager.Alerts
@@ -93,7 +102,7 @@ func main() {
 				Latitude:      d.Latitude,
 				Longitude:     d.Longitude,
 				IsRandomized:  d.IsRandomized,
-				Type:          d.Type,
+				Type:          string(d.Type),
 				Timestamp:     d.LastPacketTime.Unix(),
 				Capabilities:  d.Capabilities,
 			}

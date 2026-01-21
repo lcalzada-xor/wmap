@@ -34,6 +34,32 @@ export class AuthFloodController {
         document.getElementById('btn-stop-auth-flood')?.addEventListener('click', () => {
             this.stopAttack();
         });
+
+        // Attack Type Toggle (Auth vs Assoc)
+        const typeSelect = document.getElementById('auth-flood-type');
+        const ssidGroup = document.getElementById('auth-flood-ssid-group');
+        typeSelect?.addEventListener('change', (e) => {
+            if (e.target.value === 'assoc') {
+                ssidGroup.style.display = 'block';
+            } else {
+                ssidGroup.style.display = 'none';
+            }
+        });
+
+        // MAC Mode Toggle (Random vs Fixed)
+        const macRadios = document.getElementsByName('auth-flood-mac-mode');
+        const fixedMacInput = document.getElementById('auth-flood-fixed-mac');
+        macRadios.forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                if (e.target.value === 'fixed') {
+                    fixedMacInput.disabled = false;
+                    fixedMacInput.focus();
+                } else {
+                    fixedMacInput.disabled = true;
+                    fixedMacInput.value = '';
+                }
+            });
+        });
     }
 
     openPanel(bssid, channel) {
@@ -68,19 +94,48 @@ export class AuthFloodController {
         const channel = parseInt(this.channelInput.value) || 0;
         const packetCount = parseInt(document.getElementById('auth-flood-count').value) || 0;
 
+        // New Inputs
+        const attackType = document.getElementById('auth-flood-type').value;
+        const targetSSID = document.getElementById('auth-flood-ssid').value;
+        const intervalMs = parseInt(document.getElementById('auth-flood-interval').value) || 10;
+
+        let useRandomMac = true;
+        const macMode = document.querySelector('input[name="auth-flood-mac-mode"]:checked')?.value;
+        const fixedSourceMac = document.getElementById('auth-flood-fixed-mac').value;
+
+        if (macMode === 'fixed') {
+            useRandomMac = false;
+        }
+
         if (!bssid) {
             Notifications.show("Target BSSID is required", "warning");
             return;
         }
 
-        this.log(`Starting Auth Flood on ${bssid}...`, "info");
+        if (attackType === 'assoc' && !targetSSID) {
+            Notifications.show("Target SSID is required for Association Flood", "warning");
+            return;
+        }
+
+        if (!useRandomMac && !fixedSourceMac) {
+            Notifications.show("Fixed MAC Address is required", "warning");
+            return;
+        }
+
+        this.log(`Starting ${attackType.toUpperCase()} Flood on ${bssid}...`, "info");
 
         const config = {
             target_bssid: bssid,
             channel: channel,
             packet_count: packetCount,
-            packet_interval_ms: 10, // Fast default
-            interface: '' // Auto
+            packet_interval_ms: intervalMs,
+            interface: '', // Auto
+
+            // New Config
+            attack_type: attackType,
+            target_ssid: targetSSID,
+            use_random_mac: useRandomMac,
+            fixed_source_mac: fixedSourceMac
         };
 
         try {

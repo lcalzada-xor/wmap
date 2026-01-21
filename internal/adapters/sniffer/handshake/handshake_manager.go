@@ -24,12 +24,13 @@ const (
 
 // HandshakeManager handles the capture and storage of WPA/WPA2 handshakes.
 type HandshakeManager struct {
-	mu           sync.RWMutex
-	baseDir      string
-	bssidToEssid map[string]string // Kept as map protected by RWMutex for now, but usage optimized
-	sessions     map[string]*HandshakeSession
-	saveQueue    chan *HandshakeSession
-	stopChan     chan struct{}
+	mu            sync.RWMutex
+	baseDir       string
+	bssidToEssid  map[string]string          // Kept as map protected by RWMutex for now, but usage optimized
+	bssidToBeacon map[string]gopacket.Packet // BSSID -> Beacon Packet (Cache)
+	sessions      map[string]*HandshakeSession
+	saveQueue     chan *HandshakeSession
+	stopChan      chan struct{}
 }
 
 // HandshakeSession represents a capture session for a specific BSSID+Station pair.
@@ -38,6 +39,7 @@ type HandshakeSession struct {
 	StationMAC string
 	ESSID      string
 	Frames     []gopacket.Packet
+	Beacon     gopacket.Packet // Best beacon frame, required for aircrack-ng ESSID detection
 	LastUpdate time.Time
 	Captured   map[uint8]bool // Tracks 1=M1, 2=M2, 3=M3, 4=M4
 	SavedCount int            // How many unique messages were in the last saved file
@@ -56,11 +58,12 @@ func NewHandshakeManager(baseDir string) *HandshakeManager {
 	}
 
 	hm := &HandshakeManager{
-		baseDir:      baseDir,
-		bssidToEssid: make(map[string]string),
-		sessions:     make(map[string]*HandshakeSession),
-		saveQueue:    make(chan *HandshakeSession, 100),
-		stopChan:     make(chan struct{}),
+		baseDir:       baseDir,
+		bssidToEssid:  make(map[string]string),
+		bssidToBeacon: make(map[string]gopacket.Packet),
+		sessions:      make(map[string]*HandshakeSession),
+		saveQueue:     make(chan *HandshakeSession, 100),
+		stopChan:      make(chan struct{}),
 	}
 
 	// Start cleanup routine
@@ -133,22 +136,35 @@ func (hm *HandshakeManager) ProcessFrame(packet gopacket.Packet) bool {
 		return false
 	}
 
-	// 1. Process Beacons to learn ESSIDs
+	// 1. Process Beacons to learn ESSIDs and store Beacon packet
 	if dot11.Type == layers.Dot11TypeMgmtBeacon {
 		bssid := dot11.Address3.String()
 		if beaconLayer := packet.Layer(layers.LayerTypeDot11MgmtBeacon); beaconLayer != nil {
 			// Extract SSID from IEs
 			essid := getSSIDFromPacket(packet)
 			if essid != "" && essid != "<HIDDEN>" {
-				// Optimization: Check with Read Lock first
-				hm.mu.RLock()
-				existing, ok := hm.bssidToEssid[bssid]
-				hm.mu.RUnlock()
+				hm.mu.Lock()
+				defer hm.mu.Unlock()
 
-				if !ok || existing != essid {
-					hm.mu.Lock()
-					hm.bssidToEssid[bssid] = essid
-					hm.mu.Unlock()
+				// Update BSSID -> ESSID map
+				hm.bssidToEssid[bssid] = essid
+				// Update Beacon Cache
+				hm.bssidToBeacon[bssid] = packet
+				log.Printf("DEBUG: Stored beacon for BSSID %s (SSID: %s)", bssid, essid)
+
+				// Check if we have active sessions for this BSSID without a beacon or with a hidden one
+				// Since we don't index sessions by BSSID easily (key is BSSID_STA), iterating is okayish or we wait for next EAPOL.
+				// But we should store this beacon for future sessions or current ones.
+				// Since we can't easily find all sessions for a BSSID without map iteration, let's just store it in a separate cache if needed?
+				// Actually, let's just iteration. "sessions" map is usually small.
+				for _, session := range hm.sessions {
+					if session.BSSID == bssid {
+						// Store this beacon if we don't have one, or if ours is better (not implemented yet, just overwrite)
+						if session.Beacon == nil {
+							session.Beacon = packet
+							session.ESSID = essid // Ensure session has correct ESSID
+						}
+					}
 				}
 			}
 		}
@@ -167,18 +183,9 @@ func (hm *HandshakeManager) handleEAPOL(packet gopacket.Packet, dot11 *layers.Do
 	// EAPOL frames are Data frames.
 	// Address1 = Recipient (DA)
 	// Address2 = Transmitter (SA)
-	// Address3 = BSSID
+	// Address3 = BSSID (usually)
 
 	// Determine addresses based on DS flags
-	// Address1 = Recipient (RA) / DA
-	// Address2 = Transmitter (TA) / SA
-	// Address3 = BSSID (usually)
-	//
-	// ToDS=0, FromDS=0: Mgmt/AdHoc. BSSID=Addr3. SA=Addr2. DA=Addr1.
-	// ToDS=0, FromDS=1: Downlink (AP->STA). BSSID=Addr2. DA=Addr1. SA=Addr3 (Src).
-	// ToDS=1, FromDS=0: Uplink (STA->AP). BSSID=Addr1. SA=Addr2. DA=Addr3 (Dst).
-	// ToDS=1, FromDS=1: WDS. BSSID not clearly defined single field.
-
 	var bssid, stationMac string
 	toDS := dot11.Flags.ToDS()
 	fromDS := dot11.Flags.FromDS()
@@ -186,8 +193,6 @@ func (hm *HandshakeManager) handleEAPOL(packet gopacket.Packet, dot11 *layers.Do
 	if !toDS && !fromDS {
 		// AdHoc / Mgmt
 		bssid = dot11.Address3.String()
-		// EAPOL in AdHoc? Rare.
-		// If src==bssid logic applies here.
 		if dot11.Address2.String() == bssid {
 			stationMac = dot11.Address1.String()
 		} else {
@@ -204,13 +209,7 @@ func (hm *HandshakeManager) handleEAPOL(packet gopacket.Packet, dot11 *layers.Do
 		bssid = dot11.Address1.String()
 		stationMac = dot11.Address2.String()
 	} else {
-		// WDS (Mesh) - ToDS=1, FromDS=1
-		// RA=Addr1, TA=Addr2.
-		// Usually EAPOL is link-local, so Sender/Receiver are the peers.
-		// Let's assume TA is one peer, RA is the other.
-		// Which one is Authenticator (BSSID role)? Hard to say without more context.
-		// Let's use Addr2 as Source/Authenticator candidate?
-		// Skipping WDS for now or defaulting to safe fallback:
+		// WDS or unknown - skip
 		return false
 	}
 
@@ -226,10 +225,17 @@ func (hm *HandshakeManager) handleEAPOL(packet gopacket.Packet, dot11 *layers.Do
 		if essid == "" {
 			essid = "unknown"
 		}
+		// Look up cached beacon
+		var beacon gopacket.Packet
+		if cached, ok := hm.bssidToBeacon[bssid]; ok {
+			beacon = cached
+		}
+
 		session = &HandshakeSession{
 			BSSID:      bssid,
 			StationMAC: stationMac,
 			ESSID:      essid,
+			Beacon:     beacon, // Seed with cached beacon
 			Frames:     make([]gopacket.Packet, 0),
 			Captured:   make(map[uint8]bool),
 		}
@@ -244,171 +250,149 @@ func (hm *HandshakeManager) handleEAPOL(packet gopacket.Packet, dot11 *layers.Do
 	}
 
 	// Analyze EAPOL Key Message (1, 2, 3, 4)
-	// This is slightly complex without full parsing of EAPOL Key,
-	// but we can infer or use gopacket eapol layers if available.
-	// For now, valid EAPOL is enough to save.
-	// To be precise, we want to know if it's Key 1, 2, 3, or 4.
-	// We can trust aircrack-ng to parse it if we just dump all EAPOLs.
-	// But let's try to identify to logging purposes.
-
-	// Analyze EAPOL Key Message (1, 2, 3, 4)
 	eapolFrame, err := ParseEAPOLKey(packet)
 	if err == nil {
 		msgNum := uint8(eapolFrame.DetermineMessageNumber())
-
 		isValid := false
 
-		// Sequence Validation Logic
 		if msgNum == 1 {
-			// M1: Start of a new sequence (mostly).
+			// M1: Start of a new sequence
 			// Check if it is a retransmission of the CURRENT session M1
-			// RC=0 Fix: Use HasReplayCounter flag instead of check > 0
 			if session.HasReplayCounter && session.ReplayCounter == eapolFrame.ReplayCounter {
-				// Duplicate M1 (Retransmission).
-				// Do NOT reset the session. We might already have M2.
-				// Just mark as valid duplicate.
+				// Duplicate M1
 				isValid = true
-				log.Printf("Duplicate M1 ignored (RC: %d)", session.ReplayCounter)
 			} else {
-				// New M1 (Different RC or first one). Reset session.
+				// New M1. Reset session.
 				session.ReplayCounter = eapolFrame.ReplayCounter
 				session.HasReplayCounter = true
 				session.Anonce = eapolFrame.Nonce
-				// Clear captured map
 				session.Captured = make(map[uint8]bool)
 				session.Frames = make([]gopacket.Packet, 0)
-				session.SavedCount = 0 // Fix: Reset saved count for new handshake
+				session.SavedCount = 0
 				isValid = true
 				log.Printf("Captured M1: Starting new session for %s (RC: %d)", session.BSSID, session.ReplayCounter)
 			}
 		} else if msgNum > 1 {
-			// M2, M3, M4: Must match existing session context
+			// M2, M3, M4
+			isValid = true // Assume valid tentatively to allow mid-stream capture
+
+			// Recovery Strategy: If we missed M1, we can recover info from M3
+			if msgNum == 3 && session.Anonce == nil {
+				// M3 cointains the ANonce!
+				session.Anonce = eapolFrame.Nonce
+				// Best effort Replay Counter sync:
+				// M3 RC should be N+1. So Base N = RC - 1.
+				session.ReplayCounter = eapolFrame.ReplayCounter - 1
+				session.HasReplayCounter = true
+				log.Printf("Recovered context from M3 (ANonce found)")
+			}
+
+			// If we still lack context (e.g. only M2 seen so far), strictly speaking we can't validate RC/Nonce.
+			// But we should STORE it, in case M3 comes later to complete the puzzle.
 			if session.Anonce == nil {
-				// We don't have M1 context.
-				// Can we accept M2 without M1?
-				// For cracking, we NEED M1 (Anonce) and M2 (Snonce+MIC).
-				// So M2 without M1 is useless.
-				// M3/M4 without matches might be useless too.
-				// OR we might have missed M1 but stored others.
-				// Let's be strict: Require M1 context for now?
-				// "Frankenstein" prevention means we shouldn't mix.
-				// If we receive "orphan" M2, we ignore it?
-				// Yes, for robust capture, we want M1-M2 paired.
-				log.Printf("Discarding M%d: No active session (M1 missing)", msgNum)
-				isValid = false
+				// We have M2 or M4 but no M1/M3 yet.
+				// Store it. Aircrack-ng can sometimes use loose frames or we might get M1/M3 later.
+				log.Printf("Captured M%d without context (waiting for M1/M3)", msgNum)
 			} else {
-				// Validate Replay Counter
+				// We have context, perform validation if possible
 				expectedRC := session.ReplayCounter
 				if msgNum == 3 || msgNum == 4 {
 					expectedRC = session.ReplayCounter + 1
 				}
 
-				// Allow retransmissions (==) for M3/M4 if we already saw them?
-				// Standard:
-				// M1: RC=N
-				// M2: RC=N
-				// M3: RC=N+1
-				// M4: RC=N+1
+				if msgNum == 3 {
+					// Validate Anonce if we didn't just learn it
+					if !bytes.Equal(eapolFrame.Nonce, session.Anonce) {
+						// This M3 belongs to a different session?
+						// Or AP changed header.
+						log.Printf("Warning: M3 Anonce mismatch. Resetting session to new context.")
 
-				if msgNum == 2 {
-					if eapolFrame.ReplayCounter == expectedRC {
-						isValid = true
+						// Reset complete session to avoid Frankenstein (mixing old M1/M2 with new M3)
+						session.Captured = make(map[uint8]bool)
+						session.Frames = make([]gopacket.Packet, 0)
+						session.SavedCount = 0
+
+						// Initialize with M3 info
+						session.Anonce = eapolFrame.Nonce
+						// Best effort RC sync
+						session.ReplayCounter = eapolFrame.ReplayCounter - 1
+						session.HasReplayCounter = true
 					} else {
-						log.Printf("Invalid M2: RC %d != Expected %d", eapolFrame.ReplayCounter, expectedRC)
-					}
-				} else if msgNum == 3 {
-					// M3 should have RC+1
-					// Also Anonce should match? Usually yes.
-					if bytes.Equal(eapolFrame.Nonce, session.Anonce) {
-						if eapolFrame.ReplayCounter == expectedRC {
-							isValid = true
-							// Update Session RC to N+1? No, base is still N from M1.
-							// But for M4 validation, we expect N+1.
-							// Let's keep base as M1's RC.
-						} else if eapolFrame.ReplayCounter == session.ReplayCounter {
-							// Relaxed Check: Some APs don't increment RC for M3?
-							// If Anonce matches, it's very likely the correct session.
-							// Warn but accept.
-							log.Printf("Warning: M3 RC %d equals M1 RC (Expected %d). Allowing due to Anonce match.", eapolFrame.ReplayCounter, expectedRC)
-							isValid = true
-						} else {
-							// But standard says +1. Strict mode: enforce +1.
-							log.Printf("Invalid M3: RC %d != Expected %d", eapolFrame.ReplayCounter, expectedRC)
+						// Validate RC if possible (strict or relaxed)
+						if eapolFrame.ReplayCounter != expectedRC {
+							log.Printf("Note: M3 RC %d != Expected %d", eapolFrame.ReplayCounter, expectedRC)
 						}
-					} else {
-						log.Printf("Invalid M3: Anonce mismatch (AP reset?)")
-						// Implicitly, this might be a new M1 disguised? No, M1 has different flags.
-						// This is likely a mixed session. Drop it.
+					}
+				} else if msgNum == 2 {
+					// M2 RC should match M1 RC
+					if eapolFrame.ReplayCounter != session.ReplayCounter {
+						log.Printf("Note: M2 RC %d != Session RC %d (Likely specific implementation or missed M1)", eapolFrame.ReplayCounter, session.ReplayCounter)
+						// Accept anyway
 					}
 				} else if msgNum == 4 {
-					if eapolFrame.ReplayCounter == expectedRC {
-						isValid = true
+					if eapolFrame.ReplayCounter != expectedRC {
+						log.Printf("Note: M4 RC %d != Expected %d", eapolFrame.ReplayCounter, expectedRC)
 					}
 				}
 			}
 		}
 
 		if isValid && msgNum > 0 {
-			session.Captured[msgNum] = true
+			// MIC Validation
+			if eapolFrame.HasMIC && eapolFrame.IsMICZero() {
+				log.Printf("Warning: Dropping frame M%d with zeroed MIC (invalid)", msgNum)
+				isValid = false
+			}
+		}
 
-			// Append packet if we haven't reached the limit
-			// Only append if VALID
+		if isValid && msgNum > 0 {
+			session.Captured[msgNum] = true
 			if len(session.Frames) < maxFramesPerSession {
 				session.Frames = append(session.Frames, packet)
 			}
 		}
-	} else {
-		// Not EAPOL key or parse error
 	}
 
 	session.LastUpdate = time.Now()
 
-	// Check if captured decent set (M1+M2 is min for some cracking, M1-M4 is best)
-	// Let's autosave if we have at least 2 different messages or complete
-	// hasHandshake := len(session.Captured) >= 2 // Crude heuristic
+	// Robust Handshake Check:
+	// We have a usable handshake if we have:
+	// 1. ANonce (From M1 or M3) AND SNonce (From M2)
+	// 2. Ideally MICs valid (can't check easily here)
+	// Simple check: do we have M2 AND (M1 OR M3)?
+	// M2 provides SNonce + MIC. M1/M3 provides ANonce.
+	hasNecessaryComponents := session.Captured[2] && (session.Captured[1] || session.Captured[3])
 
-	// Always save if we see new traffic and have "enough", or periodic?
-	// For simplicity, let's write to file every time we update if we have a valid potential handshake.
-	// To avoid IO spam, maybe only if we hit a new message type?
-	// Or simply: If we have captured M1 and M2, write/overwrite the pcap.
-
-	// Refinement 1: Check if we have M1+M2 (Validation)
-	if session.Captured[1] && session.Captured[2] {
-		// Refinement 2: Only overwrite if we have MORE data than before or it's the first save
-		// This prevents replacing a 4-way with a 2-way in the same session.
+	// Trigger Save if we have necessary components
+	if hasNecessaryComponents {
 		currentCount := len(session.Captured)
-		if currentCount > session.SavedCount {
-			// Async Save
-			// Deep copy session for safety in async worker
+		if currentCount > session.SavedCount || session.SavedCount == 0 {
 			sessionCopy := &HandshakeSession{
 				BSSID:      session.BSSID,
 				StationMAC: session.StationMAC,
 				ESSID:      session.ESSID,
 				LastUpdate: session.LastUpdate,
+				Beacon:     session.Beacon, // Copy the beacon
 				Captured:   make(map[uint8]bool),
-				SavedCount: currentCount, // Update count in copy not relevant, but good for completeness
+				SavedCount: currentCount,
 			}
-			// Copy map
 			for k, v := range session.Captured {
 				sessionCopy.Captured[k] = v
 			}
-			// Copy frames
 			sessionCopy.Frames = make([]gopacket.Packet, len(session.Frames))
 			copy(sessionCopy.Frames, session.Frames)
 
-			// Update main session saved count
 			session.SavedCount = currentCount
 
-			// Send to queue (non-blocking if full to avoid stalling main capture)
 			select {
 			case hm.saveQueue <- sessionCopy:
 			default:
-				log.Printf("Warning: Handshake save queue full, dropping save for %s", session.BSSID)
+				log.Printf("Warning: Handshake save queue full")
 			}
-
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -429,6 +413,8 @@ func (hm *HandshakeManager) saveSession(session *HandshakeSession) {
 	filename := fmt.Sprintf("%s_%s_%s.pcap", bssidClean, essidClean, staClean)
 	path := filepath.Join(hm.baseDir, filename)
 
+	log.Printf("DEBUG: Attempting to save session to %s", path)
+
 	f, err := os.Create(path)
 	if err != nil {
 		log.Printf("Error creating pcap file %s: %v", path, err)
@@ -442,21 +428,72 @@ func (hm *HandshakeManager) saveSession(session *HandshakeSession) {
 	// Let's assume Radiotap presence.
 	w.WriteFileHeader(65536, layers.LinkTypeIEEE80211Radio)
 
-	for _, pkt := range session.Frames {
-		w.WritePacket(pkt.Metadata().CaptureInfo, pkt.Data())
+	// Write Beacon First (Critical for aircrack-ng)
+	if session.Beacon != nil {
+		if err := w.WritePacket(session.Beacon.Metadata().CaptureInfo, session.Beacon.Data()); err != nil {
+			log.Printf("Error writing beacon to pcap: %v", err)
+		}
 	}
 
-	// Also dump a Beacon frame if we can find one for context?
-	// (Skipping for now to keep simple, but ideal for aircrack-ng)
+	for _, pkt := range session.Frames {
+		if err := w.WritePacket(pkt.Metadata().CaptureInfo, pkt.Data()); err != nil {
+			log.Printf("Error writing packet to pcap: %v", err)
+		}
+	}
+	log.Printf("DEBUG: Successfully saved session to %s", path)
+}
+
+// SavePMKID saves a single packet containing a PMKID to a pcap file.
+func (hm *HandshakeManager) SavePMKID(packet gopacket.Packet, bssid, essid string) {
+	// Ensure we have a valid ESSID for filename
+	if essid == "" {
+		hm.mu.RLock()
+		if val, ok := hm.bssidToEssid[bssid]; ok {
+			essid = val
+		} else {
+			essid = "unknown"
+		}
+		hm.mu.RUnlock()
+	}
+
+	// Filename: BSSID_ESSID_PMKID.pcap
+	essidClean := sanitizeFilename(essid)
+	bssidClean := sanitizeFilename(bssid)
+	filename := fmt.Sprintf("%s_%s_PMKID.pcap", bssidClean, essidClean)
+	path := filepath.Join(hm.baseDir, filename)
+
+	// Check if already exists to avoid spamming I/O?
+	// For now, overwrite or skip. Let's overwrite to ensure latest capture.
+	f, err := os.Create(path)
+	if err != nil {
+		log.Printf("Error creating PMKID pcap file %s: %v", path, err)
+		return
+	}
+	defer f.Close()
+
+	w := pcapgo.NewWriter(f)
+	w.WriteFileHeader(65536, layers.LinkTypeIEEE80211Radio)
+
+	// Try to find a beacon to include
+	hm.mu.RLock()
+	beacon := hm.bssidToBeacon[bssid]
+	hm.mu.RUnlock()
+
+	if beacon != nil {
+		w.WritePacket(beacon.Metadata().CaptureInfo, beacon.Data())
+	}
+
+	w.WritePacket(packet.Metadata().CaptureInfo, packet.Data())
+	log.Printf("Saved PMKID capture: %s", filename)
 }
 
 // HasHandshake returns true if a handshake has been captured for the given BSSID.
 func (hm *HandshakeManager) HasHandshake(bssid string) bool {
 	hm.mu.RLock()
 	defer hm.mu.RUnlock()
-	// Check if any session with this BSSID has captured M1+M2
+	// Check if any session with this BSSID has captured M2 and (M1 or M3)
 	for _, session := range hm.sessions {
-		if session.BSSID == bssid && session.Captured[1] && session.Captured[2] {
+		if session.BSSID == bssid && session.Captured[2] && (session.Captured[1] || session.Captured[3]) {
 			return true
 		}
 	}
@@ -468,9 +505,12 @@ func (hm *HandshakeManager) HasHandshake(bssid string) bool {
 func getSSIDFromPacket(packet gopacket.Packet) string {
 	if beacon := packet.Layer(layers.LayerTypeDot11MgmtBeacon); beacon != nil {
 		// Optimization: Try to parse generic payload first (faster)
-		if ssid := ie.ParseSSID(beacon.LayerPayload()); ssid != "" {
-			return ssid
+		payload := beacon.LayerPayload()
+		ssid := ie.ParseSSID(payload)
+		if !ssid.Hidden {
+			return ssid.Value
 		}
+		log.Printf("DEBUG: ParseSSID failed (Hidden=%v) for payload len %d: %x", ssid.Hidden, len(payload), payload)
 
 		// Fallback: Walk layers if gopacket parsed them individually
 		for _, layer := range packet.Layers() {

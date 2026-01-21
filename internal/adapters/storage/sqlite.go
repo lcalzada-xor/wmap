@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"context"
+	"encoding/json"
 	"log"
 	"time"
 
@@ -78,6 +80,22 @@ type ProbeModel struct {
 	LastSeen  time.Time
 }
 
+// VulnerabilityModel is the GORM model for vulnerabilities
+type VulnerabilityModel struct {
+	ID              string `gorm:"primaryKey"`
+	DeviceMAC       string `gorm:"index"`
+	Name            string `gorm:"index"`
+	Severity        int
+	Confidence      float64
+	FirstSeen       time.Time
+	LastSeen        time.Time
+	Status          string `gorm:"index;default:'active'"` // active, ignored, fixed
+	StatusChangedAt time.Time
+	Notes           string
+	Evidence        string // JSON encoded
+	Description     string
+}
+
 // NewSQLiteAdapter initializes the database and migrates schema.
 func NewSQLiteAdapter(path string) (*SQLiteAdapter, error) {
 	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{
@@ -88,7 +106,7 @@ func NewSQLiteAdapter(path string) (*SQLiteAdapter, error) {
 	}
 
 	// Auto Migrate
-	if err := db.AutoMigrate(&DeviceModel{}, &ProbeModel{}, &domain.User{}, &domain.AuditLog{}); err != nil {
+	if err := db.AutoMigrate(&DeviceModel{}, &ProbeModel{}, &domain.User{}, &domain.AuditLog{}, &VulnerabilityModel{}); err != nil {
 		return nil, err
 	}
 
@@ -126,21 +144,20 @@ func NewSQLiteAdapter(path string) (*SQLiteAdapter, error) {
 }
 
 // SaveDevice saves or updates a device and its probes.
-func (a *SQLiteAdapter) SaveDevice(d domain.Device) error {
-	// Convert domain.Device to DeviceModel
+func (a *SQLiteAdapter) SaveDevice(ctx context.Context, d domain.Device) error {
 	// Convert domain.Device to DeviceModel
 	model := toModel(d)
 
 	// Upsert Device
 	// On conflict (MAC), update all fields.
-	if err := a.db.Save(&model).Error; err != nil {
+	if err := a.db.WithContext(ctx).Save(&model).Error; err != nil {
 		return err
 	}
 	// Save Probed SSIDs
 	for ssid, ts := range d.ProbedSSIDs {
 		// Use FirstOrCreate to avoid duplicates, update timestamp if exists
 		var probe ProbeModel
-		if err := a.db.Where(&ProbeModel{DeviceMAC: d.MAC, SSID: ssid}).First(&probe).Error; err != nil {
+		if err := a.db.WithContext(ctx).Where(&ProbeModel{DeviceMAC: d.MAC, SSID: ssid}).First(&probe).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				// Create new
 				probe = ProbeModel{
@@ -148,14 +165,14 @@ func (a *SQLiteAdapter) SaveDevice(d domain.Device) error {
 					SSID:      ssid,
 					LastSeen:  ts,
 				}
-				if err := a.db.Create(&probe).Error; err != nil {
+				if err := a.db.WithContext(ctx).Create(&probe).Error; err != nil {
 					log.Printf("Failed to save probe: %v", err)
 				}
 			}
 		} else {
 			// Update existing timestamp
 			probe.LastSeen = ts
-			a.db.Save(&probe)
+			a.db.WithContext(ctx).Save(&probe)
 		}
 	}
 
@@ -163,7 +180,7 @@ func (a *SQLiteAdapter) SaveDevice(d domain.Device) error {
 }
 
 // SaveDevicesBatch saves multiple devices in a single transaction.
-func (a *SQLiteAdapter) SaveDevicesBatch(devices []domain.Device) error {
+func (a *SQLiteAdapter) SaveDevicesBatch(ctx context.Context, devices []domain.Device) error {
 	if len(devices) == 0 {
 		return nil
 	}
@@ -173,7 +190,7 @@ func (a *SQLiteAdapter) SaveDevicesBatch(devices []domain.Device) error {
 		models[i] = toModel(d)
 	}
 
-	return a.db.Transaction(func(tx *gorm.DB) error {
+	return a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		return tx.Clauses(clause.OnConflict{
 			UpdateAll: true,
 		}).CreateInBatches(models, 100).Error
@@ -181,18 +198,18 @@ func (a *SQLiteAdapter) SaveDevicesBatch(devices []domain.Device) error {
 }
 
 // GetDevice retrieves a device by MAC.
-func (a *SQLiteAdapter) GetDevice(mac string) (*domain.Device, error) {
+func (a *SQLiteAdapter) GetDevice(ctx context.Context, mac string) (*domain.Device, error) {
 	var model DeviceModel
-	if err := a.db.Preload("ProbedSSIDs").First(&model, "mac = ?", mac).Error; err != nil {
+	if err := a.db.WithContext(ctx).Preload("ProbedSSIDs").First(&model, "mac = ?", mac).Error; err != nil {
 		return nil, err
 	}
 	return toDomain(model), nil
 }
 
 // GetAllDevices retrieves all devices.
-func (a *SQLiteAdapter) GetAllDevices() ([]domain.Device, error) {
+func (a *SQLiteAdapter) GetAllDevices(ctx context.Context) ([]domain.Device, error) {
 	var models []DeviceModel
-	if err := a.db.Preload("ProbedSSIDs").Find(&models).Error; err != nil {
+	if err := a.db.WithContext(ctx).Preload("ProbedSSIDs").Find(&models).Error; err != nil {
 		return nil, err
 	}
 
@@ -204,8 +221,8 @@ func (a *SQLiteAdapter) GetAllDevices() ([]domain.Device, error) {
 }
 
 // GetDevicesByFilter retrieves devices matching the filter criteria
-func (a *SQLiteAdapter) GetDevicesByFilter(filter domain.DeviceFilter) ([]domain.Device, error) {
-	query := a.db.Preload("ProbedSSIDs")
+func (a *SQLiteAdapter) GetDevicesByFilter(ctx context.Context, filter domain.DeviceFilter) ([]domain.Device, error) {
+	query := a.db.WithContext(ctx).Preload("ProbedSSIDs")
 
 	// Apply filters dynamically
 	if filter.Type != "" {
@@ -252,8 +269,114 @@ func (a *SQLiteAdapter) GetDevicesByFilter(filter domain.DeviceFilter) ([]domain
 	return devices, nil
 }
 
-func (a *SQLiteAdapter) SaveProbe(mac string, ssid string) error {
+func (a *SQLiteAdapter) SaveProbe(ctx context.Context, mac string, ssid string) error {
 	return nil
+}
+
+// SaveVulnerability saves or updates a vulnerability record.
+func (a *SQLiteAdapter) SaveVulnerability(ctx context.Context, record domain.VulnerabilityRecord) error {
+	// Serialize evidence
+	evidenceBytes, _ := json.Marshal(record.Evidence)
+
+	model := VulnerabilityModel{
+		ID:              record.ID,
+		DeviceMAC:       record.DeviceMAC,
+		Name:            record.Name,
+		Severity:        int(record.Severity),
+		Confidence:      float64(record.Confidence),
+		FirstSeen:       record.FirstSeen,
+		LastSeen:        record.LastSeen,
+		Status:          string(record.Status),
+		StatusChangedAt: record.StatusChangedAt,
+		Notes:           record.Notes,
+		Description:     record.Description,
+		Evidence:        string(evidenceBytes),
+	}
+
+	// Using Upsert logic
+	return a.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"last_seen", "confidence", "severity", "evidence"}),
+	}).Create(&model).Error
+}
+
+// GetVulnerabilities retrieves vulnerabilities based on filter.
+func (a *SQLiteAdapter) GetVulnerabilities(ctx context.Context, filter domain.VulnerabilityFilter) ([]domain.VulnerabilityRecord, error) {
+	var models []VulnerabilityModel
+	query := a.db.WithContext(ctx).Model(&VulnerabilityModel{})
+
+	if filter.DeviceMAC != "" {
+		query = query.Where("device_mac = ?", filter.DeviceMAC)
+	}
+	if filter.Status != nil {
+		query = query.Where("status = ?", *filter.Status)
+	}
+	if filter.MinSeverity > 0 {
+		query = query.Where("severity >= ?", filter.MinSeverity)
+	}
+
+	if err := query.Find(&models).Error; err != nil {
+		return nil, err
+	}
+
+	records := make([]domain.VulnerabilityRecord, len(models))
+	for i, m := range models {
+		records[i] = domain.VulnerabilityRecord{
+			ID:              m.ID,
+			DeviceMAC:       m.DeviceMAC,
+			Name:            m.Name,
+			Severity:        domain.Severity(m.Severity),
+			Confidence:      domain.Confidence(m.Confidence),
+			FirstSeen:       m.FirstSeen,
+			LastSeen:        m.LastSeen,
+			Status:          domain.VulnerabilityStatus(m.Status),
+			StatusChangedAt: m.StatusChangedAt,
+			Notes:           m.Notes,
+			Description:     m.Description,
+			Evidence:        []string{}, // Unmarshal if needed
+		}
+		if m.Evidence != "" {
+			json.Unmarshal([]byte(m.Evidence), &records[i].Evidence)
+		}
+	}
+	return records, nil
+}
+
+// GetVulnerability retrieves a single vulnerability by ID.
+func (a *SQLiteAdapter) GetVulnerability(ctx context.Context, id string) (*domain.VulnerabilityRecord, error) {
+	var m VulnerabilityModel
+	if err := a.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
+		return nil, err
+	}
+
+	record := &domain.VulnerabilityRecord{
+		ID:              m.ID,
+		DeviceMAC:       m.DeviceMAC,
+		Name:            m.Name,
+		Severity:        domain.Severity(m.Severity),
+		Confidence:      domain.Confidence(m.Confidence),
+		FirstSeen:       m.FirstSeen,
+		LastSeen:        m.LastSeen,
+		Status:          domain.VulnerabilityStatus(m.Status),
+		StatusChangedAt: m.StatusChangedAt,
+		Notes:           m.Notes,
+		Description:     m.Description,
+		Evidence:        []string{},
+	}
+	if m.Evidence != "" {
+		json.Unmarshal([]byte(m.Evidence), &record.Evidence)
+	}
+	return record, nil
+}
+
+// UpdateVulnerabilityStatus updates the status of a vulnerability with notes.
+func (a *SQLiteAdapter) UpdateVulnerabilityStatus(ctx context.Context, id string, status domain.VulnerabilityStatus, notes string) error {
+	updates := map[string]interface{}{
+		"status":            status,
+		"notes":             notes,
+		"status_changed_at": time.Now(),
+	}
+	return a.db.WithContext(ctx).Model(&VulnerabilityModel{}).Where("id = ?", id).Updates(updates).Error
 }
 
 func (a *SQLiteAdapter) Close() error {

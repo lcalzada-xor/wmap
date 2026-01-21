@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/csv"
 	"flag"
 	"fmt"
@@ -40,14 +41,33 @@ func main() {
 	}
 	defer db.Close()
 
+	ctx := context.Background()
+
 	// Check if update needed
-	count, lastUpdate, err := db.GetStats()
+	stats, err := db.GetStats(ctx)
 	if err != nil {
 		log.Printf("Warning: Could not get stats: %v", err)
 	} else {
-		log.Printf("Current database: %d entries, last updated %s", count, lastUpdate.Format(time.RFC3339))
+		log.Printf("Current database: %d entries, last updated %s", stats.TotalEntries, stats.LastUpdated)
 
-		if !*force && time.Since(lastUpdate) < 30*24*time.Hour {
+		// Parse last updated time
+		// Try standard formats
+		var lastUpdate time.Time
+		if stats.LastUpdated != "" {
+			formats := []string{
+				time.RFC3339,
+				"2006-01-02 15:04:05",
+				"2006-01-02 15:04:05.999999999-07:00",
+			}
+			for _, f := range formats {
+				if t, err := time.Parse(f, stats.LastUpdated); err == nil {
+					lastUpdate = t
+					break
+				}
+			}
+		}
+
+		if !lastUpdate.IsZero() && !*force && time.Since(lastUpdate) < 30*24*time.Hour {
 			log.Printf("Database is recent (< 30 days). Use --force to update anyway.")
 			return
 		}
@@ -73,19 +93,19 @@ func main() {
 
 	// Insert into database
 	log.Printf("Inserting entries into database...")
-	if err := db.BulkInsertOUIs(entries); err != nil {
+	if err := db.BulkInsertOUIs(ctx, entries); err != nil {
 		log.Fatalf("Failed to insert entries: %v", err)
 	}
 
 	// Get final stats
-	count, lastUpdate, err = db.GetStats()
+	stats, err = db.GetStats(ctx)
 	if err != nil {
 		log.Fatalf("Failed to get final stats: %v", err)
 	}
 
 	log.Printf("✓ Update complete!")
-	log.Printf("  Total entries: %d", count)
-	log.Printf("  Last updated: %s", lastUpdate.Format(time.RFC3339))
+	log.Printf("  Total entries: %d", stats.TotalEntries)
+	log.Printf("  Last updated: %s", stats.LastUpdated)
 }
 
 // downloadIEEEOUI downloads and parses the IEEE OUI CSV

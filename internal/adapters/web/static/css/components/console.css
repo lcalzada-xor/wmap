@@ -81,19 +81,23 @@
 }
 
 .console-btn {
-    background: transparent;
-    border: none;
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
     color: var(--text-secondary);
     cursor: pointer;
     font-size: 0.9em;
-    padding: 4px 8px;
-    border-radius: 6px;
-    transition: all 0.2s;
+    padding: 6px 10px;
+    border-radius: 8px;
+    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .console-btn:hover {
-    color: var(--text-color);
-    background: rgba(255, 255, 255, 0.1);
+    color: var(--accent-color);
+    background: rgba(10, 132, 255, 0.15);
+    border-color: rgba(10, 132, 255, 0.3);
+    transform: translateY(-1px);
 }
 
 /* Content Area */

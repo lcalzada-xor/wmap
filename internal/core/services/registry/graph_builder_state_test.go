@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -19,7 +20,7 @@ func TestGraphBuilder_AllConnectionStatesRendered(t *testing.T) {
 	// Test all connection states
 	testCases := []struct {
 		name          string
-		state         string
+		state         domain.ConnectionState
 		expectEdge    bool
 		expectDashed  bool
 		expectedLabel string
@@ -62,21 +63,21 @@ func TestGraphBuilder_AllConnectionStatesRendered(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Create fresh registry for each test case to avoid state pollution
-			registry := NewDeviceRegistry(nil)
+			registry := NewDeviceRegistry(nil, nil)
 			builder := NewGraphBuilder(registry)
 
 			// Register AP first
-			ap := &domain.Device{
+			ap := domain.Device{
 				MAC:       apMAC,
 				Type:      "ap",
 				SSID:      "TestAP",
 				LastSeen:  time.Now(),
 				FirstSeen: time.Now(),
 			}
-			registry.ProcessDevice(*ap)
+			registry.ProcessDevice(context.Background(), ap)
 
 			// Create station with specific connection state
-			sta := &domain.Device{
+			sta := domain.Device{
 				MAC:              staMAC,
 				Type:             "station",
 				ConnectionState:  tc.state,
@@ -85,10 +86,10 @@ func TestGraphBuilder_AllConnectionStatesRendered(t *testing.T) {
 				FirstSeen:        time.Now(),
 				RSSI:             -50,
 			}
-			registry.ProcessDevice(*sta)
+			registry.ProcessDevice(context.Background(), sta)
 
 			// Build graph
-			graph := builder.BuildGraph()
+			graph := builder.BuildGraph(context.Background())
 
 			// Find edge from station to AP
 			var foundEdge *domain.GraphEdge

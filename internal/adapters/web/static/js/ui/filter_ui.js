@@ -3,8 +3,9 @@
  * Manages the advanced filter panel UI and interactions.
  */
 
-import { State } from '../core/state.js';
-import { FilterManager } from '../core/filter_manager.js';
+import { Store } from '../core/store/store.js';
+import { Actions } from '../core/store/actions.js';
+import { FilterManager } from '../core/filter_manager.js?v=3';
 import { html } from '../core/html.js';
 import { EventBus } from '../core/event_bus.js';
 import { Events } from '../core/constants.js';
@@ -14,25 +15,36 @@ export const FilterUI = {
     nodesDataSet: null,
 
     init(nodesDataSet) {
+        console.log("[Debug] FilterUI.init executing");
         this.nodesDataSet = nodesDataSet;
 
         this.bindSearchBar();
         this.bindAdvancedFilters();
         this.bindPresets();
+        this.bindPresets();
+        console.log("[Debug] FilterUI.bindPresets returned");
         this.loadSearchHistory();
+
+        // Populate Dropdowns
+        this.populateChannelDropdown();
+        this.populateVendorDropdown();
 
         // Initial Render
         this.updateFilterTags();
 
         // Reactivity: Subscribe to State changes
-        State.subscribe('filters', () => {
+        Store.subscribe(Actions.FILTER_UPDATED, (payload, state) => {
             this.updateFilterTags();
             this.syncUIWithState();
             // Debounce graph refresh? The graph handles it.
             EventBus.emit(Events.SEARCH, null);
-        });
 
-        State.subscribe('activePreset', () => this.renderPresets());
+            // Check if we need to redraw dropdowns or just indicators
+            this.updateActiveIndicators();
+
+            // Assuming activePreset is handled via filters now
+            if (payload.key === 'activePreset') this.renderPresets();
+        });
     },
 
     /**
@@ -54,7 +66,7 @@ export const FilterUI = {
 
             timeout = setTimeout(() => {
                 // This assignment triggers the Proxy -> State.notify -> EventBus.emit
-                State.filters.searchQuery = query;
+                Store.dispatch(Actions.FILTER_UPDATED, { key: 'searchQuery', value: query });
                 this.handleSearch(query);
                 this.showSuggestions(query);
             }, 300);
@@ -64,7 +76,8 @@ export const FilterUI = {
         if (btnClear) {
             btnClear.addEventListener('click', () => {
                 input.value = '';
-                State.filters.searchQuery = '';
+                Store.dispatch(Actions.FILTER_UPDATED, { key: 'searchQuery', value: '' });
+                EventBus.emit(Events.SEARCH);
                 this.hideSuggestions();
                 // State update triggers refresh
                 // this.updateFilterTags();
@@ -122,14 +135,16 @@ export const FilterUI = {
                 div.innerHTML = FilterTemplates.suggestionItem(item);
                 div.addEventListener('click', () => {
                     document.getElementById('node-search').value = item.value;
-                    State.filters.searchQuery = item.value;
+                    Store.dispatch(Actions.FILTER_UPDATED, { key: 'searchQuery', value: item.value });
+                    EventBus.emit(Events.SEARCH);
                     this.hideSuggestions();
                 });
             } else {
                 div.innerHTML = FilterTemplates.suggestionItem(item);
                 div.addEventListener('click', () => {
                     document.getElementById('node-search').value = item;
-                    State.filters.searchQuery = item;
+                    Store.dispatch(Actions.FILTER_UPDATED, { key: 'searchQuery', value: item });
+                    EventBus.emit(Events.SEARCH);
                     this.hideSuggestions();
                 });
             }
@@ -194,7 +209,8 @@ export const FilterUI = {
         // Boolean filters (New)
         document.querySelectorAll('.filter-boolean').forEach(cb => {
             cb.addEventListener('change', () => {
-                State.filters[cb.value] = cb.checked;
+                Store.dispatch(Actions.FILTER_UPDATED, { key: cb.value, value: cb.checked });
+                EventBus.emit(Events.SEARCH);
             });
         });
 
@@ -203,7 +219,8 @@ export const FilterUI = {
         if (channelSelect) {
             channelSelect.addEventListener('change', () => {
                 const selected = Array.from(channelSelect.selectedOptions).map(opt => parseInt(opt.value));
-                State.filters.channels = selected;
+                Store.dispatch(Actions.FILTER_UPDATED, { key: 'channels', value: selected });
+                EventBus.emit(Events.SEARCH);
             });
         }
 
@@ -215,7 +232,8 @@ export const FilterUI = {
                 // UI update via syncUIWithState (triggered by State change) is safer but we can update DOM optimistically
                 // Actually, State change -> syncUIWithState -> loop over options -> update selected.
                 // So we just set state.
-                State.filters.channels = commonChannels;
+                Store.dispatch(Actions.FILTER_UPDATED, { key: 'channels', value: commonChannels });
+                EventBus.emit(Events.SEARCH);
             });
         }
 
@@ -223,7 +241,8 @@ export const FilterUI = {
         const btnClearChannels = document.getElementById('btn-clear-channels');
         if (btnClearChannels && channelSelect) {
             btnClearChannels.addEventListener('click', () => {
-                State.filters.channels = [];
+                Store.dispatch(Actions.FILTER_UPDATED, { key: 'channels', value: [] });
+                EventBus.emit(Events.SEARCH);
             });
         }
 
@@ -232,7 +251,8 @@ export const FilterUI = {
         if (vendorSelect) {
             vendorSelect.addEventListener('change', () => {
                 const selected = Array.from(vendorSelect.selectedOptions).map(opt => opt.value);
-                State.filters.vendors = selected;
+                Store.dispatch(Actions.FILTER_UPDATED, { key: 'vendors', value: selected });
+                EventBus.emit(Events.SEARCH);
             });
         }
 
@@ -241,12 +261,14 @@ export const FilterUI = {
         const rssiMax = document.getElementById('rssi-max');
         if (rssiMin && rssiMax) {
             const updateRange = () => {
-                State.filters.signalRange = {
-                    min: parseInt(rssiMin.value) || -100,
-                    max: parseInt(rssiMax.value) || 0
+                const minVal = parseInt(rssiMin.value) || -100;
+                const maxVal = parseInt(rssiMax.value) || 0;
+                const newRange = {
+                    min: minVal,
+                    max: maxVal
                 };
-                this.updateFilterTags();
-                if (this.refreshCallback) this.refreshCallback('signalRange', State.filters.signalRange);
+                Store.dispatch(Actions.FILTER_UPDATED, { key: 'signalRange', value: newRange });
+                EventBus.emit(Events.SEARCH); // Using generic SEARCH event for refresh
             };
             rssiMin.addEventListener('change', updateRange);
             rssiMax.addEventListener('change', updateRange);
@@ -280,9 +302,8 @@ export const FilterUI = {
                     default: ms = null;
                 }
 
-                State.filters.timeRange.lastSeen = ms;
-                this.updateFilterTags();
-                if (this.refreshCallback) this.refreshCallback('timeRange', ms);
+                Store.dispatch(Actions.FILTER_UPDATED, { key: 'timeRange.lastSeen', value: ms });
+                EventBus.emit(Events.SEARCH);
             });
         }
 
@@ -292,13 +313,13 @@ export const FilterUI = {
         const trafficPackets = document.getElementById('traffic-min-packets');
 
         const updateTraffic = () => {
-            State.filters.traffic = {
-                minTx: parseInt(trafficTx?.value) || 0,
-                minRx: parseInt(trafficRx?.value) || 0,
-                minPackets: parseInt(trafficPackets?.value) || 0
+            const newTraffic = {
+                minTx: parseInt(trafficTx?.value || 0),
+                minRx: parseInt(trafficRx?.value || 0),
+                minPackets: parseInt(trafficPackets?.value || 0)
             };
-            this.updateFilterTags();
-            if (this.refreshCallback) this.refreshCallback('traffic', State.filters.traffic);
+            Store.dispatch(Actions.FILTER_UPDATED, { key: 'traffic', value: newTraffic });
+            EventBus.emit(Events.SEARCH);
         };
 
         if (trafficTx) trafficTx.addEventListener('change', updateTraffic);
@@ -330,19 +351,18 @@ export const FilterUI = {
     /**
      * Update array-based filter
      */
-    updateArrayFilter(filterName, value, checked) {
-        let newArray = [...State.filters[filterName]];
+    updateArrayFilter(filterName, value, isChecked) {
+        const filters = Store.state.filters;
+        let newArray = [...(filters[filterName] || [])];
 
-        if (checked) {
-            if (!newArray.includes(value)) {
-                newArray.push(value);
-            }
+        if (isChecked) {
+            if (!newArray.includes(value)) newArray.push(value);
         } else {
-            newArray = newArray.filter(v => v !== value);
+            newArray = newArray.filter(item => item !== value);
         }
 
-        // Assignment triggers State proxy -> Reactivity
-        State.filters[filterName] = newArray;
+        Store.dispatch(Actions.FILTER_UPDATED, { key: filterName, value: newArray });
+        EventBus.emit(Events.SEARCH);
     },
 
     /**
@@ -356,8 +376,12 @@ export const FilterUI = {
      * Render preset buttons
      */
     renderPresets() {
-        const container = document.querySelector('.preset-buttons');
-        if (!container) return;
+        const container = document.querySelector('.quick-filter-chips');
+        if (!container) {
+            console.error("[Debug] .quick-filter-chips container NOT FOUND");
+            return;
+        }
+        console.log("[Debug] renderPresets found container", container);
 
         container.innerHTML = '';
         const presets = FilterManager.getAllPresets();
@@ -365,11 +389,13 @@ export const FilterUI = {
         Object.keys(presets).forEach(id => {
             const preset = presets[id];
             const btn = document.createElement('button');
-            btn.className = 'preset-btn';
+            btn.className = 'quick-filter-btn';
             btn.dataset.preset = id;
             btn.innerHTML = FilterTemplates.presetButtonContent(preset);
 
-            if (State.filters.activePreset === id) {
+            const isActive = (Store.state.filters.activePreset === id);
+
+            if (isActive) {
                 btn.classList.add('active');
             }
 
@@ -378,7 +404,7 @@ export const FilterUI = {
                 // State update triggers refresh
 
                 // Update active state locally or let renderPresets handle if fully reactive
-                container.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+                container.querySelectorAll('.quick-filter-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
             });
 
@@ -391,50 +417,70 @@ export const FilterUI = {
      */
     syncUIWithState() {
         // Update checkboxes
-        document.querySelectorAll('.filter-security').forEach(cb => {
-            cb.checked = State.filters.security.includes(cb.value);
-        });
-
-        document.querySelectorAll('.filter-vulnerability').forEach(cb => {
-            cb.checked = State.filters.vulnerabilities.includes(cb.value);
-        });
-
-        document.querySelectorAll('.filter-frequency').forEach(cb => {
-            cb.checked = State.filters.frequency.includes(cb.value);
-        });
-
-        // Update boolean filters
-        document.querySelectorAll('.filter-boolean').forEach(cb => {
-            cb.checked = State.filters[cb.value] === true;
-        });
-
-        // Update search input
+        const secInputs = document.querySelectorAll('.filter-security');
+        const vulnInputs = document.querySelectorAll('.filter-vulnerability');
+        const freqInputs = document.querySelectorAll('.filter-frequency');
+        const boolInputs = document.querySelectorAll('.filter-boolean');
         const searchInput = document.getElementById('node-search');
-        if (searchInput) {
-            searchInput.value = State.filters.searchQuery || '';
-        }
 
-        // Update signal range
+        Array.from(secInputs).forEach(cb => {
+            cb.checked = Store.state.filters.security.includes(cb.value);
+        });
+        Array.from(vulnInputs).forEach(cb => {
+            cb.checked = Store.state.filters.vulnerabilities.includes(cb.value);
+        });
+        Array.from(freqInputs).forEach(cb => {
+            cb.checked = Store.state.filters.frequency.includes(cb.value);
+        });
+        Array.from(boolInputs).forEach(cb => {
+            cb.checked = Store.state.filters[cb.value] === true;
+        });
+
+        // Text inputs
+        if (searchInput) searchInput.value = Store.state.filters.searchQuery || '';
+
+        // Sliders
         const rssiMin = document.getElementById('rssi-min');
         const rssiMax = document.getElementById('rssi-max');
-        if (rssiMin) rssiMin.value = State.filters.signalRange.min;
-        if (rssiMax) rssiMax.value = State.filters.signalRange.max;
 
-        // Update channel multi-select
-        const channelSelect = document.getElementById('filter-channels');
-        if (channelSelect) {
-            Array.from(channelSelect.options).forEach(opt => {
-                opt.selected = State.filters.channels.includes(parseInt(opt.value));
+        if (rssiMin) rssiMin.value = Store.state.filters.signalRange.min;
+        if (rssiMax) rssiMax.value = Store.state.filters.signalRange.max;
+
+        // Dropdowns (Multi-select simulation)
+        const chanSelect = document.getElementById('filter-channels');
+        if (chanSelect) {
+            Array.from(chanSelect.options).forEach(opt => {
+                opt.selected = Store.state.filters.channels.includes(parseInt(opt.value));
             });
         }
 
-        // Update vendor multi-select
         const vendorSelect = document.getElementById('filter-vendor');
         if (vendorSelect) {
             Array.from(vendorSelect.options).forEach(opt => {
-                opt.selected = State.filters.vendors.includes(opt.value);
+                opt.selected = Store.state.filters.vendors.includes(opt.value);
             });
         }
+
+        // Time range preset
+        const timeRangeSelect = document.getElementById('time-range-preset');
+        if (timeRangeSelect) {
+            const lastSeenMs = Store.state.filters.timeRange.lastSeen;
+            let selectedValue = 'all';
+            if (lastSeenMs === 5 * 60 * 1000) selectedValue = '5m';
+            else if (lastSeenMs === 15 * 60 * 1000) selectedValue = '15m';
+            else if (lastSeenMs === 60 * 60 * 1000) selectedValue = '1h';
+            else if (lastSeenMs === 24 * 60 * 60 * 1000) selectedValue = '24h';
+            else if (lastSeenMs !== null) selectedValue = 'custom'; // If it's a custom value, mark as custom
+            timeRangeSelect.value = selectedValue;
+        }
+
+        // Traffic inputs
+        const trafficTx = document.getElementById('traffic-min-tx');
+        const trafficRx = document.getElementById('traffic-min-rx');
+        const trafficPackets = document.getElementById('traffic-min-packets');
+        if (trafficTx) trafficTx.value = Store.state.filters.traffic.minTx;
+        if (trafficRx) trafficRx.value = Store.state.filters.traffic.minRx;
+        if (trafficPackets) trafficPackets.value = Store.state.filters.traffic.minPackets;
     },
 
     /**
@@ -462,16 +508,15 @@ export const FilterUI = {
         const getId = (type, val) => `tag-${type}-${val}`.replace(/\s+/g, '-').toLowerCase();
 
         // Search
-        if (State.filters.searchQuery && State.filters.searchQuery.length > 0) {
+        if (Store.state.filters.searchQuery && Store.state.filters.searchQuery.length > 0) {
             activeTags.push({
                 id: getId('search', 'query'),
                 type: 'Search',
-                value: State.filters.searchQuery,
+                value: Store.state.filters.searchQuery,
                 onRemove: () => {
                     document.getElementById('node-search').value = '';
-                    State.filters.searchQuery = '';
-                    this.updateFilterTags();
-                    if (this.refreshCallback) this.refreshCallback('search', '');
+                    Store.dispatch(Actions.FILTER_UPDATED, { key: 'searchQuery', value: '' });
+                    EventBus.emit(Events.SEARCH);
                 }
             });
         }
@@ -485,119 +530,114 @@ export const FilterUI = {
         ];
 
         booleanFilters.forEach(f => {
-            if (State.filters[f.key]) {
+            if (Store.state.filters[f.key]) {
                 activeTags.push({
                     id: getId('status', f.key),
                     type: 'Status',
                     value: f.label,
                     onRemove: () => {
-                        State.filters[f.key] = false;
-                        this.syncUIWithState();
-                        this.updateFilterTags();
-                        if (this.refreshCallback) this.refreshCallback(f.key, false);
+                        Store.dispatch(Actions.FILTER_UPDATED, { key: f.key, value: false });
+                        EventBus.emit(Events.SEARCH);
                     }
                 });
             }
         });
 
         // Security
-        State.filters.security.forEach(sec => {
+        Store.state.filters.security.forEach(sec => {
             activeTags.push({
                 id: getId('security', sec),
                 type: 'Security',
                 value: sec,
                 onRemove: () => {
-                    State.filters.security = State.filters.security.filter(s => s !== sec);
-                    this.syncUIWithState();
-                    this.updateFilterTags();
-                    if (this.refreshCallback) this.refreshCallback('security', State.filters.security);
+                    const newArr = Store.state.filters.security.filter(s => s !== sec);
+                    Store.dispatch(Actions.FILTER_UPDATED, { key: 'security', value: newArr });
+                    EventBus.emit(Events.SEARCH);
                 }
             });
         });
 
         // Vulnerabilities
-        State.filters.vulnerabilities.forEach(vuln => {
+        Store.state.filters.vulnerabilities.forEach(vuln => {
             activeTags.push({
                 id: getId('vuln', vuln),
                 type: 'Vuln',
                 value: vuln,
                 onRemove: () => {
-                    State.filters.vulnerabilities = State.filters.vulnerabilities.filter(v => v !== vuln);
-                    this.syncUIWithState();
-                    this.updateFilterTags();
-                    if (this.refreshCallback) this.refreshCallback('vulnerabilities', State.filters.vulnerabilities);
+                    const newArr = Store.state.filters.vulnerabilities.filter(v => v !== vuln);
+                    Store.dispatch(Actions.FILTER_UPDATED, { key: 'vulnerabilities', value: newArr });
+                    EventBus.emit(Events.SEARCH);
                 }
             });
         });
 
         // Frequency
-        State.filters.frequency.forEach(freq => {
+        Store.state.filters.frequency.forEach(freq => {
             activeTags.push({
                 id: getId('frequency', freq),
                 type: 'Frequency',
                 value: `${freq} GHz`,
                 onRemove: () => {
-                    State.filters.frequency = State.filters.frequency.filter(f => f !== freq);
-                    this.syncUIWithState();
-                    this.updateFilterTags();
-                    if (this.refreshCallback) this.refreshCallback('frequency', State.filters.frequency);
+                    const newArr = Store.state.filters.frequency.filter(f => f !== freq);
+                    Store.dispatch(Actions.FILTER_UPDATED, { key: 'frequency', value: newArr });
+                    EventBus.emit(Events.SEARCH);
                 }
             });
         });
 
         // Vendor
-        State.filters.vendors.forEach(vendor => {
+        Store.state.filters.vendors.forEach(vendor => {
             activeTags.push({
                 id: getId('vendor', vendor),
                 type: 'Vendor',
                 value: vendor,
                 onRemove: () => {
-                    State.filters.vendors = State.filters.vendors.filter(v => v !== vendor);
-                    this.syncUIWithState();
-                    this.updateFilterTags();
-                    if (this.refreshCallback) this.refreshCallback('vendor', State.filters.vendors);
+                    const newArr = Store.state.filters.vendors.filter(v => v !== vendor);
+                    Store.dispatch(Actions.FILTER_UPDATED, { key: 'vendors', value: newArr });
+                    EventBus.emit(Events.SEARCH);
+                    if (this.refreshCallback) this.refreshCallback('vendor', newArr);
                 }
             });
         });
 
         // Channel
-        State.filters.channels.forEach(channel => {
+        Store.state.filters.channels.forEach(channel => {
             activeTags.push({
                 id: getId('channel', channel),
                 type: 'Channel',
                 value: channel.toString(),
                 onRemove: () => {
-                    State.filters.channels = State.filters.channels.filter(c => c !== channel);
+                    const newArr = Store.state.filters.channels.filter(c => c !== channel);
+                    Store.dispatch(Actions.FILTER_UPDATED, { key: 'channels', value: newArr });
                     const channelSelect = document.getElementById('filter-channels');
                     if (channelSelect) {
                         Array.from(channelSelect.options).forEach(opt => {
                             if (parseInt(opt.value) === channel) opt.selected = false;
                         });
                     }
-                    this.updateFilterTags();
-                    if (this.refreshCallback) this.refreshCallback('channels', State.filters.channels);
+                    EventBus.emit(Events.SEARCH);
+                    if (this.refreshCallback) this.refreshCallback('channels', newArr);
                 }
             });
         });
 
         // Signal Range
-        if (State.filters.signalRange.min !== -100 || State.filters.signalRange.max !== 0) {
+        if (Store.state.filters.signalRange.min !== -100 || Store.state.filters.signalRange.max !== 0) {
             activeTags.push({
                 id: getId('signal', 'range'),
                 type: 'Signal',
-                value: `${State.filters.signalRange.min} to ${State.filters.signalRange.max} dBm`,
+                value: `${Store.state.filters.signalRange.min} to ${Store.state.filters.signalRange.max} dBm`,
                 onRemove: () => {
-                    State.filters.signalRange = { min: -100, max: 0 };
-                    this.syncUIWithState();
-                    this.updateFilterTags();
-                    if (this.refreshCallback) this.refreshCallback('signalRange', State.filters.signalRange);
+                    Store.dispatch(Actions.FILTER_UPDATED, { key: 'signalRange', value: { min: -100, max: 0 } });
+                    EventBus.emit(Events.SEARCH);
+                    if (this.refreshCallback) this.refreshCallback('signalRange', { min: -100, max: 0 });
                 }
             });
         }
 
         // Time Range
-        if (State.filters.timeRange.lastSeen) {
-            const minutes = State.filters.timeRange.lastSeen / (60 * 1000);
+        if (Store.state.filters.timeRange.lastSeen) {
+            const minutes = Store.state.filters.timeRange.lastSeen / (60 * 1000);
             let label = `${minutes}m`;
             if (minutes >= 60) label = `${minutes / 60}h`;
 
@@ -606,9 +646,8 @@ export const FilterUI = {
                 type: 'Time',
                 value: `Last ${label}`,
                 onRemove: () => {
-                    State.filters.timeRange.lastSeen = null;
-                    this.syncUIWithState();
-                    this.updateFilterTags();
+                    Store.dispatch(Actions.FILTER_UPDATED, { key: 'timeRange.lastSeen', value: null });
+                    EventBus.emit(Events.SEARCH);
                     if (this.refreshCallback) this.refreshCallback('timeRange', null);
                 }
             });
@@ -680,20 +719,15 @@ export const FilterUI = {
     resetAllFilters() {
         FilterManager.resetFilters();
         // Trigger Reactivity forcefully if resetFilters modifies State in place?
-        // FilterManager probably modifies 'State.filters' object references. 
-        // If FilterManager does `State.filters.x = y`, it triggers proxy.
-        // If it does `State.filters = default`, we lost the proxy if not handled carefully (State.filters is const? No it is object property).
-        // Check core/filter_manager.js later. Assuming it sets properties.
-
-        // Use notify to be sure if FilterManager replaces the whole object without triggering setters
-        // But for now let's assume it sets values.
-
         // Manual cleanup of inputs that might not be fully two-way bound yet (legacy inputs)
         // syncUIWithState handles validation/logic, but let's ensure reset propagates.
 
-        // Actually, if we reset via State, syncUIWithState called by listener will clear inputs.
-        // We just need to ensure FilterManager triggers the Proxy setters.
-        State.notify('filters', State.filters);
+        // Previously: State.notify('filters', State.filters);
+        // Now: We dispatch a bulk update or relies on individual resets. 
+        // FilterManager.resetFilters() should dispatch updates?
+        // Let's assume FilterManager needs refactoring too, or we just dispatch a "RESET" action?
+        // For now, let's just emit generic refresh to be safe.
+        EventBus.emit(Events.SEARCH);
     },
 
     /**
@@ -740,7 +774,7 @@ export const FilterUI = {
         const sortedChannels = Array.from(channels).sort((a, b) => a - b);
 
         // Keep current selection
-        const currentSelection = State.filters.channels || [];
+        const currentSelection = Store.state.filters.channels || [];
 
         select.innerHTML = '';
 

@@ -23,6 +23,7 @@ type Config struct {
 	DwellTime    int // in milliseconds
 	ReaverPath   string
 	PixiewpsPath string
+	WorkspaceDir string
 }
 
 // Load parses command line flags and environment variables to populate Config.
@@ -37,6 +38,7 @@ func Load() *Config {
 	cfg.Longitude = getEnvFloat("WMAP_LNG", -3.7038)
 	cfg.MockMode = getEnvBool("WMAP_MOCK", false)
 	cfg.DBPath = getEnv("WMAP_DB", getDefaultDBPath())
+	cfg.WorkspaceDir = getEnv("WMAP_WORKSPACE_DIR", getDefaultWorkspaceDir())
 	cfg.GRPCPort = int(getEnvFloat("WMAP_GRPC", 9000))
 
 	// Command Line Flags (Override Env)
@@ -52,6 +54,7 @@ func Load() *Config {
 	flag.IntVar(&cfg.DwellTime, "dwell", 300, "Channel dwell time in milliseconds")
 	flag.StringVar(&cfg.ReaverPath, "reaver-path", "reaver", "Path to reaver binary")
 	flag.StringVar(&cfg.PixiewpsPath, "pixiewps-path", "pixiewps", "Path to pixiewps binary")
+	flag.StringVar(&cfg.WorkspaceDir, "workspace-dir", cfg.WorkspaceDir, "Path to workspace directory")
 
 	flag.Parse()
 
@@ -120,4 +123,12 @@ func getDefaultDBPath() string {
 	}
 
 	return filepath.Join(wmapDir, "wmap.db")
+}
+
+func getDefaultWorkspaceDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "workspaces"
+	}
+	return filepath.Join(home, ".local", "share", "wmap", "workspaces")
 }

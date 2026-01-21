@@ -46,7 +46,7 @@ func (h *WPSHandler) HandleStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, err := h.Service.StartWPSAttack(config)
+	id, err := h.Service.StartWPSAttack(r.Context(), config)
 	if err != nil {
 		http.Error(w, "Failed to start attack: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -62,7 +62,7 @@ func (h *WPSHandler) HandleStop(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 	force := r.URL.Query().Get("force") == "true"
 
-	if err := h.Service.StopWPSAttack(id, force); err != nil {
+	if err := h.Service.StopWPSAttack(r.Context(), id, force); err != nil {
 		http.Error(w, "Failed to stop attack: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -76,7 +76,7 @@ func (h *WPSHandler) HandleStatus(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	status, err := h.Service.GetWPSStatus(id)
+	status, err := h.Service.GetWPSStatus(r.Context(), id)
 	if err != nil {
 		http.Error(w, "Attack not found: "+err.Error(), http.StatusNotFound)
 		return

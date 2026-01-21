@@ -1,6 +1,7 @@
 package authflood
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -48,13 +49,13 @@ func TestAuthFloodEngine_Lifecycle(t *testing.T) {
 		PacketInterval: 1 * time.Millisecond,
 	}
 
-	id, err := engine.StartAttack(config)
+	id, err := engine.StartAttack(context.Background(), config)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, id)
 
 	// 2. Check Status (Running)
 	time.Sleep(100 * time.Millisecond) // Wait for update
-	status, err := engine.GetStatus(id)
+	status, err := engine.GetStatus(context.Background(), id)
 	assert.NoError(t, err)
 	assert.Equal(t, domain.AttackRunning, status.Status)
 
@@ -62,12 +63,12 @@ func TestAuthFloodEngine_Lifecycle(t *testing.T) {
 	assert.True(t, len(mockMech.Calls) > 0, "Inject should have been called")
 
 	// 3. Stop Attack
-	err = engine.StopAttack(id, false)
+	err = engine.StopAttack(context.Background(), id, false)
 	assert.NoError(t, err)
 
 	// 4. Check Status (Stopped)
 	time.Sleep(50 * time.Millisecond)
-	status, _ = engine.GetStatus(id)
+	status, _ = engine.GetStatus(context.Background(), id)
 	assert.Contains(t, []domain.AttackStatus{domain.AttackStopped, domain.AttackFailed}, status.Status)
 }
 
@@ -87,7 +88,7 @@ func TestAuthFloodEngine_ConcurrencyLimit(t *testing.T) {
 	}
 
 	// Start 1st
-	id1, err := engine.StartAttack(config)
+	id1, err := engine.StartAttack(context.Background(), config)
 	assert.NoError(t, err)
 
 	// Start 2nd (Should get different ID but might be queued/running depending on locking)
@@ -98,10 +99,10 @@ func TestAuthFloodEngine_ConcurrencyLimit(t *testing.T) {
 	// Wait a bit for 1st to register
 	time.Sleep(10 * time.Millisecond)
 
-	id2, err := engine.StartAttack(config)
+	id2, err := engine.StartAttack(context.Background(), config)
 	// Should fail because maxConcurrent is 1 and 1 is running
 	assert.Error(t, err)
 	assert.Empty(t, id2)
 
-	engine.StopAttack(id1, true)
+	engine.StopAttack(context.Background(), id1, true)
 }

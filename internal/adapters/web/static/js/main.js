@@ -4,10 +4,11 @@
  */
 
 import { API } from './core/api.js';
-import { State } from './core/state.js';
 import { SocketClient } from './core/socket.js';
 import { Events, NodeGroups } from './core/constants.js';
 import { EventBus } from './core/event_bus.js';
+import { Store } from './core/store/store.js';
+import { Actions } from './core/store/actions.js';
 
 import { DataManager } from './core/data_manager.js';
 import { UIManager } from './ui/ui_manager.js';
@@ -22,7 +23,7 @@ import { Modals } from './ui/modals.js';
 import { HUD } from './ui/hud.js';
 import { ConsoleManager } from './ui/console.js';
 import { ContextMenu } from './ui/context_menu.js';
-import { GraphConfig } from './ui/graph_config.js';
+import { GraphConfig } from './ui/graph_config.js?v=2';
 import { StartupVerifier } from './core/startup.js';
 import { VulnerabilityPanel } from './ui/vulnerability_panel.js';
 import { SaturationManager } from './core/saturation_manager.js';
@@ -32,6 +33,9 @@ const vis = window.vis;
 
 class App {
     constructor() {
+        // 0. Initialize Store
+        Store.init();
+
         // 1. Managers
         this.console = new ConsoleManager();
         this.dataManager = new DataManager();
@@ -45,6 +49,10 @@ class App {
 
         this.socket = null;
         this.initialDataLoaded = false;
+
+        // 3. Performance Optimization
+        this.pendingGraphUpdate = null;
+        this.updateScheduled = false;
     }
 
     init() {
@@ -74,52 +82,48 @@ class App {
         const data = { nodes: this.dataManager.nodesView, edges: this.dataManager.edges };
         this.network = new vis.Network(this.container, data, GraphConfig);
 
+        // --- ZOOM CONTROLS ---
+        const btnZoomIn = document.getElementById('zoom-in');
+        const btnZoomOut = document.getElementById('zoom-out');
+        const btnZoomFit = document.getElementById('zoom-fit');
+
+        if (btnZoomIn) {
+            btnZoomIn.onclick = () => {
+                const scale = this.network.getScale();
+                this.network.moveTo({ scale: scale + 0.2, animation: { duration: 300 } });
+            };
+        }
+        if (btnZoomOut) {
+            btnZoomOut.onclick = () => {
+                const scale = this.network.getScale();
+                this.network.moveTo({ scale: scale - 0.2, animation: { duration: 300 } });
+            };
+        }
+        if (btnZoomFit) {
+            btnZoomFit.onclick = () => {
+                this.network.fit({ animation: { duration: 500, easingFunction: 'easeInOutQuad' } });
+            };
+        }
+
         // Context Menu
         this.contextMenu = new ContextMenu(this.network, this.dataManager.nodes);
         this.contextMenu.init();
 
-        // Interaction Events
+        // Interaction Events - Optimized to avoid mass updates
         this.network.on("click", (p) => {
             if (p.nodes.length > 0) {
                 const nodeId = p.nodes[0];
                 const node = this.dataManager.nodes.get(nodeId);
 
-                // Focus Mode: Highlight connections (Optimized)
-                const connected = this.network.getConnectedNodes(nodeId);
-                const connectedSet = new Set([nodeId, ...connected]);
-                const connectedEdges = new Set(this.network.getConnectedEdges(nodeId));
-
-                // Batch update: dim non-connected, highlight connected
-                const allNodes = this.dataManager.nodes.get();
-                const nodeUpdates = allNodes.map(n => ({
-                    id: n.id,
-                    opacity: connectedSet.has(n.id) ? 1 : 0.1
-                }));
-
-                const allEdges = this.dataManager.edges.get();
-                const edgeUpdates = allEdges.map(e => ({
-                    id: e.id,
-                    color: { opacity: connectedEdges.has(e.id) ? 1 : 0.05, inherit: false }
-                }));
-
-                this.dataManager.nodes.update(nodeUpdates);
-                this.dataManager.edges.update(edgeUpdates);
-
+                // Use Vis.js built-in selection highlighting (much more efficient)
                 this.network.selectNodes([nodeId]);
+
                 if (node) {
                     HUD.showDetails(node);
                 }
             } else {
-                // Reset View (Optimized)
-                const allNodes = this.dataManager.nodes.get();
-                const nodeUpdates = allNodes.map(n => ({ id: n.id, opacity: 1 }));
-
-                const allEdges = this.dataManager.edges.get();
-                const edgeUpdates = allEdges.map(e => ({ id: e.id, color: { opacity: 1 } }));
-
-                this.dataManager.nodes.update(nodeUpdates);
-                this.dataManager.edges.update(edgeUpdates);
-
+                // Deselect all
+                this.network.unselectAll();
                 HUD.hideDetails();
             }
         });
@@ -134,6 +138,46 @@ class App {
 
     bindAppEvents() {
         // App-level event handling bridging Managers
+
+        // --- Store Subscriptions (The new way) ---
+
+        // 1. Graph Updates
+        Store.subscribe(Actions.GRAPH_UPDATED, (payload) => {
+            this.updateGraph(payload);
+        });
+
+        // 2. Logging
+        Store.subscribe(Actions.LOG_RECEIVED, (payload) => {
+            this.console.log(payload.message, payload.level);
+            // Legacy EventBus support for other components
+            EventBus.emit(Events.LOG, payload);
+        });
+
+        // 3. Alerts
+        Store.subscribe(Actions.ALERT_RECEIVED, (payload) => {
+            this.handleAlert(payload);
+        });
+
+        // 4. Socket Status
+        Store.subscribe(Actions.SOCKET_CONNECTING, () => {
+            Notifications.setStatus("CONNECTING...", "info");
+        });
+        Store.subscribe(Actions.SOCKET_CONNECTED, () => {
+            Notifications.setStatus("CONNECTED", "success");
+            this.console.log("Socket Connected", "success");
+        });
+        Store.subscribe(Actions.SOCKET_DISCONNECTED, () => {
+            Notifications.setStatus("DISCONNECTED", "danger");
+            this.console.log("Socket Disconnected", "danger");
+        });
+
+        // 5. Specialized Events
+        Store.subscribe(Actions.WPS_LOG_RECEIVED, (payload) => EventBus.emit('wps:log', payload));
+        Store.subscribe(Actions.WPS_STATUS_UPDATED, (payload) => EventBus.emit('wps:status', payload));
+        Store.subscribe(Actions.VULNERABILITY_DETECTED, (payload) => EventBus.emit('vulnerability:new', payload));
+
+
+        // --- EventBus (The legacy way - kept for internals) ---
 
         // Graph Refresh
         EventBus.on('graph:refresh', () => this.dataManager.refreshView());
@@ -166,16 +210,23 @@ class App {
     }
 
     async initFilterEvents() {
-        const { FilterUI } = await import('./ui/filter_ui.js');
-        FilterUI.init(this.dataManager.nodes);
+        console.log("[Debug] initFilterEvents started");
+        // Remove cache buster if not strictly meant for hot-reload dev, or keep it but store reference.
+        // We stick to the pattern but ensure we store the instance.
+        const module = await import('./ui/filter_ui.js?v=' + Date.now());
+        this.filterUI = module.FilterUI;
+        console.log("[Debug] FilterUI imported");
+
+        this.filterUI.init(this.dataManager.nodes);
+        console.log("[Debug] FilterUI.init called");
 
         EventBus.on(Events.SEARCH, () => this.dataManager.refreshView());
         EventBus.on(Events.VENDOR, () => {
-            FilterUI.populateVendorDropdown();
+            if (this.filterUI) this.filterUI.populateVendorDropdown();
             this.dataManager.refreshView();
         });
         EventBus.on(Events.CHANNELS, () => {
-            FilterUI.populateChannelDropdown();
+            if (this.filterUI) this.filterUI.populateChannelDropdown();
             this.dataManager.refreshView();
         });
     }
@@ -186,56 +237,37 @@ class App {
     }
 
     startStreaming() {
-        this.socket = new SocketClient(
-            (data) => this.handleSocketData(data),
-            (status, type) => {
-                Notifications.setStatus(status, type);
-                this.console.log(`Socket Status: ${status}`, type === 'danger' ? 'danger' : 'info');
-            }
-        );
+        // Initialize Socket (it will dispatch actions to Store)
+        this.socket = new SocketClient();
         this.socket.connect();
 
         API.getConfig().then(cfg => {
             if (cfg.persistenceEnabled !== undefined) {
-                State.filters.persistFindings = cfg.persistenceEnabled;
+                Store.dispatch(Actions.FILTER_UPDATED, { key: 'persistFindings', value: cfg.persistenceEnabled });
             }
         });
     }
 
-    handleSocketData(msg) {
-        let payload = msg;
-        let type = 'graph';
+    updateGraph(payload) {
+        // Store the latest update
+        this.pendingGraphUpdate = payload;
 
-        if (msg.type && msg.payload) {
-            type = msg.type;
-            payload = msg.payload;
-        } else if (msg.nodes && msg.edges) {
-            type = 'graph';
-        }
-
-        switch (type) {
-            case 'log':
-                this.console.log(payload.message, payload.level);
-                EventBus.emit(Events.LOG, payload);
-                break;
-            case 'graph':
-                this.updateGraph(payload);
-                break;
-            case 'alert':
-                this.handleAlert(payload);
-                break;
-            case 'wps.log':
-                EventBus.emit('wps:log', payload);
-                break;
-            case 'wps.status':
-                EventBus.emit('wps:status', payload);
-                break;
-            default:
-                console.warn("Unknown WS message:", msg);
+        // Schedule update using requestAnimationFrame (throttle to 60fps)
+        if (!this.updateScheduled) {
+            this.updateScheduled = true;
+            requestAnimationFrame(() => {
+                this.processGraphUpdate();
+                this.updateScheduled = false;
+            });
         }
     }
 
-    updateGraph(payload) {
+    processGraphUpdate() {
+        if (!this.pendingGraphUpdate) return;
+
+        const payload = this.pendingGraphUpdate;
+        this.pendingGraphUpdate = null;
+
         // Update Data
         this.dataManager.update(payload);
 
@@ -244,7 +276,7 @@ class App {
         HUD.updateStats(stats.apCount, stats.staCount);
 
         // Update Vulnerability Panel
-        this.vulnPanel.render(this.dataManager.nodes.get());
+        // this.vulnPanel.render(this.dataManager.nodes.get()); // DEPRECATED: V2 pulls from API
 
         // Initial Load Hook
         if (!this.initialDataLoaded && payload.nodes.length > 0) {
@@ -277,9 +309,10 @@ class App {
     async onInitialData() {
         this.console.log("Initial Graph Data Received. Hydrating UI...", "system");
 
-        const { FilterUI } = await import('./ui/filter_ui.js');
-        FilterUI.populateVendorDropdown();
-        FilterUI.populateChannelDropdown();
+        if (this.filterUI) {
+            this.filterUI.populateVendorDropdown();
+            this.filterUI.populateChannelDropdown();
+        }
 
         EventBus.emit('graph:refresh');
     }

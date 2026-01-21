@@ -3,7 +3,8 @@
  * Manages sidebar controls and event listeners.
  */
 
-import { State } from '../core/state.js';
+import { Store } from '../core/store/store.js';
+import { Actions } from '../core/store/actions.js';
 import { API } from '../core/api.js';
 import { Notifications } from './notifications.js';
 import { HUDTemplates } from './hud_templates.js';
@@ -25,12 +26,30 @@ export const HUD = {
             if (!el) return;
 
             // Set initial state
-            el.checked = isConfig ? State.config[prop] : State.filters[prop];
+            // Store values
+            const config = Store.state.config;
+            const filters = Store.state.filters;
 
-            el.onchange = () => {
-                const val = el.checked;
-                if (isConfig) State.config[prop] = val;
-                else State.filters[prop] = val;
+            el.checked = isConfig ? config[prop] : filters[prop];
+
+            el.onchange = (e) => {
+                const val = e.target.checked;
+
+                if (isConfig) {
+                    Store.dispatch(Actions.CONFIG_UPDATED, { key: prop, value: val });
+                    // Explicitly dispatch logic for specific configs if needed (or rely on listeners in other modules)
+                    // e.g. ui:physics is now handled by Store subscription in main.js, wait.. no
+                    // main.js was subscribing to EventBus for 'ui:physics'.. we need to update main.js OR 
+                    // make this dispatch emit legacy events too? 
+                    // Better: Update consumers to subscribe to CONFIG_UPDATED or we add legacy bridging here.
+                    // For now, let's keep it pure Store. 
+
+                    // Legacy Bridge for things that listen to EventBus 'ui:physics'
+                    EventBus.emit(`ui:${prop}`, val);
+                } else {
+                    Store.dispatch(Actions.FILTER_UPDATED, { key: prop, value: val });
+                    EventBus.emit('graph:refresh');
+                }
 
                 // Specific Logic
                 if (id === 'toggle-persist') { // Sync with backend
@@ -42,8 +61,10 @@ export const HUD = {
                             console.error('Failed to update persistence:', error);
 
                             // Revert UI state on failure
-                            el.checked = !val;
-                            State.filters.persistFindings = !val;
+                            if (Store.state.filters.persistFindings !== !val) {
+                                Store.dispatch(Actions.FILTER_UPDATED, { key: 'persistFindings', value: !val });
+                                EventBus.emit('graph:refresh');
+                            }
 
                             if (error.status === 403) {
                                 Notifications.show('Insufficient permissions', 'danger');
@@ -54,8 +75,6 @@ export const HUD = {
                             }
                         });
                 }
-
-                if (this.refreshCallback) this.refreshCallback(prop, val);
             };
         };
 
@@ -71,7 +90,8 @@ export const HUD = {
         const btnStabilize = document.getElementById('btn-stabilize');
         if (btnStabilize) {
             btnStabilize.onclick = () => {
-                if (this.refreshCallback) this.refreshCallback('stabilize');
+                if (this.refreshCallback) this.refreshCallback('stabilize'); // This will need refactoring
+                Notifications.show("Stabilizing network view...", "info");
             };
         }
 
@@ -86,8 +106,8 @@ export const HUD = {
             slider.oninput = () => {
                 const v = parseInt(slider.value);
                 valLabel.innerText = v;
-                State.filters.minRSSI = v;
-                if (this.refreshCallback) this.refreshCallback('rssi', v);
+                Store.dispatch(Actions.FILTER_UPDATED, { key: 'minRSSI', value: v });
+                EventBus.emit('graph:refresh');
             };
         }
     },
@@ -96,8 +116,8 @@ export const HUD = {
         const searchInput = document.getElementById('node-search');
         if (searchInput) {
             searchInput.oninput = (e) => {
-                State.filters.searchQuery = e.target.value;
-                if (this.refreshCallback) this.refreshCallback('search', e.target.value);
+                Store.dispatch(Actions.FILTER_UPDATED, { key: 'searchQuery', value: e.target.value });
+                EventBus.emit('graph:refresh');
             };
         }
     },
@@ -143,6 +163,19 @@ export const HUD = {
 
             if (action === 'copy-id') {
                 this.copyToClipboard(data.text);
+            } else if (action === 'open-handshakes') {
+                // Determine MAC from data binding or node object. 
+                // The template uses node props. 'data-action' button needs Mac context?
+                // Template check: <button ... data-action="open-handshakes">
+                // It doesn't have data-mac attached in template? Let's check.
+                // Re-viewing template... "Open Captures Folder" button has NO data-mac.
+                // We need to fetch MAC from the panel header or use the data attached to the button if present.
+                // Actually the button is inside 'details-panel'. We can store the current NODE in HUD.
+                if (this.currentNode) {
+                    API.openHandshakeFolder(this.currentNode.mac)
+                        .then(() => Notifications.show("Folder opened", "success"))
+                        .catch(err => Notifications.show("Failed to open folder: " + err.message, "danger"));
+                }
             } else if (this.actionCallback) {
                 this.actionCallback(action, data);
             }
@@ -160,6 +193,8 @@ export const HUD = {
         const btnClose = document.getElementById('btn-close-details');
 
         if (!panel || !content) return;
+
+        this.currentNode = node;
 
         // Close Handler
         if (btnClose) btnClose.onclick = () => this.hideDetails();

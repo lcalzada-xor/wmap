@@ -31,7 +31,7 @@ func (h *AuthFloodHandler) HandleStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, err := h.Service.StartAuthFloodAttack(config)
+	id, err := h.Service.StartAuthFloodAttack(r.Context(), config)
 	if err != nil {
 		http.Error(w, "Failed to start attack: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -56,7 +56,7 @@ func (h *AuthFloodHandler) HandleStop(w http.ResponseWriter, r *http.Request) {
 
 	force := r.URL.Query().Get("force") == "true"
 
-	if err := h.Service.StopAuthFloodAttack(attackID, force); err != nil {
+	if err := h.Service.StopAuthFloodAttack(r.Context(), attackID, force); err != nil {
 		http.Error(w, "Failed to stop attack: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -73,7 +73,7 @@ func (h *AuthFloodHandler) HandleStatus(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	status, err := h.Service.GetAuthFloodStatus(id)
+	status, err := h.Service.GetAuthFloodStatus(r.Context(), id)
 	if err != nil {
 		http.Error(w, "Attack not found: "+err.Error(), http.StatusNotFound)
 		return

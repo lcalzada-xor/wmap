@@ -12,7 +12,7 @@ import (
 
 func TestHandlePacket_APResetsConnection_Repro(t *testing.T) {
 	mockLoc := MockGeo{}
-	handler := parser.NewPacketHandler(mockLoc, false, nil, nil)
+	handler := parser.NewPacketHandler(mockLoc, false, nil, nil, nil)
 
 	apMacStr := "00:11:22:33:44:55"
 	staMacStr := "aa:bb:cc:dd:ee:ff"

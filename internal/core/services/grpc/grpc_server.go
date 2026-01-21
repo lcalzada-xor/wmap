@@ -55,7 +55,7 @@ func (s *GrpcServer) ReportTraffic(stream wmap_grpc.WMapService_ReportTrafficSer
 			Latitude:       report.Latitude,
 			Longitude:      report.Longitude,
 			IsRandomized:   report.IsRandomized,
-			Type:           report.Type,
+			Type:           domain.DeviceType(report.Type),
 			LastPacketTime: ts,
 			LastSeen:       ts,
 			Capabilities:   report.Capabilities,
@@ -78,12 +78,12 @@ func (s *GrpcServer) ReportTraffic(stream wmap_grpc.WMapService_ReportTrafficSer
 		// If agent sends ProbedSSID in 'ssid' field for station, handle it?
 		// The proto definition was simple. Ideally we'd send the full list.
 		// For now, if it's a station and has SSID, treat as Probe.
-		if device.Type == "station" && device.SSID != "" {
+		if device.Type == domain.DeviceTypeStation && device.SSID != "" {
 			device.ProbedSSIDs = map[string]time.Time{
 				device.SSID: ts,
 			}
 		}
 
-		s.service.ProcessDevice(device)
+		_ = s.service.ProcessDevice(stream.Context(), device)
 	}
 }

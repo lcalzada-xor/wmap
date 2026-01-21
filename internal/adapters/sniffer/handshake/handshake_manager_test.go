@@ -106,6 +106,14 @@ func createEAPOLPacket(src, dst, bssid string, messageNum int, replayCounter uin
 		payload[94] = byte(dataLen & 0xFF)
 	}
 
+	// Populate MIC if KeyMic bit (0x0100) is set
+	// Note: We constructed keyInfo manually above. Check bit 8.
+	if (keyInfo & 0x0100) != 0 {
+		for i := 77; i < 93; i++ {
+			payload[i] = 0x77 // Dummy valid MIC
+		}
+	}
+
 	// Add layers
 	gopacket.SerializeLayers(buf, opts, dot11, llc, snap, eapol, gopacket.Payload(payload))
 	return gopacket.NewPacket(buf.Bytes(), layers.LayerTypeDot11, gopacket.Default)

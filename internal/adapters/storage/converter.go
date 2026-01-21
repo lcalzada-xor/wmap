@@ -16,7 +16,7 @@ func toDomain(m DeviceModel) *domain.Device {
 
 	dev := &domain.Device{
 		MAC:              m.MAC,
-		Type:             m.Type,
+		Type:             domain.DeviceType(m.Type),
 		Vendor:           m.Vendor,
 		RSSI:             m.RSSI,
 		SSID:             m.SSID,
@@ -47,7 +47,7 @@ func toDomain(m DeviceModel) *domain.Device {
 		PacketsCount:     m.PacketsCount,
 		RetryCount:       m.RetryCount,
 		ProbedSSIDs:      probes,
-		ConnectionState:  m.ConnectionState,
+		ConnectionState:  domain.ConnectionState(m.ConnectionState),
 		ConnectionTarget: m.ConnectionTarget,
 		ConnectionError:  m.ConnectionError,
 	}
@@ -73,7 +73,7 @@ func toDomain(m DeviceModel) *domain.Device {
 func toModel(d domain.Device) DeviceModel {
 	model := DeviceModel{
 		MAC:              d.MAC,
-		Type:             d.Type,
+		Type:             string(d.Type),
 		Vendor:           d.Vendor,
 		RSSI:             d.RSSI,
 		SSID:             d.SSID,
@@ -103,7 +103,7 @@ func toModel(d domain.Device) DeviceModel {
 		DataReceived:     d.DataReceived,
 		PacketsCount:     d.PacketsCount,
 		RetryCount:       d.RetryCount,
-		ConnectionState:  d.ConnectionState,
+		ConnectionState:  string(d.ConnectionState),
 		ConnectionTarget: d.ConnectionTarget,
 		ConnectionError:  d.ConnectionError,
 	}

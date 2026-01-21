@@ -1,6 +1,7 @@
 package workspace
 
 import (
+"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -118,10 +119,10 @@ func (s *WorkspaceManager) LoadWorkspace(name string) error {
 
 	// Repopulate Registry
 	// 1. Clear current in-memory state
-	s.registry.Clear()
+	s.registry.Clear(context.Background())
 
 	// 2. Load from DB
-	devices, err := newStore.GetAllDevices()
+	devices, err := newStore.GetAllDevices(context.Background())
 	if err != nil {
 		return fmt.Errorf("accessed DB but failed to read devices: %w", err)
 	}
@@ -129,7 +130,37 @@ func (s *WorkspaceManager) LoadWorkspace(name string) error {
 	// 3. Hydrate Registry
 	for _, d := range devices {
 		// We use LoadDevice to restore state without resetting timestamps.
-		s.registry.LoadDevice(d)
+		s.registry.LoadDevice(context.Background(), d)
+	}
+
+	return nil
+}
+
+// DeleteWorkspace deletes a workspace database file.
+func (s *WorkspaceManager) DeleteWorkspace(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Validate name
+	if name == "" || strings.Contains(name, "/") || strings.Contains(name, "\\") || strings.Contains(name, "..") {
+		return fmt.Errorf("invalid workspace name")
+	}
+
+	// Prevent deleting the active workspace
+	if name == s.currentWorkspace {
+		return fmt.Errorf("cannot delete the currently active workspace")
+	}
+
+	path := filepath.Join(s.baseDir, name+".db")
+
+	// Check if exists
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return fmt.Errorf("workspace not found")
+	}
+
+	// Delete file
+	if err := os.Remove(path); err != nil {
+		return fmt.Errorf("failed to delete workspace: %w", err)
 	}
 
 	return nil

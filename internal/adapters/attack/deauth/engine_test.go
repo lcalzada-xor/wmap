@@ -2,6 +2,7 @@ package deauth
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -14,8 +15,8 @@ import (
 // MockEngineLocker implements ChannelLocker
 type MockEngineLocker struct{}
 
-func (m *MockEngineLocker) Lock(iface string, channel int) error { return nil }
-func (m *MockEngineLocker) Unlock(iface string) error            { return nil }
+func (m *MockEngineLocker) Lock(ctx context.Context, iface string, channel int) error { return nil }
+func (m *MockEngineLocker) Unlock(ctx context.Context, iface string) error            { return nil }
 func (m *MockEngineLocker) ExecuteWithLock(ctx context.Context, iface string, channel int, action func() error) error {
 	return action()
 }
@@ -48,13 +49,13 @@ func TestDeauthEngine_SequentialAttacks(t *testing.T) {
 
 	// Attack 1
 	config := domain.DeauthAttackConfig{TargetMAC: "00:11:22:33:44:55", Interface: ""}
-	id1, err := engine.StartAttack(config)
+	id1, err := engine.StartAttack(context.Background(), config)
 	require.NoError(t, err)
 
 	// Wait for it to fail (async)
 	time.Sleep(100 * time.Millisecond)
 
-	status1, _ := engine.GetAttackStatus(id1)
+	status1, _ := engine.GetAttackStatus(context.Background(), id1)
 	assert.Equal(t, domain.AttackFailed, status1.Status, "Attack 1 should fail due to no injector")
 
 	// Check Active count
@@ -65,11 +66,11 @@ func TestDeauthEngine_SequentialAttacks(t *testing.T) {
 	assert.Equal(t, 0, len(engine.activeAttacks), "Cleanup should remove failed/stopped attack")
 
 	// Attack 2
-	id2, err := engine.StartAttack(config)
+	id2, err := engine.StartAttack(context.Background(), config)
 	require.NoError(t, err)
 
 	time.Sleep(100 * time.Millisecond)
-	status2, _ := engine.GetAttackStatus(id2)
+	status2, _ := engine.GetAttackStatus(context.Background(), id2)
 	assert.Equal(t, domain.AttackFailed, status2.Status)
 
 	engine.CleanupFinished()
@@ -82,18 +83,18 @@ func TestDeauthEngine_ForceStop(t *testing.T) {
 
 	// Start a fake attack (will fail async due to nil injector, but we intercept before cleanup)
 	config := domain.DeauthAttackConfig{TargetMAC: "00:11:22:33:44:55"}
-	id, err := engine.StartAttack(config)
+	id, err := engine.StartAttack(context.Background(), config)
 	require.NoError(t, err)
 
 	// Wait briefly for it to appear in map
 	time.Sleep(10 * time.Millisecond)
 
 	// Force Stop
-	err = engine.StopAttack(id, true)
+	err = engine.StopAttack(context.Background(), id, true)
 	assert.NoError(t, err)
 
 	// Verify status
-	status, _ := engine.GetAttackStatus(id)
+	status, _ := engine.GetAttackStatus(context.Background(), id)
 	assert.Equal(t, domain.AttackStopped, status.Status)
 	assert.Contains(t, status.ErrorMessage, "Force stopped")
 }
@@ -105,7 +106,7 @@ func TestDeauthEngine_StopAll(t *testing.T) {
 	// Start multiple fake attacks
 	for i := 0; i < 3; i++ {
 		config := domain.DeauthAttackConfig{TargetMAC: "00:11:22:33:44:55"}
-		_, err := engine.StartAttack(config)
+		_, err := engine.StartAttack(context.Background(), config)
 		require.NoError(t, err)
 	}
 
@@ -121,7 +122,7 @@ func TestDeauthEngine_StopAll(t *testing.T) {
 	// Stop All (should not deadlock)
 	done := make(chan struct{})
 	go func() {
-		engine.StopAll()
+		engine.StopAll(context.Background())
 		close(done)
 	}()
 
@@ -148,10 +149,10 @@ func TestDeauthEngine_InterfaceAutoDetection(t *testing.T) {
 	engine := NewDeauthEngine(inj, locker, 5)
 
 	config := domain.DeauthAttackConfig{TargetMAC: "00:11:22:33:44:55"} // Interface empty
-	id, err := engine.StartAttack(config)
+	id, err := engine.StartAttack(context.Background(), config)
 	require.NoError(t, err)
 
-	status, _ := engine.GetAttackStatus(id)
+	status, _ := engine.GetAttackStatus(context.Background(), id)
 	assert.Equal(t, "wlan0mon", status.Config.Interface, "Interface should be auto-detected from injector")
 }
 
@@ -161,16 +162,69 @@ func TestDeauthEngine_ContextCancellation(t *testing.T) {
 
 	// Start a fake attack
 	config := domain.DeauthAttackConfig{TargetMAC: "00:11:22:33:44:55"}
-	id, err := engine.StartAttack(config)
+	id, err := engine.StartAttack(context.Background(), config)
 	require.NoError(t, err)
 
 	// Wait for attack to fail (nil injector will cause immediate failure)
 	time.Sleep(50 * time.Millisecond)
 
 	// Verify it failed
-	status, _ := engine.GetAttackStatus(id)
+	status, _ := engine.GetAttackStatus(context.Background(), id)
 	assert.Equal(t, domain.AttackFailed, status.Status)
 
 	// Cleanup
+	engine.CleanupFinished()
+}
+
+func TestDeauthEngine_AttackLoop(t *testing.T) {
+	// Setup Mock Injector Mechanism
+	mockMech := injection.NewMockInjector()
+
+	// Manually construct Injector (bypass NewInjector which requires hardware)
+	// We set Interface to satisfy basic checks
+	inj := &injection.Injector{Interface: "wlan0"}
+	inj.SetMechanismForTest(mockMech)
+
+	locker := &MockEngineLocker{}
+	engine := NewDeauthEngine(inj, locker, 5)
+	engine.monitoringEnabled = false // Disable hardware monitoring for test
+	engine.SetLogger(func(msg, level string) {
+		fmt.Printf("LOG [%s]: %s\n", level, msg)
+	})
+
+	// Config for Continuous Attack (Count=0)
+	// Use SpoofSource=true to skip SniffSequenceNumber (which requires pcap)
+	config := domain.DeauthAttackConfig{
+		TargetMAC:      "00:11:22:33:44:55",
+		ClientMAC:      "aa:bb:cc:dd:ee:ff",
+		Interface:      "wlan0",
+		AttackType:     domain.DeauthUnicast,
+		PacketCount:    0, // Continuous
+		PacketInterval: 10 * time.Millisecond,
+		SpoofSource:    true,
+	}
+
+	// Start Attack
+	ctx := context.Background()
+	id, err := engine.StartAttack(ctx, config)
+	require.NoError(t, err)
+
+	// Wait for loop to run and generate packets
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify status
+	status, _ := engine.GetAttackStatus(ctx, id)
+	assert.Equal(t, domain.AttackRunning, status.Status)
+
+	// Verify Packets Generated
+	captured := mockMech.GetPackets()
+	if len(captured) == 0 {
+		t.Errorf("Expected packets to be captured, got 0")
+	} else {
+		t.Logf("Captured %d packets", len(captured))
+	}
+
+	// Stop Attack
+	engine.StopAttack(ctx, id, true)
 	engine.CleanupFinished()
 }

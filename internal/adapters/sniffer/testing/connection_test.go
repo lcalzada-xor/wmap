@@ -131,7 +131,7 @@ func createEAPOLPacketConn(staMAC, bssid string) gopacket.Packet {
 
 func TestHandlePacket_ConnectionStates(t *testing.T) {
 	mockLoc := ConnMockGeo{}
-	handler := parser.NewPacketHandler(mockLoc, false, nil, nil)
+	handler := parser.NewPacketHandler(mockLoc, false, nil, nil, nil)
 
 	staMAC := "00:11:22:33:44:55"
 	bssid := "aa:bb:cc:dd:ee:ff"

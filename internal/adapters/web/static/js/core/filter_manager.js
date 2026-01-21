@@ -3,7 +3,8 @@
  * Centralized service for filter management, presets, and business logic.
  */
 
-import { State } from './state.js';
+import { Store } from './store/store.js';
+import { Actions } from './store/actions.js';
 
 export const FilterManager = {
     // Predefined Quick Filters
@@ -111,10 +112,14 @@ export const FilterManager = {
         }
 
         // Apply all filters from preset
-        Object.assign(State.filters, preset.filters);
-        State.filters.activePreset = presetId;
-        State.filters.searchQuery = ''; // Clear search when applying preset
+        // We use BATCH update to avoid multiple event emissions
+        const updates = {
+            ...preset.filters,
+            activePreset: presetId,
+            searchQuery: '' // Clear search when applying preset
+        };
 
+        Store.dispatch(Actions.FILTER_BATCH_UPDATED, updates);
         return true;
     },
 
@@ -123,44 +128,45 @@ export const FilterManager = {
      */
     getActiveFiltersCount() {
         let count = 0;
+        const filters = Store.state.filters;
 
         // Search query
-        if (State.filters.searchQuery && State.filters.searchQuery.length > 0) count++;
+        if (filters.searchQuery && filters.searchQuery.length > 0) count++;
 
         // Type filters (if not both enabled)
-        if (!State.filters.showAP || !State.filters.showSta) count++;
+        if (!filters.showAP || !filters.showSta) count++;
 
         // Security
-        if (State.filters.security && State.filters.security.length > 0) count++;
+        if (filters.security && filters.security.length > 0) count++;
 
         // Frequency
-        if (State.filters.frequency && State.filters.frequency.length > 0) count++;
+        if (filters.frequency && filters.frequency.length > 0) count++;
 
         // Channels
-        if (State.filters.channels && State.filters.channels.length > 0) count++;
+        if (filters.channels && filters.channels.length > 0) count++;
 
         // Vendors
-        if (State.filters.vendors && State.filters.vendors.length > 0) count++;
+        if (filters.vendors && filters.vendors.length > 0) count++;
 
         // Signal range (if not default)
-        if (State.filters.signalRange &&
-            (State.filters.signalRange.min !== -100 || State.filters.signalRange.max !== 0)) {
+        if (filters.signalRange &&
+            (filters.signalRange.min !== -100 || filters.signalRange.max !== 0)) {
             count++;
         }
 
         // Time range
-        if (State.filters.timeRange && State.filters.timeRange.lastSeen) count++;
+        if (filters.timeRange && filters.timeRange.lastSeen) count++;
 
         // Traffic
-        if (State.filters.traffic &&
-            (State.filters.traffic.minTx > 0 ||
-                State.filters.traffic.minRx > 0 ||
-                State.filters.traffic.minPackets > 0)) {
+        if (filters.traffic &&
+            (filters.traffic.minTx > 0 ||
+                filters.traffic.minRx > 0 ||
+                filters.traffic.minPackets > 0)) {
             count++;
         }
 
         // RSSI (legacy, if not default)
-        if (State.filters.minRSSI && State.filters.minRSSI !== -100) count++;
+        if (filters.minRSSI && filters.minRSSI !== -100) count++;
 
         return count;
     },
@@ -251,26 +257,30 @@ export const FilterManager = {
      * Reset all filters to default
      */
     resetFilters() {
-        State.filters.showAP = true;
-        State.filters.showSta = true;
-        State.filters.persistFindings = true;
-        State.filters.minRSSI = -100;
-        State.filters.searchQuery = '';
-        State.filters.security = [];
-        State.filters.frequency = [];
-        State.filters.channels = [];
-        State.filters.vendors = [];
-        State.filters.signalRange = { min: -100, max: 0 };
-        State.filters.timeRange = { lastSeen: null };
-        State.filters.traffic = { minTx: 0, minRx: 0, minPackets: 0 };
+        const defaults = {
+            showAP: true,
+            showSta: true,
+            persistFindings: true,
+            minRSSI: -100,
+            searchQuery: '',
+            security: [],
+            frequency: [],
+            channels: [],
+            vendors: [],
+            signalRange: { min: -100, max: 0 },
+            timeRange: { lastSeen: null },
+            traffic: { minTx: 0, minRx: 0, minPackets: 0 },
 
-        // Reset boolean filters
-        State.filters.hasHandshake = false;
-        State.filters.hiddenSSID = false;
-        State.filters.wpsActive = false;
-        State.filters.randomizedMac = false;
+            // Reset boolean filters
+            hasHandshake: false,
+            hiddenSSID: false,
+            wpsActive: false,
+            randomizedMac: false,
 
-        State.filters.activePreset = null;
+            activePreset: null
+        };
+
+        Store.dispatch(Actions.FILTER_BATCH_UPDATED, defaults);
     },
 
     /**
@@ -283,7 +293,7 @@ export const FilterManager = {
         customPresets[id] = {
             name: name,
             icon: 'fa-star',
-            filters: { ...State.filters }
+            filters: { ...Store.state.filters }
         };
 
         localStorage.setItem('wmap_custom_presets', JSON.stringify(customPresets));
@@ -321,7 +331,7 @@ export const FilterManager = {
      * Export current filters as JSON
      */
     exportFilters() {
-        return JSON.stringify(State.filters, null, 2);
+        return JSON.stringify(Store.state.filters, null, 2);
     },
 
     /**
@@ -330,7 +340,7 @@ export const FilterManager = {
     importFilters(json) {
         try {
             const filters = JSON.parse(json);
-            Object.assign(State.filters, filters);
+            Store.dispatch(Actions.FILTER_BATCH_UPDATED, filters);
             return true;
         } catch (e) {
             console.error('Failed to import filters:', e);
@@ -344,7 +354,8 @@ export const FilterManager = {
     addToSearchHistory(query) {
         if (!query || query.length === 0) return;
 
-        const history = State.filters.searchHistory || [];
+        const filters = Store.state.filters;
+        const history = filters.searchHistory || [];
 
         // Remove duplicates
         const filtered = history.filter(q => q !== query);
@@ -353,10 +364,13 @@ export const FilterManager = {
         filtered.unshift(query);
 
         // Keep only last 10
-        State.filters.searchHistory = filtered.slice(0, 10);
+        const newHistory = filtered.slice(0, 10);
+
+        // Update State
+        Store.dispatch(Actions.FILTER_UPDATED, { key: 'searchHistory', value: newHistory });
 
         // Persist to localStorage
-        localStorage.setItem('wmap_search_history', JSON.stringify(State.filters.searchHistory));
+        localStorage.setItem('wmap_search_history', JSON.stringify(newHistory));
     },
 
     /**
@@ -365,7 +379,8 @@ export const FilterManager = {
     loadSearchHistory() {
         const stored = localStorage.getItem('wmap_search_history');
         if (stored) {
-            State.filters.searchHistory = JSON.parse(stored);
+            const history = JSON.parse(stored);
+            Store.dispatch(Actions.FILTER_UPDATED, { key: 'searchHistory', value: history });
         }
     }
 };

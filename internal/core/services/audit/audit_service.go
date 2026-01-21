@@ -2,7 +2,6 @@ package audit
 
 import (
 	"context"
-	"time"
 
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
 	"github.com/lcalzada-xor/wmap/internal/core/ports"
@@ -19,48 +18,29 @@ func NewAuditService(repo ports.AuditRepository) *AuditService {
 	return &AuditService{repo: repo}
 }
 
-func (s *AuditService) Log(ctx context.Context, action, target, details string) error {
-	// Extract User from Context (requires convention)
-	// We'll assume the controller puts "audit_user" or similar in context,
-	// or we just pass it explicitly. For now, let's look for "user" from our auth middleware
-	// but context keys are tricky across packages.
-
-	// Implementation note: The controller calls this. The controller has the User object.
-	// It's cleaner if the controller passes user info.
-	// Check if context has value. We can't import middleware here (cycle).
-	// We'll define a simpler pattern: Controller passes user, or we extract from a common domain key.
-
+func (s *AuditService) Log(ctx context.Context, action domain.AuditAction, target, details string) error {
+	// Extract User from Context
 	userID := "system"
 	username := "system"
 
-	// Attempt to get user from context if available via string key (simple but fragile)
-	// or assume the caller handles context injection using a shared key in domain?
-	// For this iteration, let's try to grab it if we can, or rely on caller to populate context.
-	// Let's assume we use a domain-defined context key.
-
-	// To avoid circular deps with middleware, we won't import middleware.
-
-	entry := domain.AuditLog{
-		UserID:    userID,
-		Username:  username,
-		Action:    action,
-		Target:    target,
-		Details:   details,
-		Timestamp: time.Now(),
-	}
-
 	// Try to extract user from context if we set it up properly in domain
 	if u, ok := ctx.Value("audit_user").(domain.User); ok {
-		entry.UserID = u.ID
-		entry.Username = u.Username
+		userID = u.ID
+		username = u.Username
 	} else if uPtr, ok := ctx.Value("audit_user").(*domain.User); ok {
-		entry.UserID = uPtr.ID
-		entry.Username = uPtr.Username
+		userID = uPtr.ID
+		username = uPtr.Username
 	}
 
-	return s.repo.SaveAuditLog(entry)
+	// Use Domain Factory to ensure business rules
+	entry, err := domain.NewAuditLog(userID, username, action, target, details, "") // IP extraction could be added here
+	if err != nil {
+		return err
+	}
+
+	return s.repo.SaveAuditLog(ctx, *entry)
 }
 
 func (s *AuditService) GetLogs(ctx context.Context, limit int) ([]domain.AuditLog, error) {
-	return s.repo.ListAuditLogs(limit)
+	return s.repo.ListAuditLogs(ctx, limit)
 }

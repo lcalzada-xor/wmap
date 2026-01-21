@@ -40,7 +40,7 @@ func ExportCSV(w io.Writer, devices []domain.Device) error {
 	for _, d := range devices {
 		row := []string{
 			d.MAC,
-			d.Type,
+			string(d.Type),
 			d.Vendor,
 			d.SSID,
 			d.Security,

@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -14,30 +15,32 @@ type MockRegistryGraph struct {
 	mock.Mock
 }
 
-func (m *MockRegistryGraph) ProcessDevice(d domain.Device) (domain.Device, bool) {
+func (m *MockRegistryGraph) ProcessDevice(ctx context.Context, d domain.Device) (domain.Device, bool) {
 	return d, false
 }
-func (m *MockRegistryGraph) LoadDevice(d domain.Device) {}
-func (m *MockRegistryGraph) GetDevice(mac string) (domain.Device, bool) {
+func (m *MockRegistryGraph) LoadDevice(ctx context.Context, d domain.Device) {}
+func (m *MockRegistryGraph) GetDevice(ctx context.Context, mac string) (domain.Device, bool) {
 	args := m.Called(mac)
 	return args.Get(0).(domain.Device), args.Bool(1)
 }
-func (m *MockRegistryGraph) GetAllDevices() []domain.Device {
+func (m *MockRegistryGraph) GetAllDevices(ctx context.Context) []domain.Device {
 	args := m.Called()
 	return args.Get(0).([]domain.Device)
 }
-func (m *MockRegistryGraph) GetSSIDs() map[string]bool {
+func (m *MockRegistryGraph) GetSSIDs(ctx context.Context) map[string]bool {
 	args := m.Called()
 	return args.Get(0).(map[string]bool)
 }
-func (m *MockRegistryGraph) GetActiveCount() int                   { return 0 }
-func (m *MockRegistryGraph) PruneOldDevices(ttl time.Duration) int { return 0 }
-func (m *MockRegistryGraph) Clear()                                {}
-func (m *MockRegistryGraph) GetSSIDSecurity(ssid string) (string, bool) {
+func (m *MockRegistryGraph) GetActiveCount(ctx context.Context) int                     { return 0 }
+func (m *MockRegistryGraph) PruneOldDevices(ctx context.Context, ttl time.Duration) int { return 0 }
+func (m *MockRegistryGraph) Clear(ctx context.Context)                                  {}
+func (m *MockRegistryGraph) GetSSIDSecurity(ctx context.Context, ssid string) (string, bool) {
 	return "", false // Default stub
 }
-func (m *MockRegistryGraph) UpdateSSID(ssid, security string)                  {}
-func (m *MockRegistryGraph) CleanupStaleConnections(timeout time.Duration) int { return 0 }
+func (m *MockRegistryGraph) UpdateSSID(ctx context.Context, ssid, security string) {}
+func (m *MockRegistryGraph) CleanupStaleConnections(ctx context.Context, timeout time.Duration) int {
+	return 0
+}
 
 // Helpers for test stubs
 func (m *MockRegistryGraph) Close() error { return nil }
@@ -47,14 +50,14 @@ func TestGraphBuilder_BuildGraph(t *testing.T) {
 	builder := NewGraphBuilder(mockReg)
 
 	// Mock Data
-	device1 := domain.Device{MAC: "00:11:22:33:44:55", Type: "station", Vendor: "Apple"}
-	ap1 := domain.Device{MAC: "AA:BB:CC:DD:EE:FF", Type: "ap", SSID: "MyWiFi", Vendor: "Cisco"}
+	device1 := domain.Device{MAC: "00:11:22:33:44:55", Type: domain.DeviceTypeStation, Vendor: "Apple"}
+	ap1 := domain.Device{MAC: "AA:BB:CC:DD:EE:FF", Type: domain.DeviceTypeAP, SSID: "MyWiFi", Vendor: "Cisco"}
 
 	// Expectations
 	mockReg.On("GetAllDevices").Return([]domain.Device{device1, ap1})
 	mockReg.On("GetSSIDs").Return(map[string]bool{"MyWiFi": true})
 
-	graph := builder.BuildGraph()
+	graph := builder.BuildGraph(context.Background())
 
 	// Verify Nodes
 	assert.Len(t, graph.Nodes, 3) // 2 devices + 1 SSID node
@@ -71,8 +74,8 @@ func TestGraphBuilder_BuildGraph(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, "station", stationNode.Group)
-	assert.Equal(t, "ap", apNode.Group)
+	assert.Equal(t, domain.GroupStation, stationNode.Group)
+	assert.Equal(t, domain.GroupAP, apNode.Group)
 	assert.Equal(t, "MyWiFi", ssidNode.Label)
 }
 
@@ -87,7 +90,7 @@ func TestGraphBuilder_Edges(t *testing.T) {
 	}
 	ap := domain.Device{
 		MAC:  "A1",
-		Type: "ap",
+		Type: domain.DeviceTypeAP,
 		SSID: "CorpNet",
 	}
 
@@ -98,7 +101,7 @@ func TestGraphBuilder_Edges(t *testing.T) {
 	// if device.ConnectedSSID != ""
 	mockReg.On("GetDevice", "A1").Return(ap, true)
 
-	graph := builder.BuildGraph()
+	graph := builder.BuildGraph(context.Background())
 
 	// Verify Edges
 	// Should have:

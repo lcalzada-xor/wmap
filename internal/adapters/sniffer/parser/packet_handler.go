@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"sync"
@@ -22,14 +23,11 @@ type PacketHandler struct {
 	Debug             bool
 	HandshakeManager  *handshake.HandshakeManager
 	FingerprintEngine *fingerprint.FingerprintEngine
+	VendorRepo        fingerprint.VendorRepository
 	PauseCallback     func(time.Duration)
 
 	// Optimization: Throttle cache (Sharded)
 	throttleCache *ShardedCache
-
-	// Optimization: Vendor Cache
-	vendorCache   map[string]string
-	vendorCacheMu sync.RWMutex
 }
 
 const shardCount = 32
@@ -79,33 +77,34 @@ func (sc *ShardedCache) shouldThrottle(key string, duration time.Duration) bool 
 }
 
 // getVendor returns cached vendor or looks it up
-func (h *PacketHandler) getVendor(mac string) string {
-	h.vendorCacheMu.RLock()
-	v, ok := h.vendorCache[mac]
-	h.vendorCacheMu.RUnlock()
-	if ok {
-		return v
+func (h *PacketHandler) getVendor(macStr string) string {
+	mac, err := fingerprint.ParseMAC(macStr)
+	if err != nil {
+		return ""
 	}
 
-	v = fingerprint.LookupVendor(mac)
-
-	h.vendorCacheMu.Lock()
-	h.vendorCache[mac] = v
-	h.vendorCacheMu.Unlock()
-
-	return v
+	// Use context.Background as this is a synchronous lookup in the packet path
+	// Ideally we'd propagate context from the top, but packet handling loop is long-running
+	if h.VendorRepo == nil {
+		return ""
+	}
+	vendor, err := h.VendorRepo.LookupVendor(context.Background(), mac)
+	if err != nil {
+		return ""
+	}
+	return vendor
 }
 
 // NewPacketHandler creates a new PacketHandler.
-func NewPacketHandler(loc geo.Provider, debug bool, hm *handshake.HandshakeManager, pauseFunc func(time.Duration)) *PacketHandler {
+func NewPacketHandler(loc geo.Provider, debug bool, hm *handshake.HandshakeManager, repo fingerprint.VendorRepository, pauseFunc func(time.Duration)) *PacketHandler {
 	return &PacketHandler{
 		Location:          loc,
 		Debug:             debug,
 		HandshakeManager:  hm,
 		FingerprintEngine: fingerprint.NewFingerprintEngine(fingerprint.NewSignatureStore(nil)),
+		VendorRepo:        repo,
 		PauseCallback:     pauseFunc,
 		throttleCache:     newShardedCache(),
-		vendorCache:       make(map[string]string),
 	}
 }
 
@@ -658,6 +657,12 @@ func (h *PacketHandler) detectPMKID(packet gopacket.Packet) *domain.Vulnerabilit
 			return nil
 		}
 		dot11 := dot11Layer.(*layers.Dot11)
+
+		// Save PMKID Packet
+		if h.HandshakeManager != nil {
+			h.HandshakeManager.SavePMKID(packet, dot11.Address3.String(), "")
+		}
+
 		return &domain.VulnerabilityTag{
 			Name:        "PMKID",
 			Severity:    domain.VulnSeverityHigh,

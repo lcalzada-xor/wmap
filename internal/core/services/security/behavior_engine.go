@@ -27,17 +27,8 @@ func (e *BehaviorEngine) UpdateProfile(profile domain.BehavioralProfile, device 
 	}
 
 	if device.Type == "station" || device.Type == "" {
-		hour := device.LastPacketTime.Hour()
-		exists := false
-		for _, h := range profile.ActiveHours {
-			if h == hour {
-				exists = true
-				break
-			}
-		}
-		if !exists {
-			profile.ActiveHours = append(profile.ActiveHours, hour)
-		}
+		// Use domain method for recording activity
+		profile.RecordActivity(device.LastPacketTime)
 
 		isProbe := false
 		for _, cap := range device.Capabilities {
@@ -48,17 +39,8 @@ func (e *BehaviorEngine) UpdateProfile(profile domain.BehavioralProfile, device 
 		}
 
 		if isProbe {
-			if !profile.LastProbeTime.IsZero() {
-				interval := device.LastPacketTime.Sub(profile.LastProbeTime)
-				if interval > 0 {
-					if profile.ProbeFrequency == 0 {
-						profile.ProbeFrequency = interval
-					} else {
-						profile.ProbeFrequency = time.Duration(float64(profile.ProbeFrequency)*0.7 + float64(interval)*0.3)
-					}
-				}
-			}
-			profile.LastProbeTime = device.LastPacketTime
+			// Use domain method for recording probes
+			profile.RecordProbe(device.LastPacketTime)
 		}
 	}
 

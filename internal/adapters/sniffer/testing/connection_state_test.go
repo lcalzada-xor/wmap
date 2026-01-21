@@ -18,7 +18,7 @@ import (
 // in the return condition.
 func TestAllConnectionStatesReturned(t *testing.T) {
 	mockLoc := ConnMockGeo{}
-	handler := parser.NewPacketHandler(mockLoc, false, nil, nil)
+	handler := parser.NewPacketHandler(mockLoc, false, nil, nil, nil)
 
 	staMAC := "00:11:22:33:44:55"
 	bssid := "aa:bb:cc:dd:ee:ff"
@@ -26,7 +26,7 @@ func TestAllConnectionStatesReturned(t *testing.T) {
 	// Define all expected states and their corresponding packet creators
 	testCases := []struct {
 		name          string
-		expectedState string
+		expectedState domain.ConnectionState
 		packetCreator func() gopacket.Packet
 	}{
 		{

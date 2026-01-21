@@ -95,7 +95,31 @@ func (h *WorkspaceHandler) HandleClear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.Service.ResetWorkspace()
+	h.Service.ResetWorkspace(r.Context())
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status":"workspace_cleared"}`))
+}
+
+// HandleDeleteWorkspace deletes a workspace
+func (h *WorkspaceHandler) HandleDeleteWorkspace(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid body", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.WorkspaceManager.DeleteWorkspace(req.Name); err != nil {
+		http.Error(w, "Failed to delete workspace: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"deleted"}`))
 }

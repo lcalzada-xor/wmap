@@ -12,6 +12,20 @@ export class WPSController {
         this.statusList = document.getElementById('wps-status-list');
         this.activeAttacks = new Map();
 
+        // Advanced Options Components
+        this.advToggle = document.getElementById('wps-advanced-toggle');
+        this.advPanel = document.getElementById('wps-advanced-options');
+        this.advChevron = document.getElementById('wps-advanced-chevron');
+
+        // Advanced Inputs
+        this.inputForcePixie = document.getElementById('wps-force-pixie');
+        this.inputSmallBH = document.getElementById('wps-small-dh');
+        this.inputIgnoreLocks = document.getElementById('wps-ignore-locks');
+        this.inputNoNacks = document.getElementById('wps-no-nacks');
+        this.inputWin7 = document.getElementById('wps-win7');
+        this.inputDelay = document.getElementById('wps-delay');
+        this.inputEapolTimeout = document.getElementById('wps-eapol-timeout');
+
         this.init();
     }
 
@@ -30,6 +44,19 @@ export class WPSController {
         // Start attack button
         document.getElementById('btn-start-wps')?.addEventListener('click', () => {
             this.startAttack();
+        });
+
+        // Advanced Options Toggle
+        this.advToggle?.addEventListener('click', () => {
+            if (this.advPanel.style.display === 'none') {
+                this.advPanel.style.display = 'block';
+                this.advChevron.classList.remove('fa-chevron-down');
+                this.advChevron.classList.add('fa-chevron-up');
+            } else {
+                this.advPanel.style.display = 'none';
+                this.advChevron.classList.remove('fa-chevron-up');
+                this.advChevron.classList.add('fa-chevron-down');
+            }
         });
 
         // Delegate event listeners for dynamic content
@@ -125,7 +152,16 @@ export class WPSController {
             target_bssid: bssid,
             channel: parseInt(channel) || 0,
             timeout_seconds: timeout,
-            interface: '' // Backend auto-detect
+            interface: '', // Backend auto-detect
+
+            // Advanced Options
+            force_pixie: this.inputForcePixie?.checked ?? true,
+            use_small_dh: this.inputSmallBH?.checked ?? true,
+            ignore_locks: this.inputIgnoreLocks?.checked ?? true,
+            no_nacks: this.inputNoNacks?.checked ?? true,
+            imitate_win7: this.inputWin7?.checked ?? false,
+            delay: parseInt(this.inputDelay?.value) || 0,
+            eapol_timeout: parseInt(this.inputEapolTimeout?.value) || 5
         };
 
         try {

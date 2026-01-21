@@ -145,6 +145,10 @@ func (f *EAPOLKeyFrame) DetermineMessageNumber() int {
 	// Robustness: What if it's M2 with Secure=1 (invalid)?
 	// If DataLen > 0, probably M2 or M3? But M3 has Ack=1.
 	// So purely M2 vs M4.
+	// Secure=1, No Ack, MIC=1 -> M4
+	// Robustness: What if it's M2 with Secure=1 (invalid)?
+	// If DataLen > 0, probably M2 or M3? But M3 has Ack=1.
+	// So purely M2 vs M4.
 	if f.KeyDataLength > 0 {
 		// Has data, but Secure=1.
 		// Could be Group Key Handshake (M1)? No, we checked IsPairwise already.
@@ -154,4 +158,17 @@ func (f *EAPOLKeyFrame) DetermineMessageNumber() int {
 	}
 
 	return 4
+}
+
+// IsMICZero checks if the MIC is all zeros (invalid).
+func (f *EAPOLKeyFrame) IsMICZero() bool {
+	if !f.HasMIC || len(f.MIC) == 0 {
+		return true
+	}
+	for _, b := range f.MIC {
+		if b != 0 {
+			return false
+		}
+	}
+	return true
 }

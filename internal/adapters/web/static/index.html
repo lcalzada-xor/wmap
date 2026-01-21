@@ -67,137 +67,103 @@
     </div>
 
     <!-- Main HUD Panel -->
-    <div class="hud-panel info-panel glass">
-        <h3>WMAP Intel</h3>
+    <div class="hud-panel info-panel glass sidebar-container">
+        <div class="sidebar-header">
+            <h3>WMAP Intel</h3>
+        </div>
 
-        <!-- Advanced Search Module -->
-        <div class="search-module">
-            <!-- Search Bar with Autocomplete -->
+        <!-- SEARCH MODULE -->
+        <div class="sidebar-section search-section" style="position: relative;">
             <div class="search-bar-advanced">
                 <i class="fas fa-search"></i>
-                <input type="text" id="node-search" placeholder="Search MAC, SSID, Vendor, Alias..." autocomplete="off">
+                <input type="text" id="node-search" placeholder="Search..." autocomplete="off">
                 <button id="btn-clear-search" class="icon-btn" title="Clear">
                     <i class="fas fa-times"></i>
                 </button>
-                <button id="btn-toggle-filters" class="icon-btn" title="Advanced Filters">
+                <button id="btn-toggle-filters" class="icon-btn filter-btn" title="Filters">
                     <i class="fas fa-sliders-h"></i>
                     <span class="badge" id="active-filters-count">0</span>
                 </button>
             </div>
 
             <!-- Autocomplete Dropdown -->
-            <div id="search-suggestions" class="suggestions-dropdown">
-                <!-- Populated by JS -->
-            </div>
+            <div id="search-suggestions" class="suggestions-dropdown"></div>
 
             <!-- Active Filter Tags -->
-            <div id="filter-tags" class="filter-tags">
-                <!-- Chips dinámicos: "WPA2 ×", "5GHz ×", etc. -->
-            </div>
-        </div>
+            <div id="filter-tags" class="filter-tags"></div>
 
-        <!-- Advanced Filters Panel (Collapsible) -->
-        <div id="advanced-filters-panel" class="advanced-filters glass" style="display:none;">
+            <!-- Advanced Filters Panel (Moved Inside for Relative Positioning) -->
+            <div id="advanced-filters-panel" class="advanced-filters glass" style="display:none;">
 
-            <!-- Quick Presets -->
-            <div class="filter-section">
-                <h4><i class="fas fa-bolt"></i> Quick Filters</h4>
-                <div class="preset-buttons">
-                    <!-- Populated by FilterUI -->
+                <!-- Security Filter -->
+                <div class="filter-section">
+                    <h4><i class="fas fa-shield-alt"></i> Security</h4>
+                    <div class="checkbox-group">
+                        <label><input type="checkbox" class="filter-security" value="WPA3"> WPA3</label>
+                        <label><input type="checkbox" class="filter-security" value="WPA2"> WPA2</label>
+                        <label><input type="checkbox" class="filter-security" value="WEP"> WEP</label>
+                        <label><input type="checkbox" class="filter-security" value="OPEN"> Open</label>
+                    </div>
                 </div>
-            </div>
-
-            <!-- Security Filter -->
-            <div class="filter-section">
-                <h4><i class="fas fa-shield-alt"></i> Security</h4>
-                <div class="checkbox-group">
-                    <label><input type="checkbox" class="filter-security" value="WPA3"> WPA3</label>
-                    <label><input type="checkbox" class="filter-security" value="WPA2"> WPA2</label>
-                    <label><input type="checkbox" class="filter-security" value="WEP"> WEP</label>
-                    <label><input type="checkbox" class="filter-security" value="OPEN"> Open</label>
+                <!-- Vulnerabilities Filter -->
+                <div class="filter-section">
+                    <h4><i class="fas fa-bug"></i> Vulnerabilities</h4>
+                    <div class="checkbox-group">
+                        <label><input type="checkbox" class="filter-vulnerability" value="WEP"> WEP Aircrack</label>
+                        <label><input type="checkbox" class="filter-vulnerability" value="WPS"> WPS Pixie</label>
+                        <label><input type="checkbox" class="filter-vulnerability" value="KRACK"> KRACK</label>
+                        <label><input type="checkbox" class="filter-vulnerability" value="DRAGON"> Dragonblood</label>
+                    </div>
                 </div>
-            </div>
-
-            <!-- Vulnerabilities Filter -->
-            <div class="filter-section">
-                <h4><i class="fas fa-bug"></i> Vulnerabilities</h4>
-                <div class="checkbox-group">
-                    <label><input type="checkbox" class="filter-vulnerability" value="WEP"> WEP Aircrack</label>
-                    <label><input type="checkbox" class="filter-vulnerability" value="WPS"> WPS Pixie</label>
-                    <label><input type="checkbox" class="filter-vulnerability" value="KRACK"> KRACK</label>
-                    <label><input type="checkbox" class="filter-vulnerability" value="DRAGON"> Dragonblood</label>
+                <!-- Frequency Filter -->
+                <div class="filter-section">
+                    <h4><i class="fas fa-broadcast-tower"></i> Frequency</h4>
+                    <div class="checkbox-group">
+                        <label><input type="checkbox" class="filter-frequency" value="2.4"> 2.4 GHz</label>
+                        <label><input type="checkbox" class="filter-frequency" value="5"> 5 GHz</label>
+                    </div>
                 </div>
-            </div>
-
-            <!-- Frequency Filter -->
-            <div class="filter-section">
-                <h4><i class="fas fa-broadcast-tower"></i> Frequency</h4>
-                <div class="checkbox-group">
-                    <label><input type="checkbox" class="filter-frequency" value="2.4"> 2.4 GHz</label>
-                    <label><input type="checkbox" class="filter-frequency" value="5"> 5 GHz</label>
+                <!-- Channel Filter -->
+                <div class="filter-section">
+                    <h4><i class="fas fa-hashtag"></i> Channels</h4>
+                    <select id="filter-channels" multiple class="multi-select"
+                        style="width: 100%; min-height: 80px;"></select>
+                    <div style="display: flex; gap: 8px; margin-top: 8px;">
+                        <button id="btn-select-common-24" class="action-btn-secondary" style="flex: 1;"><i
+                                class="fas fa-check"></i> 1,6,11</button>
+                        <button id="btn-clear-channels" class="action-btn-secondary" style="flex: 1;"><i
+                                class="fas fa-times"></i> Clear</button>
+                    </div>
                 </div>
-            </div>
-
-            <!-- Channel Filter -->
-            <div class="filter-section">
-                <h4><i class="fas fa-hashtag"></i> Channels</h4>
-                <select id="filter-channels" multiple class="multi-select"
-                    style="width: 100%; min-height: 80px; padding: 8px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: #fff;">
-                    <!-- Populated dynamically from detected channels -->
-                </select>
-                <div style="display: flex; gap: 8px; margin-top: 8px;">
-                    <button id="btn-select-common-24" class="action-btn-secondary"
-                        style="flex: 1; padding: 6px; font-size: 0.8em;">
-                        <i class="fas fa-check"></i> 1,6,11
-                    </button>
-                    <button id="btn-clear-channels" class="action-btn-secondary"
-                        style="flex: 1; padding: 6px; font-size: 0.8em;">
-                        <i class="fas fa-times"></i> Clear
-                    </button>
+                <!-- Vendor Filter -->
+                <div class="filter-section">
+                    <h4><i class="fas fa-industry"></i> Vendor</h4>
+                    <select id="filter-vendor" multiple class="multi-select"></select>
                 </div>
-            </div>
-
-            <!-- Vendor Filter -->
-            <div class="filter-section">
-                <h4><i class="fas fa-industry"></i> Vendor</h4>
-                <select id="filter-vendor" multiple class="multi-select">
-                    <!-- Populated dynamically from detected vendors -->
-                </select>
-            </div>
-
-            <!-- Advanced Status -->
-            <div class="filter-section">
-                <h4><i class="fas fa-microchip"></i> Target Status</h4>
-                <div class="checkbox-group">
-                    <label><input type="checkbox" class="filter-boolean" value="hasHandshake"> <i class="fas fa-key"
-                            style="color:var(--warning-color); margin-right:5px"></i> Has Handshake</label>
-                    <label><input type="checkbox" class="filter-boolean" value="hiddenSSID"> <i class="fas fa-eye-slash"
-                            style="color:var(--text-secondary); margin-right:5px"></i> Hidden SSID</label>
-                    <label><input type="checkbox" class="filter-boolean" value="wpsActive"> <i class="fas fa-lock-open"
-                            style="color:var(--success-color); margin-right:5px"></i> WPS Active</label>
-                    <label><input type="checkbox" class="filter-boolean" value="randomizedMac"> <i class="fas fa-random"
-                            style="color:var(--accent-color); margin-right:5px"></i> Randomized MAC</label>
+                <!-- Advanced Status -->
+                <div class="filter-section">
+                    <h4><i class="fas fa-microchip"></i> Target Status</h4>
+                    <div class="checkbox-group">
+                        <label><input type="checkbox" class="filter-boolean" value="hasHandshake"> Has Handshake</label>
+                        <label><input type="checkbox" class="filter-boolean" value="hiddenSSID"> Hidden SSID</label>
+                        <label><input type="checkbox" class="filter-boolean" value="wpsActive"> WPS Active</label>
+                        <label><input type="checkbox" class="filter-boolean" value="randomizedMac"> Randomized
+                            MAC</label>
+                    </div>
                 </div>
-            </div>
-
-            <!-- Signal Range -->
-            <div class="filter-section">
-                <h4><i class="fas fa-signal"></i> Signal Range</h4>
-                <div class="range-inputs">
-                    <input type="number" id="rssi-min" value="-100" min="-100" max="0" placeholder="Min">
-                    <span>to</span>
-                    <input type="number" id="rssi-max" value="0" min="-100" max="0" placeholder="Max">
-                    <span>dBm</span>
+                <!-- Signal Range -->
+                <div class="filter-section">
+                    <h4><i class="fas fa-signal"></i> Signal Range</h4>
+                    <div class="range-inputs">
+                        <input type="number" id="rssi-min" value="-100" min="-100" max="0" placeholder="Min">
+                        <span>to</span>
+                        <input type="number" id="rssi-max" value="0" min="-100" max="0" placeholder="Max">
+                    </div>
                 </div>
-            </div>
-
-            <!-- Time Range -->
-            <div class="filter-section">
-                <h4><i class="fas fa-clock"></i> Activity Time</h4>
-                <div class="form-group">
-                    <label>Last Seen:</label>
-                    <select id="time-range-preset"
-                        style="width: 100%; padding: 8px; margin-top: 4px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: #fff;">
+                <!-- Time Range -->
+                <div class="filter-section">
+                    <h4><i class="fas fa-clock"></i> Activity Time</h4>
+                    <select id="time-range-preset" style="width: 100%;">
                         <option value="">Any time</option>
                         <option value="5m">Last 5 minutes</option>
                         <option value="15m">Last 15 minutes</option>
@@ -206,131 +172,202 @@
                         <option value="custom">Custom Range...</option>
                     </select>
                 </div>
-            </div>
-
-            <!-- Traffic Filter -->
-            <div class="filter-section">
-                <h4><i class="fas fa-exchange-alt"></i> Traffic</h4>
-                <div class="traffic-inputs">
-                    <label>Min TX: <input type="number" id="traffic-min-tx" placeholder="0 bytes"></label>
-                    <label>Min RX: <input type="number" id="traffic-min-rx" placeholder="0 bytes"></label>
-                    <label>Min Packets: <input type="number" id="traffic-min-packets" placeholder="0"></label>
+                <!-- Traffic Filter -->
+                <div class="filter-section">
+                    <h4><i class="fas fa-exchange-alt"></i> Traffic</h4>
+                    <div class="traffic-inputs">
+                        <label>Min TX: <input type="number" id="traffic-min-tx" placeholder="0"></label>
+                        <label>Min RX: <input type="number" id="traffic-min-rx" placeholder="0"></label>
+                    </div>
                 </div>
-            </div>
-
-            <!-- Actions -->
-            <div class="filter-actions">
-                <button id="btn-reset-filters" class="action-btn-secondary">
-                    <i class="fas fa-undo"></i> Reset All
-                </button>
-                <button id="btn-save-preset" class="action-btn-secondary">
-                    <i class="fas fa-save"></i> Save Preset
-                </button>
+                <!-- Actions -->
+                <div class="filter-actions">
+                    <button id="btn-reset-filters" class="action-btn-secondary"><i class="fas fa-undo"></i>
+                        Reset</button>
+                    <button id="btn-save-preset" class="action-btn-secondary"><i class="fas fa-save"></i> Save</button>
+                </div>
             </div>
         </div>
 
-        <div class="control-group">
-            <label><input type="checkbox" id="filter-ap" checked> Show Access Points</label>
-            <label><input type="checkbox" id="filter-sta" checked> Show Stations</label>
+        <!-- QUICK FILTERS (Always Visible) -->
+        <div class="sidebar-section">
+            <div class="section-title">Quick Filters</div>
+            <div class="quick-filter-chips horizontal-scroll"></div>
+        </div>
 
-            <!-- RSSI Filter (Legacy) -->
-            <div style="margin-top: 15px; margin-bottom:15px;">
-                <label for="rssi-slider"
-                    style="font-size:0.9em; color:var(--accent-color); display:flex; justify-content:space-between; margin-bottom:5px;">
-                    <span>Min Signal:</span> <span id="rssi-val" style="font-weight:bold">-100</span> dBm
+        <!-- MAIN TOGGLES (AP/STA) -->
+        <div class="sidebar-section main-toggles">
+            <div class="toggle-row">
+                <span class="toggle-label">Show Access Points</span>
+                <label class="ios-switch">
+                    <input type="checkbox" id="filter-ap" checked>
+                    <span class="slider"></span>
                 </label>
-                <input type="range" id="rssi-slider" min="-100" max="-30" value="-100" step="5" style="width:100%">
             </div>
-
-            <div style="margin-top: 10px; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 10px;">
-                <label><input type="checkbox" id="toggle-grid" checked> <i class="fas fa-border-all"
-                        style="margin-right:8px"></i> Tactical Grid</label>
-                <label><input type="checkbox" id="toggle-trails" checked> <i class="fas fa-wind"
-                        style="margin-right:8px"></i> Motion Trails</label>
-                <label><input type="checkbox" id="toggle-heatmap"> <i class="fas fa-fire-alt"
-                        style="margin-right:8px"></i> Signal Heatmap</label>
-                <label><input type="checkbox" id="toggle-clustering"> <i class="fas fa-project-diagram"
-                        style="margin-right:8px"></i> Group Stations</label>
-                <label><input type="checkbox" id="toggle-physics" checked> <i class="fas fa-atom"
-                        style="margin-right:8px"></i> Physics Engine</label>
-                <button id="btn-stabilize" class="action-btn-secondary" style="width:100%; margin-top:5px; font-size:0.8em; padding:6px;">
-                    <i class="fas fa-snowflake"></i> Force Stabilize
-                </button>
-                <label><input type="checkbox" id="toggle-persist" checked> <i class="fas fa-history"
-                        style="margin-right:8px"></i> Persist Findings</label>
+            <div class="toggle-row">
+                <span class="toggle-label">Show Stations</span>
+                <label class="ios-switch">
+                    <input type="checkbox" id="filter-sta" checked>
+                    <span class="slider"></span>
+                </label>
             </div>
+        </div>
 
-            <!-- Session Management -->
-            <div style="margin-top: 20px; border-top: 1px solid var(--panel-border); padding-top: 15px;">
-                <h4
-                    style="font-size: 0.75em; color:var(--text-secondary); margin-bottom: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
-                    WORKSPACE MGMT</h4>
-                <div style="display:flex; gap:10px; margin-bottom:10px;">
-                    <button id="btn-health-monitor" class="action-btn-secondary"
-                        style="flex:1; padding:10px; cursor:pointer; font-size:0.9em;">
-                        <i class="fas fa-heartbeat"></i> Health
-                    </button>
-                    <button id="btn-export-report" class="action-btn-secondary"
-                        style="flex:1; padding:10px; cursor:pointer; font-size:0.9em;">
-                        <i class="fas fa-file-contract"></i> Reports
-                    </button>
-                    <button id="btn-clear-workspace" class="action-btn-secondary"
-                        style="flex:1; padding:10px; cursor:pointer; font-size:0.9em; color: var(--danger-color); border-color: rgba(255, 59, 48, 0.3);">
-                        <i class="fas fa-trash-alt"></i> Clear
-                    </button>
+        <!-- SIGNAL SLIDER -->
+        <div class="sidebar-section signal-section">
+            <div class="slider-header">
+                <span>Min Signal</span>
+                <span id="rssi-val" class="slider-value">-100 dBm</span>
+            </div>
+            <input type="range" id="rssi-slider" min="-100" max="-30" value="-100" step="5" class="ios-slider">
+        </div>
+
+        <!-- VIEW OPTIONS LIST -->
+        <div class="sidebar-section view-options">
+            <h4 class="section-title">VISUALIZATION</h4>
+
+            <div class="option-row">
+                <div class="option-info">
+                    <i class="fas fa-border-all icon-box"></i>
+                    <span>Tactical Grid</span>
                 </div>
+                <label class="ios-switch sm">
+                    <input type="checkbox" id="toggle-grid" checked>
+                    <span class="slider"></span>
+                </label>
             </div>
 
-            <!-- Channel Selection Button -->
-            <div style="margin-top: 20px; border-top: 1px solid var(--panel-border); padding-top: 15px;">
-                <button id="btn-channel-config" class="action-btn-secondary"
-                    style="width:100%; padding:10px; cursor:pointer; font-size:0.9em;">
-                    <i class="fas fa-broadcast-tower"></i> Channel Configuration
-                </button>
+            <div class="option-row">
+                <div class="option-info">
+                    <i class="fas fa-wind icon-box"></i>
+                    <span>Motion Trails</span>
+                </div>
+                <label class="ios-switch sm">
+                    <input type="checkbox" id="toggle-trails" checked>
+                    <span class="slider"></span>
+                </label>
             </div>
 
-            <!-- Deauth Attack Toggle -->
-            <div style="margin-top: 10px;">
-                <button id="btn-toggle-deauth" class="action-btn-secondary"
-                    style="width:100%; padding:10px; cursor:pointer; font-size:0.9em; background: rgba(255, 69, 58, 0.15); border: 1px solid rgba(255, 69, 58, 0.3); color: var(--danger-color);">
-                    <i class="fas fa-bolt"></i> Deauth Visualizer
-                </button>
+            <div class="option-row">
+                <div class="option-info">
+                    <i class="fas fa-fire-alt icon-box"></i>
+                    <span>Signal Heatmap</span>
+                </div>
+                <label class="ios-switch sm">
+                    <input type="checkbox" id="toggle-heatmap">
+                    <span class="slider"></span>
+                </label>
             </div>
 
-            <!-- WPS Pixie Dust Toggle -->
-            <div style="margin-top: 5px;">
-                <button id="btn-toggle-wps" class="action-btn-secondary"
-                    style="width:100%; padding:10px; cursor:pointer; font-size:0.9em; background: rgba(255, 179, 0, 0.15); border: 1px solid rgba(255, 179, 0, 0.3); color: var(--warning-color);">
-                    <i class="fas fa-magic"></i> Pixie Dust Attack
-                </button>
+            <div class="option-row">
+                <div class="option-info">
+                    <i class="fas fa-project-diagram icon-box"></i>
+                    <span>Group Stations</span>
+                </div>
+                <label class="ios-switch sm">
+                    <input type="checkbox" id="toggle-clustering">
+                    <span class="slider"></span>
+                </label>
             </div>
 
-            <!-- MDK Auth Flood Toggle -->
-            <div style="margin-top: 5px;">
-                <button id="btn-toggle-auth-flood" class="action-btn-secondary"
-                    style="width:100%; padding:10px; cursor:pointer; font-size:0.9em; background: rgba(180, 0, 255, 0.15); border: 1px solid rgba(180, 0, 255, 0.3); color: #c300ff;">
-                    <i class="fas fa-ghost"></i> Auth Flood (MDK)
-                </button>
+            <div class="option-row">
+                <div class="option-info">
+                    <i class="fas fa-atom icon-box"></i>
+                    <span>Physics Engine</span>
+                </div>
+                <label class="ios-switch sm">
+                    <input type="checkbox" id="toggle-physics" checked>
+                    <span class="slider"></span>
+                </label>
             </div>
 
-            <button id="btn-active-scan" class="action-btn"
-                style="width:100%; margin-top:15px; background:var(--danger-color); color:white; border:none; padding:12px; cursor:pointer; font-family:var(--font-head);">
-                <i class="fas fa-radar"></i> ACTIVE SCAN
+            <div class="option-row">
+                <div class="option-info">
+                    <i class="fas fa-history icon-box"></i>
+                    <span>Persist Findings</span>
+                </div>
+                <label class="ios-switch sm">
+                    <input type="checkbox" id="toggle-persist" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <button id="btn-stabilize" class="glass-btn-subtle">
+                <i class="fas fa-snowflake"></i> Force Stabilize
             </button>
         </div>
 
-        <div style="border-top: 1px solid var(--panel-border); padding-top: 20px; margin-top: 20px;">
-            <div class="legend-item">
-                <span class="legend-icon" style="color:var(--accent-color)"><i class="fas fa-server"></i></span> Network
+        <!-- WORKSPACE & TOOLS -->
+        <div class="sidebar-section workspace-tools">
+            <h4 class="section-title">WORKSPACE</h4>
+            <div class="tools-grid">
+                <button id="btn-health-monitor" class="tool-btn" title="Health">
+                    <i class="fas fa-heartbeat"></i>
+                </button>
+                <button id="btn-export-report" class="tool-btn" title="Reports">
+                    <i class="fas fa-file-contract"></i>
+                </button>
+                <button id="btn-channel-config" class="tool-btn" title="Channels">
+                    <i class="fas fa-broadcast-tower"></i>
+                </button>
+                <button id="btn-clear-workspace" class="tool-btn danger" title="Clear">
+                    <i class="fas fa-trash-alt"></i>
+                </button>
             </div>
-            <div class="legend-item">
+        </div>
+
+        <!-- ATTACK MODULES -->
+        <div class="sidebar-section attack-modules">
+            <h4 class="section-title">ATTACK MODULES</h4>
+
+            <button id="btn-toggle-deauth" class="glass-card-btn danger-glow">
+                <div class="card-icon"><i class="fas fa-bolt"></i></div>
+                <div class="card-content">
+                    <span class="card-title">Deauth Visualizer</span>
+                    <span class="card-desc">Jamming & Disruption</span>
+                </div>
+                <i class="fas fa-chevron-right card-arrow"></i>
+            </button>
+
+            <button id="btn-toggle-wps" class="glass-card-btn warning-glow">
+                <div class="card-icon"><i class="fas fa-magic"></i></div>
+                <div class="card-content">
+                    <span class="card-title">Pixie Dust</span>
+                    <span class="card-desc">WPS Offline Attack</span>
+                </div>
+                <i class="fas fa-chevron-right card-arrow"></i>
+            </button>
+
+            <button id="btn-toggle-auth-flood" class="glass-card-btn purple-glow">
+                <div class="card-icon"><i class="fas fa-ghost"></i></div>
+                <div class="card-content">
+                    <span class="card-title">Auth Flood</span>
+                    <span class="card-desc">MDK Authentication DoS</span>
+                </div>
+                <i class="fas fa-chevron-right card-arrow"></i>
+            </button>
+
+            <button id="btn-active-scan" class="active-scan-btn">
+                <i class="fas fa-radar"></i> START ACTIVE SCAN
+            </button>
+        </div>
+
+
+        <div class="network-summary">
+            <div class="summary-row">
+                <span class="legend-icon" style="color:var(--accent-color)"><i class="fas fa-server"></i></span>
+                <span class="label">Network</span>
+            </div>
+            <div class="summary-row">
                 <span class="legend-icon" style="color:var(--success-color)"><i class="fas fa-wifi"></i></span>
-                Access Point (<span id="stat-ap">0</span>)
+                <span class="label">Access Points</span>
+                <span class="value" id="stat-ap">0</span>
             </div>
-            <div class="legend-item">
+            <div class="summary-row">
                 <span class="legend-icon" style="color:var(--danger-color)"><i
                         class="fas fa-mobile-screen-button"></i></span>
-                Station (<span id="stat-sta">0</span>)
+                <span class="label">Stations</span>
+                <span class="value" id="stat-sta">0</span>
             </div>
         </div>
     </div>
@@ -358,42 +395,40 @@
     </div>
 
     <!-- Workspace Selection Modal -->
-    <div id="workspace-modal" class="custom-modal" style="background: rgba(0,0,0,0.85); backdrop-filter: blur(10px);">
-        <div class="modal-content"
-            style="border: 1px solid var(--accent-color); box-shadow: 0 0 20px rgba(0, 240, 255, 0.2);">
-            <h3
-                style="margin-bottom: 20px; color: var(--accent-color); font-family: var(--font-head); letter-spacing: 1px;">
-                <i class="fas fa-database"></i> SELECT WORKSPACE
-            </h3>
+    <div id="workspace-modal" class="custom-modal">
+        <div class="modal-content">
+            <div class="workspace-header">
+                <h3>
+                    <i class="fas fa-database"></i> SELECT WORKSPACE
+                </h3>
+            </div>
 
-            <div style="margin-bottom: 25px;">
-                <label style="display:block; margin-bottom:10px; font-size:0.9em; color:var(--text-secondary);">Load
-                    Existing Workspace</label>
-                <div style="display: flex; gap: 10px;">
-                    <select id="workspace-select"
-                        style="flex: 1; padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid var(--panel-border); color: white; border-radius: 6px;">
+            <div class="workspace-section">
+                <label class="workspace-label">Load Existing Workspace</label>
+                <div class="workspace-controls">
+                    <select id="workspace-select">
                         <option value="">-- Select Workspace --</option>
                     </select>
-                    <button id="btn-workspace-load" class="action-btn" style="padding: 10px 20px;">LOAD</button>
+                    <button id="btn-workspace-load" class="btn-workspace-action btn-load">LOAD</button>
+                    <button id="btn-workspace-delete" class="btn-workspace-action btn-delete" title="Delete Workspace">
+                        <i class="fas fa-trash"></i>
+                    </button>
                 </div>
             </div>
 
-            <div style="position: relative; margin: 20px 0; border-top: 1px dashed rgba(255,255,255,0.2);">
-                <span
-                    style="position: absolute; top: -10px; left: 50%; transform: translateX(-50%); background: #000; padding: 0 10px; color: var(--text-secondary); font-size: 0.8em;">OR</span>
+            <div class="workspace-or-divider">
+                <span>OR</span>
             </div>
 
-            <div>
-                <label style="display:block; margin-bottom:10px; font-size:0.9em; color:var(--text-secondary);">Create
-                    New Workspace</label>
-                <div style="display: flex; gap: 10px;">
-                    <input type="text" id="workspace-new-name" placeholder="Enter workspace name..."
-                        style="flex: 1; padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid var(--panel-border); color: white; border-radius: 6px;">
-                    <button id="btn-workspace-create" class="action-btn-secondary"
-                        style="padding: 10px 20px; background: var(--success-color); color: black; border: none;">CREATE</button>
+            <div class="workspace-section">
+                <label class="workspace-label">Create New Workspace</label>
+                <div class="workspace-controls">
+                    <input type="text" id="workspace-new-name" placeholder="Enter workspace name...">
+                    <button id="btn-workspace-create" class="btn-workspace-action btn-create">CREATE</button>
                 </div>
             </div>
         </div>
+    </div>
     </div>
 
     <!-- Notification Area -->
@@ -488,41 +523,6 @@
     <script src="js/auth.js?v=2"></script>
     <script type="module" src="js/main.js?v=2"></script>
 
-    <!-- Audit Logs Modal -->
-    <div id="audit-modal" class="custom-modal">
-        <div class="modal-content" style="max-width: 900px; max-height: 80vh; overflow-y: auto;">
-            <h3 style="margin-bottom: 20px; color: var(--accent-color);">
-                <i class="fas fa-history"></i> System Audit Logs
-            </h3>
-
-            <div id="audit-loading" style="text-align: center; padding: 20px; display: none;">
-                <i class="fas fa-spinner fa-spin fa-2x"></i>
-            </div>
-
-            <div class="table-container" style="overflow-x: auto;">
-                <table id="audit-table" style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
-                    <thead>
-                        <tr style="border-bottom: 1px solid var(--panel-border); text-align: left;">
-                            <th style="padding: 10px;">Timestamp</th>
-                            <th style="padding: 10px;">User</th>
-                            <th style="padding: 10px;">Action</th>
-                            <th style="padding: 10px;">Target</th>
-                            <th style="padding: 10px;">Details</th>
-                        </tr>
-                    </thead>
-                    <tbody id="audit-list">
-                        <!-- Populated via JS -->
-                    </tbody>
-                </table>
-            </div>
-
-            <button id="btn-refresh-audit" class="action-btn-secondary" style="margin-right: 10px;">
-                <i class="fas fa-sync"></i> Refresh
-            </button>
-            <button id="btn-close-audit" class="action-btn-secondary"
-                style="background: rgba(255,255,255,0.1);">Close</button>
-        </div>
-    </div>
 
     <!-- WPS Pixie Dust Panel -->
     <div id="wps-panel" class="hud-panel wps-panel glass">
@@ -561,6 +561,53 @@
                     (Seconds):</label>
                 <input type="number" id="wps-timeout" value="120" min="30" max="600"
                     style="width: 100%; padding: 8px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: #fff;">
+            </div>
+
+            <!-- Advanced Options -->
+            <div style="margin-bottom: 15px; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 10px;">
+                <div id="wps-advanced-toggle"
+                    style="cursor: pointer; color: var(--accent-color); font-size: 0.85em; display: flex; align-items: center; justify-content: space-between;">
+                    <span><i class="fas fa-sliders-h"></i> Advanced Options</span>
+                    <i class="fas fa-chevron-down" id="wps-advanced-chevron"></i>
+                </div>
+
+                <div id="wps-advanced-options"
+                    style="display: none; margin-top: 10px; font-size: 0.8em; color: var(--text-secondary);">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="checkbox" id="wps-force-pixie" checked style="margin-right: 6px;"> Force Pixie
+                            (-K)
+                        </label>
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="checkbox" id="wps-small-dh" checked style="margin-right: 6px;"> Small DH (-S)
+                        </label>
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="checkbox" id="wps-ignore-locks" checked style="margin-right: 6px;"> Ignore
+                            Locks (-L)
+                        </label>
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="checkbox" id="wps-no-nacks" checked style="margin-right: 6px;"> No Nacks (-N)
+                        </label>
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="checkbox" id="wps-win7" style="margin-right: 6px;"> Imitate Win7 (-w)
+                        </label>
+                    </div>
+
+                    <div style="margin-top: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div>
+                            <label style="display: block; margin-bottom: 2px;">Delay (-d):</label>
+                            <input type="number" id="wps-delay" value="0" min="0"
+                                style="width: 100%; padding: 4px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: white;"
+                                title="Delay between pin attempts. Use 1-2 for Movistar.">
+                        </div>
+                        <div>
+                            <label style="display: block; margin-bottom: 2px;">EAPOL Timeout (-t):</label>
+                            <input type="number" id="wps-eapol-timeout" value="5" min="1" max="60"
+                                style="width: 100%; padding: 4px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: white;"
+                                title="Time to wait for EAPOL response. Increase if connection fails.">
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <button id="btn-start-wps" class="action-btn"
@@ -616,6 +663,46 @@
                     style="width: 100%; padding: 8px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: #fff;">
             </div>
 
+            <div class="form-group" style="margin-bottom: 12px;">
+                <label style="display: block; color: #fff; font-size: 0.85em; margin-bottom: 5px;">Attack Type:</label>
+                <select id="auth-flood-type"
+                    style="width: 100%; padding: 8px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: #fff;">
+                    <option value="auth">Authentication Flood</option>
+                    <option value="assoc">Association Flood (Crash AP)</option>
+                </select>
+            </div>
+
+            <div class="form-group" id="auth-flood-ssid-group" style="margin-bottom: 12px; display: none;">
+                <label style="display: block; color: #fff; font-size: 0.85em; margin-bottom: 5px;">Target SSID
+                    (Required):</label>
+                <input type="text" id="auth-flood-ssid" placeholder="Enter target SSID or use Auto"
+                    style="width: 100%; padding: 8px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: #fff;">
+            </div>
+
+            <div class="form-group" style="margin-bottom: 12px;">
+                <label style="display: block; color: #fff; font-size: 0.85em; margin-bottom: 5px;">Packet Interval
+                    (ms):</label>
+                <input type="number" id="auth-flood-interval" value="10" min="1"
+                    style="width: 100%; padding: 8px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: #fff;">
+            </div>
+
+
+            <div class="form-group"
+                style="margin-bottom: 12px; border: 1px dashed rgba(255,255,255,0.2); padding: 10px; border-radius: 6px;">
+                <label style="display: block; color: var(--accent-color); font-size: 0.85em; margin-bottom: 8px;">Source
+                    MAC:</label>
+                <div style="display: flex; gap: 15px; margin-bottom: 8px;">
+                    <label style="color: #fff; font-size: 0.85em; cursor: pointer;">
+                        <input type="radio" name="auth-flood-mac-mode" value="random" checked> Random
+                    </label>
+                    <label style="color: #fff; font-size: 0.85em; cursor: pointer;">
+                        <input type="radio" name="auth-flood-mac-mode" value="fixed"> Fixed
+                    </label>
+                </div>
+                <input type="text" id="auth-flood-fixed-mac" placeholder="00:11:22:33:44:55" disabled
+                    style="width: 100%; padding: 6px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: #aaa;">
+            </div>
+
             <button id="btn-start-auth-flood" class="action-btn"
                 style="width: 100%; margin-top: 10px; background: linear-gradient(135deg, #b400ff, #e040fb); color: white; padding: 12px 24px; border: none; border-radius: 8px; cursor: pointer; font-weight: 700;">
                 <i class="fas fa-ghost"></i> FLOOD
@@ -653,6 +740,20 @@
                 <i class="fas fa-cog"></i> Attack Configuration
             </h4>
 
+            <!-- Presets -->
+            <div class="form-group" style="margin-bottom: 15px;">
+                <label style="display: block; color: var(--accent-color); font-size: 0.85em; margin-bottom: 5px;"><i
+                        class="fas fa-bolt"></i> Attack Strategy (Preset):</label>
+                <select id="deauth-preset"
+                    style="width: 100%; padding: 8px; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--accent-color); border-radius: 6px; color: #fff;">
+                    <option value="custom">Manual / Custom</option>
+                    <option value="handshake">Handshake Capture (Trigger Roam)</option>
+                    <option value="disconnect">Connection Killer (High Power)</option>
+                    <option value="stealth">Stealth Disconnect (Low & Slow)</option>
+                    <option value="annoy">Nuisance (Random Bursts)</option>
+                </select>
+            </div>
+
             <div class="form-group" style="margin-bottom: 12px;">
                 <label style="display: block; color: #fff; font-size: 0.85em; margin-bottom: 5px;">Interface:</label>
                 <select id="deauth-interface"
@@ -661,18 +762,25 @@
                 </select>
             </div>
 
-            <div class="form-group" style="margin-bottom: 15px;">
-                <label style="display: flex; align-items: center; color: #fff; font-size: 0.85em; cursor: pointer;">
-                    <input type="checkbox" id="deauth-stealth" checked style="margin-right: 8px;">
-                    <span style="color: #ff6b6b;">Stealth Mode (Reason Fuzzing)</span>
-                </label>
+            <!-- Advanced Options Toggle -->
+            <div style="margin-bottom: 10px;">
+                <div id="btn-toggle-advanced-deauth"
+                    style="cursor: pointer; color: var(--text-secondary); font-size: 0.85em; display: flex; align-items: center;">
+                    <i class="fas fa-chevron-right" style="margin-right: 5px; transition: transform 0.2s;"></i> Advanced
+                    Options & Stealth
+                </div>
             </div>
 
-            <div style="margin-bottom: 15px; text-align: right;">
-                <button id="mitm-prep-btn"
-                    style="font-size: 0.75em; background: rgba(255, 179, 0, 0.15); color: #ffb300; border: 1px solid rgba(255, 179, 0, 0.3); padding: 4px 10px; border-radius: 4px; cursor: pointer;">
-                    Apply MitM Prep Preset
-                </button>
+            <div id="deauth-advanced-options"
+                style="display: none; padding-left: 10px; border-left: 2px solid rgba(255,255,255,0.1); margin-bottom: 15px;">
+                <div class="checkbox-group" style="display: flex; flex-direction: column; gap: 8px; margin-top: 5px;">
+                    <label style="font-size: 0.8em; color: #ddd;"><input type="checkbox" id="deauth-spoof" checked>
+                        Spoof Source MAC (AP)</label>
+                    <label style="font-size: 0.8em; color: #ddd;"><input type="checkbox" id="deauth-jitter" checked>
+                        Randomize Interval (Jitter)</label>
+                    <label style="font-size: 0.8em; color: #ddd;"><input type="checkbox" id="deauth-reason-fuzz"
+                            checked> Randomize Reason Codes</label>
+                </div>
             </div>
 
             <label style="display: block; margin-top: 12px; color: #fff; font-size: 0.85em;">Target Device (AP):</label>

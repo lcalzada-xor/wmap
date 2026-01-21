@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -15,15 +16,18 @@ func main() {
 	}
 	defer db.Close()
 
+	ctx := context.Background()
+
 	// Get stats
-	count, lastUpdate, err := db.GetStats()
+	stats, err := db.GetStats(ctx)
 	if err != nil {
 		log.Fatalf("Failed to get stats: %v", err)
 	}
 
 	fmt.Printf("OUI Database Statistics:\n")
-	fmt.Printf("  Total entries: %d\n", count)
-	fmt.Printf("  Last updated: %s\n", lastUpdate.Format("2006-01-02 15:04:05"))
+	fmt.Printf("  Total entries: %d\n", stats.TotalEntries)
+	fmt.Printf("  Last updated: %s\n", stats.LastUpdated)
+	fmt.Printf("  Cache stats: Hits=%d Misses=%d\n", stats.CacheHits, stats.CacheMisses)
 	fmt.Println()
 
 	// Test lookups
@@ -39,12 +43,18 @@ func main() {
 	}
 
 	fmt.Println("Test Lookups:")
-	for _, mac := range testMACs {
-		vendor, err := db.LookupVendor(mac)
+	for _, macStr := range testMACs {
+		mac, err := fingerprint.ParseMAC(macStr)
 		if err != nil {
-			log.Printf("  %s -> ERROR: %v", mac, err)
+			log.Printf("  %s -> Invalid format: %v", macStr, err)
+			continue
+		}
+
+		vendor, err := db.LookupVendor(ctx, mac)
+		if err != nil {
+			log.Printf("  %s -> ERROR: %v", macStr, err)
 		} else {
-			fmt.Printf("  %s -> %s\n", mac, vendor)
+			fmt.Printf("  %s -> %s\n", macStr, vendor)
 		}
 	}
 }

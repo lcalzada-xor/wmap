@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/parser"
+	"github.com/lcalzada-xor/wmap/internal/core/domain"
 
 	"github.com/lcalzada-xor/wmap/internal/geo"
 )
@@ -27,7 +28,7 @@ func TestHandlePacket(t *testing.T) {
 	tests := []struct {
 		name         string
 		packetFunc   func() *PacketBuilder
-		wantType     string
+		wantType     domain.DeviceType
 		wantMAC      string
 		wantSSID     string
 		wantSecurity string
@@ -39,7 +40,7 @@ func TestHandlePacket(t *testing.T) {
 			packetFunc: func() *PacketBuilder {
 				return NewPacketBuilder().AddMgmtBeacon(apMac, apMac, "Open-AP")
 			},
-			wantType:     "ap",
+			wantType:     domain.DeviceTypeAP,
 			wantMAC:      apMac.String(),
 			wantSSID:     "Open-AP",
 			wantSecurity: "OPEN",
@@ -53,7 +54,7 @@ func TestHandlePacket(t *testing.T) {
 					AddRSNIE().
 					AddWPSIE("SuperRouter 3000")
 			},
-			wantType:     "ap",
+			wantType:     domain.DeviceTypeAP,
 			wantMAC:      apMac.String(),
 			wantSSID:     "Secure-AP",
 			wantSecurity: "WPA2-PSK",
@@ -65,7 +66,7 @@ func TestHandlePacket(t *testing.T) {
 			packetFunc: func() *PacketBuilder {
 				return NewPacketBuilder().AddMgmtProbeReq(staMac, "")
 			},
-			wantType: "station",
+			wantType: domain.DeviceTypeStation,
 			wantMAC:  staMac.String(),
 			wantSSID: "",
 			wantNil:  false,
@@ -76,7 +77,7 @@ func TestHandlePacket(t *testing.T) {
 				// ToDS=1, FromDS=0. Addr1=BSSID, Addr2=SA
 				return NewPacketBuilder().AddDataFrame(true, false, apMac, staMac, broadcast, []byte("payload"))
 			},
-			wantType: "station",
+			wantType: domain.DeviceTypeStation,
 			wantMAC:  staMac.String(),
 			wantNil:  false,
 		},
@@ -86,7 +87,7 @@ func TestHandlePacket(t *testing.T) {
 				// ToDS=0, FromDS=1. Addr1=DA(STA), Addr2=BSSID
 				return NewPacketBuilder().AddDataFrame(false, true, staMac, apMac, broadcast, []byte("payload"))
 			},
-			wantType: "station",
+			wantType: domain.DeviceTypeStation,
 			wantMAC:  staMac.String(), // We track the receiver
 			wantNil:  false,
 		},
@@ -103,7 +104,7 @@ func TestHandlePacket(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockLoc := MockGeo{}
-			handler := parser.NewPacketHandler(mockLoc, true, nil, nil)
+			handler := parser.NewPacketHandler(mockLoc, true, nil, nil, nil)
 			pb := tt.packetFunc()
 			packet := pb.Build()
 			if packet == nil {
@@ -153,7 +154,7 @@ func TestHandlePacket(t *testing.T) {
 
 func BenchmarkHandlePacket_Beacon(b *testing.B) {
 	mockLoc := MockGeo{}
-	handler := parser.NewPacketHandler(mockLoc, false, nil, nil)
+	handler := parser.NewPacketHandler(mockLoc, false, nil, nil, nil)
 	apMac := net.HardwareAddr{0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF}
 
 	packet := NewPacketBuilder().
@@ -169,7 +170,7 @@ func BenchmarkHandlePacket_Beacon(b *testing.B) {
 
 func BenchmarkHandlePacket_Data(b *testing.B) {
 	mockLoc := MockGeo{}
-	handler := parser.NewPacketHandler(mockLoc, false, nil, nil)
+	handler := parser.NewPacketHandler(mockLoc, false, nil, nil, nil)
 	apMac := net.HardwareAddr{0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF}
 	staMac := net.HardwareAddr{0x11, 0x22, 0x33, 0x44, 0x55, 0x66}
 

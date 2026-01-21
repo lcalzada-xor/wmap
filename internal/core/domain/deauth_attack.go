@@ -1,105 +1,177 @@
 package domain
 
-import "time"
+import (
+	"errors"
+	"fmt"
+	"time"
+)
 
-// DeauthType represents the type of deauthentication attack
+// DeauthType represents the technical variant of the deauthentication attack.
 type DeauthType string
 
 const (
-	// DeauthBroadcast deauthenticates all clients from an AP
+	// DeauthBroadcast targets all clients connected to an Access Point.
 	DeauthBroadcast DeauthType = "broadcast"
-	// DeauthUnicast deauthenticates a specific client
+	// DeauthUnicast targets a single specific client on an Access Point.
 	DeauthUnicast DeauthType = "unicast"
-	// DeauthTargeted performs bidirectional deauth (AP<->Client)
+	// DeauthTargeted performs a bidirectional attack between the AP and a specific client.
 	DeauthTargeted DeauthType = "targeted"
 )
 
-// AttackStatus represents the current state of an attack
+// AttackStatus represents the lifecycle state of a security attack.
+// Note: This type is shared across multiple attack domains (AuthFlood, WPS, Deauth).
 type AttackStatus string
 
 const (
-	// AttackPending indicates the attack is queued but not started
 	AttackPending AttackStatus = "pending"
-	// AttackRunning indicates the attack is actively sending packets
 	AttackRunning AttackStatus = "running"
-	// AttackPaused indicates the attack is temporarily paused
-	AttackPaused AttackStatus = "paused"
-	// AttackStopped indicates the attack has been stopped
+	AttackPaused  AttackStatus = "paused"
 	AttackStopped AttackStatus = "stopped"
-	// AttackFailed indicates the attack encountered an error
-	AttackFailed AttackStatus = "failed"
+	AttackFailed  AttackStatus = "failed"
 )
 
-// DeauthAttackConfig contains the configuration for a deauthentication attack
+// DeauthAttackConfig defines the parameters required to execute a deauthentication attack.
 type DeauthAttackConfig struct {
-	// TargetMAC is the MAC address of the AP or client to attack
+	// TargetMAC is the MAC address of the Access Point or the primary target.
 	TargetMAC string `json:"target_mac"`
 
-	// ClientMAC is the MAC address of the client (optional, for unicast/targeted)
+	// ClientMAC is the specific station MAC address (required for unicast/targeted).
 	ClientMAC string `json:"client_mac,omitempty"`
 
-	// AttackType specifies the type of deauth attack
+	// AttackType determines the 802.11 frame targeting strategy.
 	AttackType DeauthType `json:"attack_type"`
 
-	// PacketCount is the number of packets to send (0 = continuous)
+	// PacketCount is the total number of frames to send (0 for infinite).
 	PacketCount int `json:"packet_count"`
 
-	// PacketInterval is the time between packets
+	// PacketInterval is the delay between individual frame bursts.
 	PacketInterval time.Duration `json:"packet_interval"`
 
-	// ReasonCode is the 802.11 reason code for deauthentication
+	// ReasonCode is the 802.11 Reason Code field value (standard: 7).
 	ReasonCode uint16 `json:"reason_code"`
 
-	// Channel is the WiFi channel to perform the attack on
+	// Channel is the physical frequency channel (1-165).
 	Channel int `json:"channel"`
 
-	// Interface is the network interface to use for the attack
+	// Interface is the monitor-mode interface to use.
 	Interface string `json:"interface,omitempty"`
 
-	// UseReasonFuzzing enables cycling through effective reason codes
+	// UseReasonFuzzing cycles through different reason codes to bypass some IDS.
 	UseReasonFuzzing bool `json:"use_reason_fuzzing"`
 
-	// UseJitter enables randomized packet intervals to avoid detection matches
+	// UseJitter adds micro-randomization to packet intervals.
 	UseJitter bool `json:"use_jitter"`
 
-	// SpoofSource enables randomization of the source MAC address (Access Point spoofing)
+	// SpoofSource enables source MAC randomization for the injector.
 	SpoofSource bool `json:"spoof_source"`
 }
 
-// DeauthAttackStatus represents the current status of a deauth attack
-type DeauthAttackStatus struct {
-	// ID is the unique identifier for this attack
-	ID string `json:"id"`
+// Validate evaluates the configuration against protocol and domain rules.
+func (c *DeauthAttackConfig) Validate() error {
+	if !IsValidMAC(c.TargetMAC) {
+		return fmt.Errorf("invalid target MAC: %s", c.TargetMAC)
+	}
 
-	// Config is the attack configuration
-	Config DeauthAttackConfig `json:"config"`
+	if c.AttackType != DeauthBroadcast {
+		if c.ClientMAC == "" {
+			return errors.New("client MAC is required for unicast or targeted attacks")
+		}
+		if !IsValidMAC(c.ClientMAC) {
+			return fmt.Errorf("invalid client MAC: %s", c.ClientMAC)
+		}
+	}
 
-	// Status is the current state of the attack
-	Status AttackStatus `json:"status"`
+	// 802.11 channels range from 1 to 165 (encompassing 2.4GHz and 5GHz)
+	if c.Channel < 1 || c.Channel > 165 {
+		return fmt.Errorf("invalid WiFi channel: %d", c.Channel)
+	}
 
-	// PacketsSent is the number of packets sent so far
-	PacketsSent int `json:"packets_sent"`
+	if c.PacketInterval < 0 {
+		return errors.New("packet interval cannot be negative")
+	}
 
-	// StartTime is when the attack started
-	StartTime time.Time `json:"start_time"`
+	if c.Interface != "" && !IsValidInterface(c.Interface) {
+		return fmt.Errorf("invalid interface name: %s", c.Interface)
+	}
 
-	// EndTime is when the attack ended (nil if still running)
-	EndTime *time.Time `json:"end_time,omitempty"`
-
-	// ErrorMessage contains error details if Status is AttackFailed
-	ErrorMessage string `json:"error_message,omitempty"`
-
-	// HandshakeCaptured indicates if a WPA handshake was detected during the attack
-	HandshakeCaptured bool `json:"handshake_captured"`
+	return nil
 }
 
-// IsActive returns true if the attack is currently running or paused
+// DeauthAttackStatus encapsulates the runtime state, metrics, and lifecycle of a deauth attack.
+type DeauthAttackStatus struct {
+	ID                string             `json:"id"`
+	Config            DeauthAttackConfig `json:"config"`
+	Status            AttackStatus       `json:"status"`
+	PacketsSent       int                `json:"packets_sent"`
+	StartTime         time.Time          `json:"start_time"`
+	EndTime           *time.Time         `json:"end_time,omitempty"`
+	ErrorMessage      string             `json:"error_message,omitempty"`
+	HandshakeCaptured bool               `json:"handshake_captured"`
+}
+
+// NewDeauthAttack initializes a new deauth attack entity with valid configuration.
+func NewDeauthAttack(id string, config DeauthAttackConfig) (*DeauthAttackStatus, error) {
+	if err := config.Validate(); err != nil {
+		return nil, err
+	}
+	return &DeauthAttackStatus{
+		ID:     id,
+		Config: config,
+		Status: AttackPending,
+	}, nil
+}
+
+// Start transitions the attack to the active running state.
+func (s *DeauthAttackStatus) Start() error {
+	if s.IsActive() {
+		return errors.New("attack session is already active")
+	}
+	s.Status = AttackRunning
+	s.StartTime = time.Now()
+	s.EndTime = nil
+	s.ErrorMessage = ""
+	return nil
+}
+
+// Stop gracefully terminates the attack session.
+func (s *DeauthAttackStatus) Stop() {
+	if s.Status == AttackStopped || s.Status == AttackFailed {
+		return
+	}
+	now := time.Now()
+	s.Status = AttackStopped
+	s.EndTime = &now
+}
+
+// Fail terminates the attack due to a critical runtime error.
+func (s *DeauthAttackStatus) Fail(err string) {
+	now := time.Now()
+	s.Status = AttackFailed
+	s.ErrorMessage = err
+	s.EndTime = &now
+}
+
+// RecordPulse updates the attack progress metrics.
+func (s *DeauthAttackStatus) RecordPulse(packets int, handshake bool) {
+	if s.Status != AttackRunning {
+		return
+	}
+	s.PacketsSent += packets
+	if handshake {
+		s.HandshakeCaptured = true
+	}
+}
+
+// IsActive returns true if the attack is currently in a state that permits execution.
 func (s *DeauthAttackStatus) IsActive() bool {
 	return s.Status == AttackRunning || s.Status == AttackPaused
 }
 
-// Duration returns the duration of the attack
+// Duration calculates the total wall-clock time the attack has been active.
 func (s *DeauthAttackStatus) Duration() time.Duration {
+	if s.StartTime.IsZero() {
+		return 0
+	}
 	if s.EndTime != nil {
 		return s.EndTime.Sub(s.StartTime)
 	}

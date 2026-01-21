@@ -11,6 +11,7 @@ import (
 	"github.com/lcalzada-xor/wmap/internal/adapters/web/handlers"
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
 	"github.com/lcalzada-xor/wmap/internal/core/ports"
+	"github.com/lcalzada-xor/wmap/internal/core/services/security"
 	"github.com/lcalzada-xor/wmap/internal/core/services/workspace"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
@@ -34,11 +35,13 @@ type Server struct {
 	ConfigHandler    *handlers.ConfigHandler
 	WorkspaceHandler *handlers.WorkspaceHandler
 	ExportHandler    *handlers.ExportHandler
+	VulnHandler      *handlers.VulnerabilityHandler
+	CaptureHandler   *handlers.CaptureHandler
 	srv              *http.Server
 }
 
 // NewServer creates a new web server.
-func NewServer(addr string, service ports.NetworkService, workspaceManager *workspace.WorkspaceManager, authService ports.AuthService, auditService ports.AuditService) *Server {
+func NewServer(addr string, service ports.NetworkService, workspaceManager *workspace.WorkspaceManager, authService ports.AuthService, auditService ports.AuditService, vulnService *security.VulnerabilityPersistenceService) *Server {
 	return &Server{
 		Addr:             addr,
 		Service:          service,
@@ -57,6 +60,8 @@ func NewServer(addr string, service ports.NetworkService, workspaceManager *work
 		ConfigHandler:    handlers.NewConfigHandler(service),
 		WorkspaceHandler: handlers.NewWorkspaceHandler(service, workspaceManager),
 		ExportHandler:    handlers.NewExportHandler(service),
+		VulnHandler:      handlers.NewVulnerabilityHandler(vulnService),
+		CaptureHandler:   handlers.NewCaptureHandler(),
 	}
 }
 
