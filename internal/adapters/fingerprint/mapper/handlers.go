@@ -124,7 +124,15 @@ type MobilityHandler struct{}
 func (h *MobilityHandler) ID() int { return IETagMobilityDomain }
 func (h *MobilityHandler) Handle(val []byte, device *domain.Device) error {
 	device.Has11r = true
-	device.Capabilities = append(device.Capabilities, "11r")
+	addCapabilityIfNotExists(device, "11r")
+
+	if mdie, err := ie.ParseMDIE(val); err == nil {
+		device.MobilityDomain = &domain.MobilityDomain{
+			MDID:        mdie.MDID,
+			OverDS:      mdie.OverDS,
+			ResourceReq: mdie.ResourceReq,
+		}
+	}
 	return nil
 }
 
@@ -133,7 +141,7 @@ type RadioMeasurementHandler struct{}
 func (h *RadioMeasurementHandler) ID() int { return IETagRadioMeasurement }
 func (h *RadioMeasurementHandler) Handle(val []byte, device *domain.Device) error {
 	device.Has11k = true
-	device.Capabilities = append(device.Capabilities, "11k")
+	addCapabilityIfNotExists(device, "11k")
 	return nil
 }
 
@@ -184,7 +192,7 @@ func (h *ExtendedCapabilitiesHandler) Handle(val []byte, device *domain.Device) 
 	if len(val) >= 3 {
 		if (val[2] & 0x08) != 0 {
 			device.Has11v = true
-			device.Capabilities = append(device.Capabilities, "11v")
+			addCapabilityIfNotExists(device, "11v")
 		}
 	}
 	return nil
@@ -229,4 +237,11 @@ func (h *VendorSpecificHandler) Handle(val []byte, device *domain.Device) error 
 		}
 	}
 	return nil
+}
+
+// addCapabilityIfNotExists adds a capability to the device only if it doesn't already exist
+func addCapabilityIfNotExists(device *domain.Device, capability string) {
+	if !containsString(device.Capabilities, capability) {
+		device.Capabilities = append(device.Capabilities, capability)
+	}
 }

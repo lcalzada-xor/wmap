@@ -2,6 +2,7 @@ package security
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -52,12 +53,12 @@ func (d *RetryRateDetector) ensureBehavioral(device *domain.Device) {
 	}
 }
 
-// KarmaDetector identifies potential Karma or Honeypot attacks.
-type KarmaDetector struct{}
+// ClientKarmaDetector identifies potential Karma or Honeypot attacks.
+type ClientKarmaDetector struct{}
 
-func (d *KarmaDetector) Name() string { return "KarmaDetector" }
+func (d *ClientKarmaDetector) Name() string { return "ClientKarmaDetector" }
 
-func (d *KarmaDetector) Analyze(device *domain.Device, _ ports.DeviceRegistry) []domain.Alert {
+func (d *ClientKarmaDetector) Analyze(device *domain.Device, _ ports.DeviceRegistry) []domain.Alert {
 	if len(device.ProbedSSIDs) <= 5 {
 		return nil
 	}
@@ -131,6 +132,48 @@ func (d *SpoofingDetector) Analyze(device *domain.Device, _ ports.DeviceRegistry
 		DeviceMAC: device.MAC,
 		Timestamp: time.Now(),
 	}}
+}
+
+// APKarmaDetector identifies APs acting as Karma/Mana (broadcasting multiple SSIDs).
+type APKarmaDetector struct{}
+
+func (d *APKarmaDetector) Name() string { return "APKarmaDetector" }
+
+func (d *APKarmaDetector) Analyze(device *domain.Device, _ ports.DeviceRegistry) []domain.Alert {
+	if device.Type != "ap" || len(device.ObservedSSIDs) < 2 {
+		return nil
+	}
+
+	// Filter out false positives (Mesh networks often use same BSSID? No, usually different VAP BSSIDs).
+	// But let's check for multiple *distinct* SSIDs.
+	// ObservedSSIDs list is already unique-filtered by DeviceMerger.
+
+	if len(device.ObservedSSIDs) >= 2 {
+		details := fmt.Sprintf("AP broadcasting %d distinct SSIDs: %v", len(device.ObservedSSIDs), device.ObservedSSIDs)
+
+		d.ensureBehavioral(device)
+		device.Behavioral.AnomalyDetails["KARMA_AP"] = 0.95
+
+		return []domain.Alert{{
+			Type:      domain.AlertAnomaly,
+			Subtype:   "KARMA_AP_DETECTED",
+			Severity:  domain.SeverityCritical,
+			Message:   "Karma/Mana AP Detected: Single BSSID advertising multiple SSIDs",
+			Details:   details,
+			DeviceMAC: device.MAC,
+			Timestamp: time.Now(),
+		}}
+	}
+	return nil
+}
+
+func (d *APKarmaDetector) ensureBehavioral(device *domain.Device) {
+	if device.Behavioral == nil {
+		device.Behavioral = &domain.BehavioralProfile{}
+	}
+	if device.Behavioral.AnomalyDetails == nil {
+		device.Behavioral.AnomalyDetails = make(map[string]float64)
+	}
 }
 
 // RuleDetector evaluates user-defined alert rules.

@@ -29,20 +29,26 @@ var (
 
 // ReaverParser handles the parsing of Reaver output
 type ReaverParser struct {
-	pinRegex    *regexp.Regexp
-	pskRegex    *regexp.Regexp
-	assocRegex  *regexp.Regexp
-	cryptoRegex *regexp.Regexp
-	crackRegex  *regexp.Regexp
+	pinRegex       *regexp.Regexp
+	pskRegex       *regexp.Regexp
+	assocRegex     *regexp.Regexp
+	cryptoRegex    *regexp.Regexp
+	crackRegex     *regexp.Regexp
+	pixieFailRegex *regexp.Regexp
+	assocFailRegex *regexp.Regexp
+	deauthRegex    *regexp.Regexp
 }
 
 func NewReaverParser() *ReaverParser {
 	return &ReaverParser{
-		pinRegex:    regexp.MustCompile(`WPS PIN:\s*['"]?([0-9]+)['"]?`),
-		pskRegex:    regexp.MustCompile(`WPA PSK:\s*['"]?([^'"]+)['"]?`),
-		assocRegex:  regexp.MustCompile(`Waiting for beacon from|Associated with`),
-		cryptoRegex: regexp.MustCompile(`Sending EAPOL|WPS transaction successful|Sending identity response`),
-		crackRegex:  regexp.MustCompile(`Pixiewps|Running pixiewps`),
+		pinRegex:       regexp.MustCompile(`WPS PIN:\s*['"]?([0-9]+)['"]?`),
+		pskRegex:       regexp.MustCompile(`WPA PSK:\s*['"]?([^'"]+)['"]?`),
+		assocRegex:     regexp.MustCompile(`Waiting for beacon from|Associated with`),
+		cryptoRegex:    regexp.MustCompile(`Sending EAPOL|WPS transaction successful|Sending identity response`),
+		crackRegex:     regexp.MustCompile(`Pixiewps|Running pixiewps`),
+		pixieFailRegex: regexp.MustCompile(`WPS pin not found|Pixiewps.*fail`),
+		assocFailRegex: regexp.MustCompile(`Failed to associate|Association request failed`),
+		deauthRegex:    regexp.MustCompile(`Deauthentication|Disassociation`),
 	}
 }
 
@@ -75,16 +81,23 @@ func (p *ReaverParser) ParseLine(line string) *ParseResult {
 
 // WPSEngine implements ports.WPSAttackService using reaver
 type WPSEngine struct {
-	activeAttacks map[string]*domain.WPSAttackStatus
-	cancelFuncs   map[string]context.CancelFunc
-	registry      ports.DeviceRegistry
-	logCb         func(string, string)
-	statusCb      func(domain.WPSAttackStatus)
-	reaverPath    string
-	pixiewpsPath  string
-	mu            sync.RWMutex
-	locker        capture.ChannelLocker
-	parser        *ReaverParser
+	activeAttacks   map[string]*domain.WPSAttackStatus
+	attackConfigs   map[string]domain.WPSAttackConfig // Track configs for confirmation
+	cancelFuncs     map[string]context.CancelFunc
+	registry        ports.DeviceRegistry
+	vulnPersistence VulnerabilityConfirmer // Interface for vulnerability confirmation
+	logCb           func(string, string)
+	statusCb        func(domain.WPSAttackStatus)
+	reaverPath      string
+	pixiewpsPath    string
+	mu              sync.RWMutex
+	locker          capture.ChannelLocker
+	parser          *ReaverParser
+}
+
+// VulnerabilityConfirmer defines the interface for confirming vulnerabilities
+type VulnerabilityConfirmer interface {
+	ConfirmVulnerability(ctx context.Context, confirmation domain.VulnerabilityConfirmation) error
 }
 
 // execCmd allows mocking exec.CommandContext in tests
@@ -95,6 +108,7 @@ var execCommand = exec.Command
 func NewWPSEngine(registry ports.DeviceRegistry) *WPSEngine {
 	engine := &WPSEngine{
 		activeAttacks: make(map[string]*domain.WPSAttackStatus),
+		attackConfigs: make(map[string]domain.WPSAttackConfig),
 		cancelFuncs:   make(map[string]context.CancelFunc),
 		registry:      registry,
 		reaverPath:    "reaver",
@@ -133,6 +147,13 @@ func (s *WPSEngine) SetToolPaths(reaverPath, pixiewpsPath string) {
 	}
 }
 
+// SetVulnerabilityPersistence injects the vulnerability persistence service
+func (s *WPSEngine) SetVulnerabilityPersistence(vulnPersistence VulnerabilityConfirmer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.vulnPersistence = vulnPersistence
+}
+
 // HealthCheck verifies if the necessary tools are installed
 func (s *WPSEngine) HealthCheck(ctx context.Context) error {
 	if _, err := exec.LookPath(s.reaverPath); err != nil {
@@ -168,6 +189,7 @@ func (s *WPSEngine) StartAttack(ctx context.Context, config domain.WPSAttackConf
 
 	s.mu.Lock()
 	s.activeAttacks[id] = status
+	s.attackConfigs[id] = config // Store the config
 	s.mu.Unlock()
 
 	timeout := time.Duration(config.TimeoutSeconds) * time.Second
@@ -277,22 +299,53 @@ func (s *WPSEngine) runAttack(ctx context.Context, id string, config domain.WPSA
 			return fmt.Errorf("failed to start reaver: %v", err)
 		}
 
-		// Process cleanup on cancel
+		// Channel to signal output processing completion
+		outputDone := make(chan struct{})
+		var foundPin, foundPsk string
+		var outputErr error
+
+		// Process output in goroutine
 		go func() {
-			<-ctx.Done()
-			if cmd.Process != nil && cmd.Process.Pid > 0 {
-				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-			}
+			foundPin, foundPsk, outputErr = s.processProcessOutput(ctx, id, io.MultiReader(stdout, stderr))
+			close(outputDone)
 		}()
 
-		// Process Output
-		foundPin, foundPsk, err := s.processProcessOutput(ctx, id, io.MultiReader(stdout, stderr))
+		// Wait for either context cancellation or output processing completion
+		var waitErr error
+		select {
+		case <-ctx.Done():
+			// Context cancelled - kill the process
+			fmt.Printf("[WPS-ATTACK-%s] Context cancelled, terminating process...\n", id[:8])
 
-		// Wait for exit
-		waitErr := cmd.Wait()
+			if cmd.Process != nil && cmd.Process.Pid > 0 {
+				// Try graceful termination first
+				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+
+				// Wait briefly for graceful shutdown
+				gracefulTimer := time.NewTimer(2 * time.Second)
+				select {
+				case <-outputDone:
+					gracefulTimer.Stop()
+				case <-gracefulTimer.C:
+					// Force kill if graceful shutdown didn't work
+					fmt.Printf("[WPS-ATTACK-%s] Force killing process\n", id[:8])
+					_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+				}
+			}
+
+			// Wait for process to exit
+			waitErr = cmd.Wait()
+
+			// Wait for output processing to complete
+			<-outputDone
+
+		case <-outputDone:
+			// Output processing completed normally
+			waitErr = cmd.Wait()
+		}
 
 		// Determine outcome
-		return s.determineOutcome(ctx, id, foundPin, foundPsk, err, waitErr)
+		return s.determineOutcome(ctx, id, foundPin, foundPsk, outputErr, waitErr)
 	}
 
 	var err error
@@ -365,13 +418,13 @@ func (s *WPSEngine) processProcessOutput(ctx context.Context, id string, reader 
 
 func (s *WPSEngine) determineOutcome(ctx context.Context, id, pin, psk string, scanErr, waitErr error) error {
 	if ctx.Err() == context.DeadlineExceeded {
-		s.updateStatus(id, domain.WPSStatusTimeout, "Attack timed out")
+		s.updateStatusWithReason(id, domain.WPSStatusTimeout, "Attack timed out", domain.WPSFailureTimeout)
 		return nil
 	}
 	if ctx.Err() == context.Canceled {
 		// StopAttack sets cancelled status usually, but we ensure it here
 		// If ID is gone from map, updateStatus handles it gracefully (does nothing)
-		s.updateStatus(id, domain.WPSStatusFailed, "Stopped by user")
+		s.updateStatusWithReason(id, domain.WPSStatusFailed, "Stopped by user", domain.WPSFailureUserStopped)
 		return nil
 	}
 
@@ -380,13 +433,18 @@ func (s *WPSEngine) determineOutcome(ctx context.Context, id, pin, psk string, s
 		return nil
 	}
 
+	// Classify the failure based on output log
+	failureReason := s.classifyFailure(id)
+
 	if waitErr != nil {
 		if ctx.Err() != nil {
 			return nil // Ignored
 		}
+		s.updateStatusWithReason(id, domain.WPSStatusFailed, failureReason.UserMessage(), failureReason)
 		return fmt.Errorf("reaver exited with error: %w", waitErr)
 	}
 
+	s.updateStatusWithReason(id, domain.WPSStatusFailed, failureReason.UserMessage(), failureReason)
 	return fmt.Errorf("attack finished but no PIN found")
 }
 
@@ -405,10 +463,6 @@ func (s *WPSEngine) StopAttack(ctx context.Context, id string, force bool) error
 			// Domain has Failed, Success, Timeout. It lacks "Stopped".
 			// Let's use Failed with message "Stopped by user" for now or add it.
 			// Ideally we should add WPSStatusStopped.
-			// Assuming we stick to existing for now, or just send strings if map allows?
-			// Type is WPSStatus.
-			// I'll cast it for now or rely on Failed.
-			// Update: I should probably add Stopped to domain if I can.
 			// But for strictness let's use Failed with distinct message.
 			status.Status = domain.WPSStatusFailed // Casting risk if strict validation? Go string alias allows this.
 			status.ErrorMessage = "Stopped by user"
@@ -453,6 +507,10 @@ func (s *WPSEngine) StopAll(ctx context.Context) {
 }
 
 func (s *WPSEngine) updateStatus(id string, status domain.WPSStatus, msg string) {
+	s.updateStatusWithReason(id, status, msg, domain.WPSFailureNone)
+}
+
+func (s *WPSEngine) updateStatusWithReason(id string, status domain.WPSStatus, msg string, reason domain.WPSFailureReason) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if st, ok := s.activeAttacks[id]; ok {
@@ -463,6 +521,9 @@ func (s *WPSEngine) updateStatus(id string, status domain.WPSStatus, msg string)
 
 		st.Status = status
 		st.ErrorMessage = msg
+		if reason != domain.WPSFailureNone {
+			st.FailureReason = reason
+		}
 
 		if status == domain.WPSStatusSuccess || status == domain.WPSStatusFailed || status == domain.WPSStatusTimeout {
 			now := time.Now()
@@ -477,18 +538,56 @@ func (s *WPSEngine) updateStatus(id string, status domain.WPSStatus, msg string)
 
 func (s *WPSEngine) completeSuccess(id, pin, psk string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if st, ok := s.activeAttacks[id]; ok {
-		st.Status = domain.WPSStatusSuccess
-		st.RecoveredPIN = pin
-		st.RecoveredPSK = psk
-		now := time.Now()
-		st.EndTime = &now
+	st, ok := s.activeAttacks[id]
+	if !ok {
+		s.mu.Unlock()
+		return
+	}
 
-		if s.statusCb != nil {
-			s.statusCb(*st)
+	st.Status = domain.WPSStatusSuccess
+	st.RecoveredPIN = pin
+	st.RecoveredPSK = psk
+	now := time.Now()
+	st.EndTime = &now
+
+	// Get target MAC from attack config
+	targetMAC := ""
+	if config, exists := s.attackConfigs[id]; exists {
+		targetMAC = config.TargetBSSID
+	}
+
+	vulnPersistence := s.vulnPersistence
+	s.mu.Unlock()
+
+	// Confirm vulnerability after releasing lock
+	if vulnPersistence != nil && targetMAC != "" {
+		confirmation := domain.VulnerabilityConfirmation{
+			VulnerabilityName: "WPS-PIXIE",
+			DeviceMAC:         targetMAC,
+			ConfirmedBy:       domain.ConfirmationSourceWPSAttack,
+			Evidence: map[string]string{
+				"pin":             pin,
+				"psk":             psk,
+				"attack_duration": time.Since(st.StartTime).String(),
+				"attack_id":       id,
+			},
+			ConfirmedAt: now,
+			AttackID:    id,
+		}
+
+		if err := vulnPersistence.ConfirmVulnerability(context.Background(), confirmation); err != nil {
+			fmt.Printf("[WPS-ATTACK-%s] Failed to confirm vulnerability: %v\n", id[:8], err)
+		} else {
+			fmt.Printf("[WPS-ATTACK-%s] Vulnerability WPS-PIXIE confirmed for %s\n", id[:8], targetMAC)
 		}
 	}
+
+	// Trigger status callback
+	s.mu.Lock()
+	if s.statusCb != nil {
+		s.statusCb(*st)
+	}
+	s.mu.Unlock()
 }
 
 func (s *WPSEngine) appendLog(id, line string) {
@@ -561,10 +660,40 @@ func (s *WPSEngine) cleanOldAttacks() {
 	for id, status := range s.activeAttacks {
 		if status.EndTime != nil && time.Since(*status.EndTime) > 1*time.Hour {
 			delete(s.activeAttacks, id)
+			delete(s.attackConfigs, id) // Clean up config too
 			if cancel, ok := s.cancelFuncs[id]; ok {
 				cancel()
 				delete(s.cancelFuncs, id)
 			}
 		}
 	}
+}
+
+// classifyFailure analyzes the output log to determine the specific failure reason
+func (s *WPSEngine) classifyFailure(id string) domain.WPSFailureReason {
+	s.mu.RLock()
+	st, ok := s.activeAttacks[id]
+	s.mu.RUnlock()
+
+	if !ok {
+		return domain.WPSFailureToolError
+	}
+
+	output := st.OutputLog
+
+	// Check for specific failure patterns in order of priority
+	if s.parser.pixieFailRegex.MatchString(output) {
+		return domain.WPSFailureNotVulnerable
+	}
+
+	if s.parser.deauthRegex.MatchString(output) {
+		return domain.WPSFailureDeauthDetected
+	}
+
+	if s.parser.assocFailRegex.MatchString(output) {
+		return domain.WPSFailureAssociationFailed
+	}
+
+	// Default to generic tool error
+	return domain.WPSFailureToolError
 }

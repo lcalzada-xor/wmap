@@ -96,7 +96,7 @@ func ParseSSID(data []byte) SSID {
 			return SSID{Hidden: true}
 		}
 	}
-	return SSID{Value: string(val), Hidden: false}
+	return SSID{Value: safeString(val), Hidden: false}
 }
 
 // ParseChannel extracts the channel from the DS Parameter Set (Tag 3).

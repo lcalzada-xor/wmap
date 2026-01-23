@@ -149,6 +149,10 @@ export const API = {
         return this.get(url + params.toString());
     },
 
+    async getVulnerabilityStats() {
+        return this.get('/api/vulnerabilities/stats');
+    },
+
     async updateVulnerabilityStatus(id, status) {
         return this.request(`/api/vulnerabilities/${id}/status`, {
             method: 'PUT',

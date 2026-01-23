@@ -286,14 +286,49 @@ class App {
     }
 
     handleAlert(alert) {
+        // Determine severity level and icon
+        let severity = 'info';
+        let icon = '🔔';
+
+        if (alert.severity === 'critical') {
+            severity = 'danger';
+            icon = '🚨';
+        } else if (alert.severity === 'high') {
+            severity = 'danger';
+            icon = '⚠️';
+        } else if (alert.severity === 'medium') {
+            severity = 'warning';
+            icon = '⚡';
+        }
+
+        // Handle specific alert types
         if (alert.type === 'HANDSHAKE_CAPTURED') {
-            Notifications.show(`Handshake Captured! ${alert.details}`, 'warning');
+            Notifications.show(`${icon} Handshake Captured! ${alert.details}`, 'warning');
             this.console.log(`[HANDSHAKE] Captured for ${alert.details}`, "warning");
-        } else if (alert.type === 'ANOMALY') {
-            Notifications.show(`${alert.message}`, 'danger');
-            this.console.log(`[SECURITY] ${alert.message}`, "danger");
-        } else {
-            Notifications.show(`Alert: ${alert.message}`, 'info');
+        }
+        else if (alert.subtype === 'KARMA_AP_DETECTED') {
+            Notifications.show(`${icon} Karma/Mana AP Detected! ${alert.device_mac} broadcasting multiple SSIDs`, severity);
+            this.console.log(`[KARMA] Rogue AP detected: ${alert.device_mac} - ${alert.message}`, severity);
+        }
+        else if (alert.subtype === 'KARMA_DETECTION') {
+            Notifications.show(`${icon} Karma Client: ${alert.device_mac} probing excessively`, severity);
+            this.console.log(`[KARMA] Suspicious client: ${alert.device_mac} - ${alert.message}`, severity);
+        }
+        else if (alert.subtype === 'WEAK_CRYPTO_ZERO_NONCE') {
+            Notifications.show(`${icon} CRITICAL: Zero Nonce detected from ${alert.device_mac}`, 'danger');
+            this.console.log(`[CRYPTO] CRITICAL FLAW: ${alert.message} - ${alert.details}`, "danger");
+        }
+        else if (alert.subtype === 'WEAK_CRYPTO_BAD_RNG') {
+            Notifications.show(`${icon} Weak RNG detected from ${alert.device_mac}`, severity);
+            this.console.log(`[CRYPTO] Bad RNG: ${alert.message} - ${alert.details}`, severity);
+        }
+        else if (alert.type === 'ANOMALY') {
+            Notifications.show(`${icon} ${alert.message}`, severity);
+            this.console.log(`[SECURITY] ${alert.message}`, severity);
+        }
+        else {
+            Notifications.show(`${icon} ${alert.message}`, severity);
+            this.console.log(`[ALERT] ${alert.message}`, severity);
         }
     }
 

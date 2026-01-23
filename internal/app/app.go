@@ -17,7 +17,9 @@ import (
 	"github.com/lcalzada-xor/wmap/internal/adapters/attack/authflood"
 	"github.com/lcalzada-xor/wmap/internal/adapters/attack/deauth"
 	"github.com/lcalzada-xor/wmap/internal/adapters/attack/wps"
+	"github.com/lcalzada-xor/wmap/internal/adapters/cve"
 	"github.com/lcalzada-xor/wmap/internal/adapters/fingerprint"
+	"github.com/lcalzada-xor/wmap/internal/adapters/reporting"
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer"
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/capture"
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/driver"
@@ -33,6 +35,7 @@ import (
 	"github.com/lcalzada-xor/wmap/internal/core/services/network"
 	"github.com/lcalzada-xor/wmap/internal/core/services/persistence"
 	"github.com/lcalzada-xor/wmap/internal/core/services/registry"
+	reportingService "github.com/lcalzada-xor/wmap/internal/core/services/reporting"
 	"github.com/lcalzada-xor/wmap/internal/core/services/security"
 	"github.com/lcalzada-xor/wmap/internal/core/services/workspace"
 	"github.com/lcalzada-xor/wmap/internal/geo"
@@ -105,10 +108,38 @@ func (app *Application) bootstrap() error {
 	// 3. Domain Services
 	sigMatcher := app.loadSignatures()
 
+	// Load vendor database for configuration vulnerability detection
+	vendorDB, err := security.LoadVendorDatabase("configs/vendor_defaults.json")
+	if err != nil {
+		log.Printf("Warning: Could not load vendor database: %v. Default SSID detection disabled.", err)
+		vendorDB = security.NewVendorDatabase() // Use empty database
+	} else {
+		log.Printf("Loaded vendor database with %d vendors", vendorDB.Count())
+	}
+
 	// TODO: Technical debt - concrete implementations don't fully match ports interfaces
 	// (missing context.Context parameters). Using type assertions as a temporary bridge.
 	vulnStore := security.NewVulnerabilityPersistenceService(interface{}(systemStore).(ports.Storage))
 	devRegistry := registry.NewDeviceRegistry(interface{}(sigMatcher).(ports.SignatureMatcher), vulnStore)
+
+	// Inject vendor database into vulnerability detector
+	if devRegistry.VulnDetector != nil {
+		devRegistry.VulnDetector.SetVendorDatabase(vendorDB)
+	}
+
+	// Initialize CVE infrastructure
+	cveRepo, err := cve.NewSQLiteRepository("data/cve.db")
+	if err != nil {
+		log.Printf("Warning: Failed to initialize CVE repository: %v", err)
+	} else {
+		log.Println("CVE Repository initialized successfully")
+		cveMatcher := cve.NewCVEMatcher(cveRepo)
+
+		if devRegistry.VulnDetector != nil {
+			devRegistry.VulnDetector.SetCVEMatcher(cveMatcher)
+		}
+	}
+
 	securityEngine := security.NewSecurityEngine(interface{}(devRegistry).(ports.DeviceRegistry))
 
 	app.PersistenceManager = persistence.NewPersistenceManager(interface{}(systemStore).(ports.Storage), 10000)
@@ -130,7 +161,7 @@ func (app *Application) bootstrap() error {
 	}
 
 	// 5. Servers & Integration
-	app.initServers(vulnStore)
+	app.initServers(systemStore, vulnStore, devRegistry)
 
 	if app.Config.MockMode {
 		app.MockIntegration = "mock_enabled"
@@ -304,6 +335,10 @@ func (app *Application) configureEngines(reg *registry.DeviceRegistry) {
 	if locker != nil {
 		wpsEngine.SetChannelLocker(locker)
 	}
+	// Inject vulnerability persistence for attack confirmation
+	if reg.VulnPersistence != nil {
+		wpsEngine.SetVulnerabilityPersistence(reg.VulnPersistence)
+	}
 	wpsEngine.SetToolPaths(app.Config.ReaverPath, app.Config.PixiewpsPath)
 	app.NetworkService.SetWPSEngine(interface{}(wpsEngine).(ports.WPSAttackService))
 
@@ -316,8 +351,24 @@ func (app *Application) configureEngines(reg *registry.DeviceRegistry) {
 	app.NetworkService.SetAuthFloodEngine(afEngine)
 }
 
-func (app *Application) initServers(vulnStore *security.VulnerabilityPersistenceService) {
-	app.WebServer = webserver.NewServer(app.Config.Addr, interface{}(app.NetworkService).(ports.NetworkService), app.WorkspaceManager, app.AuthService, app.AuditService, vulnStore)
+func (app *Application) initServers(systemStore *storage.SQLiteAdapter, vulnStore *security.VulnerabilityPersistenceService, devRegistry *registry.DeviceRegistry) {
+	// Initialize Executive Report services
+	executiveGenerator := reportingService.NewExecutiveReportGenerator(
+		interface{}(systemStore).(ports.Storage),
+		interface{}(devRegistry).(ports.DeviceRegistry),
+	)
+	pdfExporter := reporting.NewPDFExporter()
+
+	app.WebServer = webserver.NewServer(
+		app.Config.Addr,
+		interface{}(app.NetworkService).(ports.NetworkService),
+		app.WorkspaceManager,
+		app.AuthService,
+		app.AuditService,
+		vulnStore,
+		executiveGenerator,
+		pdfExporter,
+	)
 
 	if app.WebServer.WSManager != nil {
 		vulnStore.SetNotifier(interface{}(app.WebServer.WSManager).(ports.VulnerabilityNotifier))
@@ -395,6 +446,17 @@ func (app *Application) Run(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		slog.Info("Termination signal received")
+
+		// CRITICAL: Stop all attacks BEFORE closing servers
+		// This prevents "Failed to stop attack" errors from the web interface
+		slog.Info("Stopping all active attacks...")
+		if app.NetworkService != nil {
+			app.NetworkService.Close() // This calls StopAll on all attack coordinators
+		}
+
+		// Give attacks time to terminate gracefully
+		time.Sleep(1 * time.Second)
+
 	case err := <-errChan:
 		return err
 	}
@@ -436,16 +498,13 @@ func (app *Application) runDeviceWorkers(ctx context.Context) {
 func (app *Application) cleanup() error {
 	slog.Info("Cleaning up resources...")
 
+	// Close sniffer
 	if app.SnifferRunner != nil {
 		app.SnifferRunner.Close()
 	}
 
-	if app.NetworkService != nil {
-		if wpsEngine := app.NetworkService.GetWPSEngine(); wpsEngine != nil {
-			wpsEngine.StopAll(context.Background())
-		}
-		app.NetworkService.Close()
-	}
+	// NetworkService.Close() was already called in Run() to stop attacks
+	// No need to call it again here
 
 	return nil
 }

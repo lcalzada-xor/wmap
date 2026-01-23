@@ -8,6 +8,8 @@ import (
 	"github.com/lcalzada-xor/wmap/internal/core/ports"
 )
 
+const MaxAlertsHistory = 1000
+
 // SecurityEngine analyzes network security state using pluggable detectors.
 type SecurityEngine struct {
 	Registry  ports.DeviceRegistry
@@ -28,7 +30,8 @@ func NewSecurityEngine(registry ports.DeviceRegistry) *SecurityEngine {
 	// Register default detectors
 	engine.detectors = []Detector{
 		&RetryRateDetector{},
-		&KarmaDetector{},
+		&ClientKarmaDetector{},
+		&APKarmaDetector{},
 		&EvilTwinDetector{},
 		&SpoofingDetector{},
 		&RuleDetector{engine: engine},
@@ -70,9 +73,46 @@ func (se *SecurityEngine) Analyze(ctx context.Context, device domain.Device) {
 	}
 
 	// Add all alerts at once with a single lock
+	// Add all alerts at once with a single lock
 	se.mu.Lock()
-	se.alerts = append(se.alerts, allAlerts...)
-	se.mu.Unlock()
+	defer se.mu.Unlock()
+
+	for _, alert := range allAlerts {
+		// Basic deduplication: Check internal buffer for recent duplicate
+		// Optimization: Only check last 50 alerts to avoid O(N^2) on large history
+		isDuplicate := false
+		checkLimit := len(se.alerts)
+		if checkLimit > 50 {
+			checkLimit = 50
+		}
+
+		for i := 0; i < checkLimit; i++ {
+			// Check from end (most recent)
+			existing := se.alerts[len(se.alerts)-1-i]
+			if existing.Type == alert.Type &&
+				existing.Subtype == alert.Subtype &&
+				existing.DeviceMAC == alert.DeviceMAC &&
+				existing.TargetMAC == alert.TargetMAC {
+				// Duplicate found recently, skip
+				isDuplicate = true
+				break
+			}
+		}
+
+		if !isDuplicate {
+			se.alerts = append(se.alerts, alert)
+		}
+	}
+
+	// Enforce capacity limit (Ring buffer style - drop oldest)
+	if len(se.alerts) > MaxAlertsHistory {
+		// Keep the most recent MaxAlertsHistory
+		offset := len(se.alerts) - MaxAlertsHistory
+		// Optimization: Re-slice to avoid allocating new array if possible,
+		// but for long-running service, we might want to let GC reclaim old backing array eventually.
+		// For now simple re-slice is fine.
+		se.alerts = se.alerts[offset:]
+	}
 }
 
 // AnalyzeNetwork is a placeholder for network-wide analysis.

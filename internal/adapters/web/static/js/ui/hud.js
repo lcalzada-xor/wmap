@@ -190,15 +190,6 @@ export const HUD = {
     showDetails(node) {
         const panel = document.getElementById('details-panel');
         const content = document.getElementById('details-content');
-        const btnClose = document.getElementById('btn-close-details');
-
-        if (!panel || !content) return;
-
-        this.currentNode = node;
-
-        // Close Handler
-        if (btnClose) btnClose.onclick = () => this.hideDetails();
-
         // Helper formatters passed to template
         const formatters = {
             formatBytes: Utils.formatBytes,
@@ -207,6 +198,10 @@ export const HUD = {
 
         // Use Template
         content.innerHTML = HUDTemplates.detailsPanel(node, formatters);
+
+        // Close Handler (Re-bind after dynamic injection)
+        const btnClose = document.getElementById('btn-close-details');
+        if (btnClose) btnClose.onclick = () => this.hideDetails();
 
         panel.classList.add('active');
     },

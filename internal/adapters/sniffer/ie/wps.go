@@ -31,15 +31,14 @@ func ParseWPSAttributes(data []byte) *WPSInfo {
 		}
 
 		valBytes := data[offset : offset+attrLen]
-		val := string(valBytes)
 
 		switch attrType {
 		case 0x1021: // Manufacturer
-			info.Manufacturer = val
+			info.Manufacturer = safeString(valBytes)
 		case 0x1023: // Model Name
-			info.Model = val
+			info.Model = safeString(valBytes)
 		case 0x1011: // Device Name
-			info.DeviceName = val
+			info.DeviceName = safeString(valBytes)
 		case 0x1044: // WPS State
 			if len(valBytes) > 0 {
 				switch valBytes[0] {
@@ -78,4 +77,47 @@ func ParseWPSAttributes(data []byte) *WPSInfo {
 	}
 
 	return info
+}
+
+// safeString converts bytes to string, validating UTF-8 first
+func safeString(data []byte) string {
+	// Check for valid UTF-8
+	for i := 0; i < len(data); {
+		r, size := decodeRune(data[i:])
+		if r == '\ufffd' && size == 1 {
+			// Invalid UTF-8, return empty or sanitized version
+			return ""
+		}
+		i += size
+	}
+	return string(data)
+}
+
+// decodeRune is a simplified UTF-8 decoder
+func decodeRune(data []byte) (rune, int) {
+	if len(data) == 0 {
+		return '\ufffd', 0
+	}
+
+	// ASCII fast path
+	if data[0] < 0x80 {
+		return rune(data[0]), 1
+	}
+
+	// For simplicity, accept all multi-byte sequences
+	// A full implementation would validate continuation bytes
+	if data[0] < 0xC0 {
+		return '\ufffd', 1
+	}
+	if data[0] < 0xE0 && len(data) >= 2 {
+		return rune(data[0]), 2
+	}
+	if data[0] < 0xF0 && len(data) >= 3 {
+		return rune(data[0]), 3
+	}
+	if len(data) >= 4 {
+		return rune(data[0]), 4
+	}
+
+	return '\ufffd', 1
 }

@@ -250,3 +250,45 @@ func TestDeviceRegistry_MergeAllNewFields(t *testing.T) {
 	assert.True(t, stored.Has11v, "Should detect 11v")
 	assert.True(t, stored.Has11r, "Should detect 11r")
 }
+
+func TestDeviceRegistry_MergeObservedSSIDs(t *testing.T) {
+	registry := NewDeviceRegistry(nil, nil)
+	mac := "EE:EE:EE:EE:EE:EE"
+
+	// 1. First Observation: SSID="NetworkA"
+	dev1 := domain.Device{
+		MAC:            mac,
+		Type:           domain.DeviceTypeAP,
+		ObservedSSIDs:  []string{"NetworkA"},
+		LastPacketTime: time.Now(),
+	}
+	registry.ProcessDevice(context.Background(), dev1)
+
+	stored, _ := registry.GetDevice(context.Background(), mac)
+	assert.Len(t, stored.ObservedSSIDs, 1)
+	assert.Contains(t, stored.ObservedSSIDs, "NetworkA")
+
+	// 2. Second Observation: SSID="NetworkB" (Should append)
+	dev2 := domain.Device{
+		MAC:            mac,
+		ObservedSSIDs:  []string{"NetworkB"},
+		LastPacketTime: time.Now(),
+	}
+	registry.ProcessDevice(context.Background(), dev2)
+
+	stored, _ = registry.GetDevice(context.Background(), mac)
+	assert.Len(t, stored.ObservedSSIDs, 2)
+	assert.Contains(t, stored.ObservedSSIDs, "NetworkA")
+	assert.Contains(t, stored.ObservedSSIDs, "NetworkB")
+
+	// 3. Third Observation: SSID="NetworkA" (Should NOT duplicate)
+	dev3 := domain.Device{
+		MAC:            mac,
+		ObservedSSIDs:  []string{"NetworkA"},
+		LastPacketTime: time.Now(),
+	}
+	registry.ProcessDevice(context.Background(), dev3)
+
+	stored, _ = registry.GetDevice(context.Background(), mac)
+	assert.Len(t, stored.ObservedSSIDs, 2)
+}

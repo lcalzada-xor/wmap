@@ -134,6 +134,23 @@ func (r *DeviceRegistry) ProcessDevice(ctx context.Context, newDevice domain.Dev
 
 		r.subject.NotifyAdded(ctx, newDevice) // Notify Observers
 
+		// Vulnerability Detection for New Devices (All Types)
+		if r.VulnPersistence != nil && r.VulnDetector != nil {
+			go func(d domain.Device) {
+				vulns := r.VulnDetector.DetectVulnerabilities(&d)
+				if len(vulns) > 0 {
+					deviceDesc := d.SSID
+					if deviceDesc == "" {
+						deviceDesc = string(d.Type)
+					}
+					fmt.Printf("[VULN] Detected %d vulnerabilities for new device %s (%s)\n", len(vulns), d.MAC, deviceDesc)
+					if err := r.VulnPersistence.ProcessDetections(d.MAC, vulns); err != nil {
+						fmt.Printf("[VULN] Error persisting vulnerabilities for %s: %v\n", d.MAC, err)
+					}
+				}
+			}(newDevice)
+		}
+
 		return newDevice, true
 	}
 
@@ -164,15 +181,19 @@ func (r *DeviceRegistry) ProcessDevice(ctx context.Context, newDevice domain.Dev
 
 	r.subject.NotifyUpdated(ctx, existing) // Notify Observers
 
-	// Async Vulnerability Check for Performance - Retained as explicit call or move to Observer?
-	// Plan said "Implement an Observer pattern for device updates instead of direct calls".
-	// So we should move this to an observer?
-	// For this refactor, I'll keep it here but we should ideally have a VulnerabilityScannerObserver.
+	// Vulnerability Detection for Updated Devices (All Types)
 	if r.VulnPersistence != nil && r.VulnDetector != nil {
 		go func(d domain.Device) {
 			vulns := r.VulnDetector.DetectVulnerabilities(&d)
 			if len(vulns) > 0 {
-				r.VulnPersistence.ProcessDetections(d.MAC, vulns)
+				deviceDesc := d.SSID
+				if deviceDesc == "" {
+					deviceDesc = string(d.Type)
+				}
+				fmt.Printf("[VULN] Detected %d vulnerabilities for device %s (%s)\n", len(vulns), d.MAC, deviceDesc)
+				if err := r.VulnPersistence.ProcessDetections(d.MAC, vulns); err != nil {
+					fmt.Printf("[VULN] Error persisting vulnerabilities for %s: %v\n", d.MAC, err)
+				}
 			}
 		}(existing)
 	}

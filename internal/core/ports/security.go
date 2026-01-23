@@ -22,4 +22,7 @@ type SecurityEngine interface {
 type VulnerabilityNotifier interface {
 	// NotifyNewVulnerability emits a notification for a newly discovered weakness.
 	NotifyNewVulnerability(ctx context.Context, vuln domain.VulnerabilityRecord)
+
+	// NotifyVulnerabilityConfirmed emits a notification when a vulnerability is confirmed via active validation.
+	NotifyVulnerabilityConfirmed(ctx context.Context, vuln domain.VulnerabilityRecord)
 }

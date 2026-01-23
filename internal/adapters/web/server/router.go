@@ -86,8 +86,13 @@ func SetupRoutes(s *Server) http.Handler {
 	mux.Handle("/api/attack/auth-flood/status", protect(s.AuthFloodHandler.HandleStatus))
 
 	// Vulnerability Management API
-	mux.Handle("/api/vulnerabilities", protect(http.HandlerFunc(s.VulnHandler.GetVulnerabilities)))
+	mux.Handle("GET /api/vulnerabilities", protect(http.HandlerFunc(s.VulnHandler.GetVulnerabilities)))
+	mux.Handle("GET /api/vulnerabilities/stats", protect(http.HandlerFunc(s.VulnHandler.GetVulnerabilityStats)))
+	mux.Handle("GET /api/vulnerabilities/{id}", protect(http.HandlerFunc(s.VulnHandler.GetVulnerability)))
 	mux.Handle("PUT /api/vulnerabilities/{id}/status", protect(http.HandlerFunc(s.VulnHandler.UpdateStatus)))
+
+	// Reporting API (Phase 2)
+	mux.Handle("POST /api/reports/executive", protect(http.HandlerFunc(s.ReportHandler.HandleGenerateExecutiveSummary)))
 
 	// Capture/Handshake Management
 	mux.Handle("/api/captures/open-folder", protect(http.HandlerFunc(s.CaptureHandler.HandleOpenHandshakeFolder)))

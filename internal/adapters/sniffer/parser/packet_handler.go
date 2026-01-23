@@ -12,7 +12,6 @@ import (
 	"github.com/lcalzada-xor/wmap/internal/adapters/fingerprint"
 	"github.com/lcalzada-xor/wmap/internal/adapters/fingerprint/mapper"
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/handshake"
-	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/ie"
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
 	"github.com/lcalzada-xor/wmap/internal/geo"
 )
@@ -168,57 +167,6 @@ func (h *PacketHandler) HandlePacket(packet gopacket.Packet) (dev *domain.Device
 	}
 
 	return nil, nil
-}
-
-func (h *PacketHandler) handleHandshakeCapture(packet gopacket.Packet) (bool, *domain.Alert) {
-	if h.HandshakeManager != nil {
-		// Aggressive Pause: If we see EAPOL, pause IMMEDIATELY
-		if isEAPOLKey(packet) {
-			if h.PauseCallback != nil {
-				h.PauseCallback(5 * time.Second)
-			}
-		}
-
-		saved := h.HandshakeManager.ProcessFrame(packet)
-		if saved {
-			// Trigger Reactive Hopping: Pause to capture more frames
-			if h.PauseCallback != nil {
-				h.PauseCallback(5 * time.Second)
-			}
-
-			dot11 := packet.Layer(layers.LayerTypeDot11).(*layers.Dot11)
-			bssid := dot11.Address3.String()
-
-			alert := &domain.Alert{
-				Type:      "HANDSHAKE_CAPTURED",
-				Subtype:   "WPA_HANDSHAKE",
-				DeviceMAC: dot11.Address2.String(), // Source (likely Station or AP)
-				TargetMAC: dot11.Address1.String(), // Dest
-				Timestamp: time.Now(),
-				Message:   "WPA Handshake Captured",
-				Details:   fmt.Sprintf("BSSID: %s", bssid),
-			}
-			return true, alert
-		}
-
-		// Passive PMKID Detection
-		if isEAPOLKey(packet) {
-			if vuln := h.detectPMKID(packet); vuln != nil {
-				dot11 := packet.Layer(layers.LayerTypeDot11).(*layers.Dot11)
-				alert := &domain.Alert{
-					Type:      domain.AlertAnomaly,
-					Subtype:   "VULNERABILITY_DETECTED",
-					DeviceMAC: dot11.Address3.String(), // BSSID is the vulnerable entity
-					Timestamp: time.Now(),
-					Message:   "Vulnerability Detected: PMKID Exposure",
-					Details:   fmt.Sprintf("Device is broadcasting PMKID in EAPOL M1. Evidence: %s", vuln.Evidence[0]),
-					Severity:  domain.SeverityHigh, // Using string severity for Alert
-				}
-				return true, alert
-			}
-		}
-	}
-	return false, nil
 }
 
 func (h *PacketHandler) shouldThrottlePacket(dot11 *layers.Dot11, packet gopacket.Packet) bool {
@@ -379,13 +327,7 @@ func (h *PacketHandler) handleMgmtFrame(packet gopacket.Packet, dot11 *layers.Do
 		device.ConnectionTarget = dot11.Address1.String()
 		device.ConnectionState = domain.StateAssociating
 
-		// Parse IEs
-		mapper.ParseIEs(ieData, device)
-
-		// OS Fingerprinting
-		if device.OS == "" {
-			mapper.DetectOS(ieData, device)
-		}
+		// Note: IE parsing happens below in the consolidated section
 	} else if dot11.Type == layers.Dot11TypeMgmtAuthentication {
 		// Authentication (Pre-Assoc)
 		device.Type = "station"
@@ -504,6 +446,11 @@ func (h *PacketHandler) handleMgmtFrame(packet gopacket.Packet, dot11 *layers.Do
 		device.ProbedSSIDs[device.SSID] = device.LastPacketTime
 	}
 
+	// Capture AP SSID variations (Advanced Karma Detection)
+	if isBeacon && device.SSID != "" && device.Type == "ap" {
+		device.ObservedSSIDs = []string{device.SSID}
+	}
+
 	// If it's a beacon, the SSID we found is the one it's broadcasting
 	// If it's a probe, the SSID is what it's looking for.
 	// The device.SSID field is somewhat dual-purpose here.
@@ -615,65 +562,4 @@ func frequencyToChannel(freq int) int {
 	}
 
 	return 0
-}
-
-func isEAPOLKey(packet gopacket.Packet) bool {
-	if eapolLayer := packet.Layer(layers.LayerTypeEAPOL); eapolLayer != nil {
-		if eapol, ok := eapolLayer.(*layers.EAPOL); ok {
-			return eapol.Type == layers.EAPOLTypeKey
-		}
-	}
-	return false
-}
-
-func (h *PacketHandler) detectPMKID(packet gopacket.Packet) *domain.VulnerabilityTag {
-	eapolLayer := packet.Layer(layers.LayerTypeEAPOL)
-	if eapolLayer == nil {
-		return nil
-	}
-
-	eapol, ok := eapolLayer.(*layers.EAPOL)
-	if !ok || eapol.Type != layers.EAPOLTypeKey {
-		return nil
-	}
-
-	// Parse EAPOL Key frame
-	payload := eapol.LayerPayload()
-	if len(payload) < 95 {
-		return nil
-	}
-
-	// Check for PMKID in Key Data (after offset 95)
-	keyDataLen := int(payload[93])<<8 | int(payload[94])
-	if keyDataLen == 0 || 95+keyDataLen > len(payload) {
-		return nil
-	}
-
-	keyData := payload[95 : 95+keyDataLen]
-
-	if ie.ParsePMKID(keyData) {
-		dot11Layer := packet.Layer(layers.LayerTypeDot11)
-		if dot11Layer == nil {
-			return nil
-		}
-		dot11 := dot11Layer.(*layers.Dot11)
-
-		// Save PMKID Packet
-		if h.HandshakeManager != nil {
-			h.HandshakeManager.SavePMKID(packet, dot11.Address3.String(), "")
-		}
-
-		return &domain.VulnerabilityTag{
-			Name:        "PMKID",
-			Severity:    domain.VulnSeverityHigh,
-			Confidence:  domain.ConfidenceConfirmed,
-			Evidence:    []string{"PMKID present in EAPOL M1", "BSSID: " + dot11.Address3.String()},
-			DetectedAt:  time.Now(),
-			Category:    "protocol",
-			Description: "PMKID exposed - allows offline PSK cracking without handshake",
-			Mitigation:  "Disable PMKID caching or use WPA3",
-		}
-	}
-
-	return nil
 }

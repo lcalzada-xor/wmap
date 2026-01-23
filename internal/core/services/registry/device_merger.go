@@ -56,6 +56,12 @@ func (dm *DeviceMerger) Merge(existing *domain.Device, newDevice domain.Device) 
 	if newDevice.HasHandshake {
 		existing.HasHandshake = true
 	}
+	if newDevice.MobilityDomain != nil {
+		existing.MobilityDomain = newDevice.MobilityDomain
+	}
+	if newDevice.LastANonce != "" {
+		existing.LastANonce = newDevice.LastANonce
+	}
 
 	if newDevice.Channel > 0 {
 		existing.Channel = newDevice.Channel
@@ -84,6 +90,25 @@ func (dm *DeviceMerger) Merge(existing *domain.Device, newDevice domain.Device) 
 	}
 	for ssid, ts := range newDevice.ProbedSSIDs {
 		existing.ProbedSSIDs[ssid] = ts
+	}
+
+	if len(newDevice.ObservedSSIDs) > 0 {
+		if existing.ObservedSSIDs == nil {
+			existing.ObservedSSIDs = make([]string, 0)
+		}
+		// Merge unique SSIDs
+		for _, newSSID := range newDevice.ObservedSSIDs {
+			found := false
+			for _, existingSSID := range existing.ObservedSSIDs {
+				if existingSSID == newSSID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				existing.ObservedSSIDs = append(existing.ObservedSSIDs, newSSID)
+			}
+		}
 	}
 
 	if newDevice.SSID != "" {

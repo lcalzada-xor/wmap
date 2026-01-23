@@ -142,3 +142,93 @@ func (r *ReportData) RecomputeStats() {
 func (r *ReportData) Validate() bool {
 	return r.WorkspaceName != "" && !r.GeneratedAt.IsZero()
 }
+
+// ============================================================================
+// New Reporting System (Phase 2)
+// ============================================================================
+
+// ReportType represents the type of security report
+type ReportType string
+
+const (
+	ReportTypeExecutive  ReportType = "executive"
+	ReportTypeTechnical  ReportType = "technical"
+	ReportTypeCompliance ReportType = "compliance"
+	ReportTypeTrend      ReportType = "trend"
+)
+
+// ReportFormat represents the export format for reports
+type ReportFormat string
+
+const (
+	FormatPDF      ReportFormat = "pdf"
+	FormatHTML     ReportFormat = "html"
+	FormatJSON     ReportFormat = "json"
+	FormatCSV      ReportFormat = "csv"
+	FormatMarkdown ReportFormat = "markdown"
+)
+
+// ReportMetadata contains metadata about a generated report
+type ReportMetadata struct {
+	ID               string       `json:"id"`
+	Type             ReportType   `json:"type"`
+	Format           ReportFormat `json:"format"`
+	Title            string       `json:"title"`
+	GeneratedAt      time.Time    `json:"generated_at"`
+	GeneratedBy      string       `json:"generated_by"`
+	ScanPeriod       DateRange    `json:"scan_period"`
+	WorkspaceName    string       `json:"workspace_name"`
+	OrganizationName string       `json:"organization_name,omitempty"`
+}
+
+// DateRange represents a time period
+type DateRange struct {
+	Start time.Time `json:"start"`
+	End   time.Time `json:"end"`
+}
+
+// ExecutiveSummary is a high-level security report for management
+type ExecutiveSummary struct {
+	Metadata        ReportMetadata     `json:"metadata"`
+	RiskScore       float64            `json:"risk_score"` // 0-10
+	RiskLevel       string             `json:"risk_level"` // Low, Medium, High, Critical
+	TotalDevices    int                `json:"total_devices"`
+	VulnStats       VulnerabilityStats `json:"vulnerability_stats"`
+	TopRisks        []RiskItem         `json:"top_risks"`
+	Recommendations []Recommendation   `json:"recommendations"`
+}
+
+// VulnerabilityStats provides statistical breakdown of vulnerabilities
+type VulnerabilityStats struct {
+	Total       int            `json:"total"`
+	Critical    int            `json:"critical"`
+	High        int            `json:"high"`
+	Medium      int            `json:"medium"`
+	Low         int            `json:"low"`
+	BySeverity  map[string]int `json:"by_severity"`
+	ByCategory  map[string]int `json:"by_category"`
+	ByStatus    map[string]int `json:"by_status"`
+	Confirmed   int            `json:"confirmed"`
+	Unconfirmed int            `json:"unconfirmed"`
+}
+
+// RiskItem represents a prioritized security risk
+type RiskItem struct {
+	Rank            int     `json:"rank"`
+	VulnName        string  `json:"vulnerability_name"`
+	Severity        int     `json:"severity"`
+	AffectedDevices int     `json:"affected_devices"`
+	Impact          string  `json:"impact"`
+	Likelihood      string  `json:"likelihood"`
+	RiskScore       float64 `json:"risk_score"`
+}
+
+// Recommendation provides actionable security guidance
+type Recommendation struct {
+	Priority        string   `json:"priority"` // critical, high, medium, low
+	Title           string   `json:"title"`
+	Description     string   `json:"description"`
+	Actions         []string `json:"actions"`
+	EstimatedEffort string   `json:"estimated_effort"`
+	ImpactReduction float64  `json:"impact_reduction"` // 0-100%
+}

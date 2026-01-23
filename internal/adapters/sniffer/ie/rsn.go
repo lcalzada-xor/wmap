@@ -1,6 +1,7 @@
 package ie
 
 import (
+	"encoding/binary"
 	"fmt"
 )
 
@@ -34,7 +35,7 @@ func ParseRSN(data []byte) (*RSNInfo, error) {
 	offset := 0
 
 	// Version (2 bytes)
-	rsn.Version = uint16(data[offset]) | uint16(data[offset+1])<<8
+	rsn.Version = binary.LittleEndian.Uint16(data[offset : offset+2])
 	offset += 2
 
 	// Group Cipher Suite (4 bytes: OUI + Type)
@@ -45,7 +46,7 @@ func ParseRSN(data []byte) (*RSNInfo, error) {
 
 	// Pairwise Cipher Suite Count + List
 	if offset+2 <= len(data) {
-		count := int(data[offset]) | int(data[offset+1])<<8
+		count := int(binary.LittleEndian.Uint16(data[offset : offset+2]))
 		offset += 2
 		for i := 0; i < count && offset+4 <= len(data); i++ {
 			rsn.PairwiseCiphers = append(rsn.PairwiseCiphers, parseCipherSuite(data[offset:offset+4]))
@@ -55,7 +56,7 @@ func ParseRSN(data []byte) (*RSNInfo, error) {
 
 	// AKM Suite Count + List
 	if offset+2 <= len(data) {
-		count := int(data[offset]) | int(data[offset+1])<<8
+		count := int(binary.LittleEndian.Uint16(data[offset : offset+2]))
 		offset += 2
 		for i := 0; i < count && offset+4 <= len(data); i++ {
 			rsn.AKMSuites = append(rsn.AKMSuites, parseAKMSuite(data[offset:offset+4]))
@@ -65,7 +66,7 @@ func ParseRSN(data []byte) (*RSNInfo, error) {
 
 	// RSN Capabilities (2 bytes)
 	if offset+2 <= len(data) {
-		caps := uint16(data[offset]) | uint16(data[offset+1])<<8
+		caps := binary.LittleEndian.Uint16(data[offset : offset+2])
 		rsn.Capabilities = parseRSNCapabilities(caps)
 	}
 

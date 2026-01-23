@@ -4,6 +4,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 
@@ -35,7 +36,10 @@ func ParseIEs(data []byte, device *domain.Device) {
 		device.IETags = append(device.IETags, id)
 
 		if handler, found := reg.Get(id); found {
-			_ = handler.Handle(val, device)
+			if err := handler.Handle(val, device); err != nil {
+				// Log parsing errors for debugging without breaking the flow
+				log.Printf("Warning: Failed to parse IE %d (len=%d): %v", id, len(val), err)
+			}
 		}
 	})
 

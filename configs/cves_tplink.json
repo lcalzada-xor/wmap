@@ -1,0 +1,943 @@
+[
+  {
+    "cve_id": "CVE-2012-2440",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "The default configuration of the TP-Link 8840T router enables web-based administration on the WAN interface, which allows remote attackers to establish an HTTP connection and possibly have unspecified other impact via unknown vectors.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2012-04-28T00:55:01.313",
+    "last_modified": "2025-04-11T00:51:21.963",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-264",
+    "references": [
+      "http://www.kb.cert.org/vuls/id/834723",
+      "https://exchange.xforce.ibmcloud.com/vulnerabilities/74624",
+      "http://www.kb.cert.org/vuls/id/834723",
+      "https://exchange.xforce.ibmcloud.com/vulnerabilities/74624"
+    ]
+  },
+  {
+    "cve_id": "CVE-2012-5687",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "Directory traversal vulnerability in the web-based management feature on the TP-LINK TL-WR841N router with firmware 3.13.9 build 120201 Rel.54965n and earlier allows remote attackers to read arbitrary files via a .. (dot dot) in the PATH_INFO to the help/ URI.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2012-11-01T10:44:47.843",
+    "last_modified": "2025-04-11T00:51:21.963",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-22",
+    "references": [
+      "http://archives.neohapsis.com/archives/bugtraq/2012-10/0154.html",
+      "http://archives.neohapsis.com/archives/bugtraq/2012-10/0154.html",
+      "http://packetstormsecurity.org/files/117749/TP-LINK-TL-WR841N-Local-File-Inclusion.html",
+      "https://exchange.xforce.ibmcloud.com/vulnerabilities/79662",
+      "http://archives.neohapsis.com/archives/bugtraq/2012-10/0154.html",
+      "http://archives.neohapsis.com/archives/bugtraq/2012-10/0154.html",
+      "http://packetstormsecurity.org/files/117749/TP-LINK-TL-WR841N-Local-File-Inclusion.html",
+      "https://exchange.xforce.ibmcloud.com/vulnerabilities/79662"
+    ]
+  },
+  {
+    "cve_id": "CVE-2012-6276",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "Directory traversal vulnerability in the web-based management interface on the TP-LINK TL-WR841N router with firmware 3.13.9 build 120201 Rel.54965n and earlier allows remote attackers to read arbitrary files via the URL parameter.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2013-01-26T21:55:00.960",
+    "last_modified": "2025-04-11T00:51:21.963",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-22",
+    "references": [
+      "http://www.kb.cert.org/vuls/id/185100",
+      "http://www.kb.cert.org/vuls/id/185100"
+    ]
+  },
+  {
+    "cve_id": "CVE-2013-3688",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "The TP-Link IP Cameras TL-SC3171, TL-SC3130, TL-SC3130G, TL-SC3171G, and possibly other models before beta firmware LM.1.6.18P12_sign6, does not properly restrict access to certain administrative functions, which allows remote attackers to (1) cause a denial of service (device reboot) via a request to cgi-bin/reboot or (2) cause a denial of service (reboot and reset to factory defaults) via a request to cgi-bin/hardfactorydefault.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2013-10-01T19:55:09.367",
+    "last_modified": "2025-04-11T00:51:21.963",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-264",
+    "references": [
+      "http://seclists.org/fulldisclosure/2013/Jun/84",
+      "http://www.coresecurity.com/advisories/multiple-vulnerabilities-tp-link-tl-sc3171-ip-cameras",
+      "http://seclists.org/fulldisclosure/2013/Jun/84",
+      "http://www.coresecurity.com/advisories/multiple-vulnerabilities-tp-link-tl-sc3171-ip-cameras"
+    ]
+  },
+  {
+    "cve_id": "CVE-2013-2578",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "cgi-bin/admin/servetest in TP-Link IP Cameras TL-SC3130, TL-SC3130G, TL-SC3171, TL-SC3171G, and possibly other models before beta firmware LM.1.6.18P12_sign6 allows remote attackers to execute arbitrary commands via shell metacharacters in (1) the ServerName parameter and (2) other unspecified parameters.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2013-10-11T21:55:41.887",
+    "last_modified": "2025-04-11T00:51:21.963",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-78",
+    "references": [
+      "http://www.coresecurity.com/advisories/multiple-vulnerabilities-tp-link-tl-sc3171-ip-cameras",
+      "http://www.coresecurity.com/advisories/multiple-vulnerabilities-tp-link-tl-sc3171-ip-cameras"
+    ]
+  },
+  {
+    "cve_id": "CVE-2013-2579",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "TP-Link IP Cameras TL-SC3130, TL-SC3130G, TL-SC3171, TL-SC3171G, and possibly other models before beta firmware LM.1.6.18P12_sign6 have an empty password for the hardcoded \"qmik\" account, which allows remote attackers to obtain administrative access via a TELNET session.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2013-10-11T21:55:44.167",
+    "last_modified": "2025-04-11T00:51:21.963",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-255",
+    "references": [
+      "http://www.coresecurity.com/advisories/multiple-vulnerabilities-tp-link-tl-sc3171-ip-cameras",
+      "http://www.coresecurity.com/advisories/multiple-vulnerabilities-tp-link-tl-sc3171-ip-cameras"
+    ]
+  },
+  {
+    "cve_id": "CVE-2013-2580",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "Unrestricted file upload vulnerability in cgi-bin/uploadfile in TP-Link IP Cameras TL-SC3130, TL-SC3130G, TL-SC3171, TL-SC3171G, and possibly other models before beta firmware LM.1.6.18P12_sign6, allows remote attackers to upload arbitrary files, then accessing it via a direct request to the file in the mnt/mtd directory.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2013-10-11T21:55:44.183",
+    "last_modified": "2025-04-11T00:51:21.963",
+    "attack_vector": "NETWORK",
+    "cwe_id": "NVD-CWE-Other",
+    "references": [
+      "http://www.coresecurity.com/advisories/multiple-vulnerabilities-tp-link-tl-sc3171-ip-cameras",
+      "http://www.coresecurity.com/advisories/multiple-vulnerabilities-tp-link-tl-sc3171-ip-cameras"
+    ]
+  },
+  {
+    "cve_id": "CVE-2013-2581",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "cgi-bin/firmwareupgrade in TP-Link IP Cameras TL-SC3130, TL-SC3130G, TL-SC3171, TL-SC3171G, and possibly other models before beta firmware LM.1.6.18P12_sign6 allows remote attackers to modify the firmware revision via a \"preset\" action.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2013-10-11T21:55:44.213",
+    "last_modified": "2025-04-11T00:51:21.963",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-264",
+    "references": [
+      "http://secunia.com/advisories/54155",
+      "http://www.coresecurity.com/advisories/multiple-vulnerabilities-tp-link-tl-sc3171-ip-cameras",
+      "http://secunia.com/advisories/54155",
+      "http://www.coresecurity.com/advisories/multiple-vulnerabilities-tp-link-tl-sc3171-ip-cameras"
+    ]
+  },
+  {
+    "cve_id": "CVE-2013-6786",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "Cross-site scripting (XSS) vulnerability in Allegro RomPager before 4.51, as used on the ZyXEL P660HW-D1, Huawei MT882, Sitecom WL-174, TP-LINK TD-8816, and D-Link DSL-2640R and DSL-2641R, when the \"forbidden author header\" protection mechanism is bypassed, allows remote attackers to inject arbitrary web script or HTML by requesting a nonexistent URI in conjunction with a crafted HTTP Referer header that is not properly handled in a 404 page.  NOTE: there is no CVE for a \"URL redirection\" issue that some sources list separately.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2014-01-16T19:55:04.607",
+    "last_modified": "2025-04-11T00:51:21.963",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-79",
+    "references": [
+      "http://antoniovazquezblanco.github.io/docs/advisories/Advisory_RomPagerXSS.pdf",
+      "http://osvdb.org/99694",
+      "http://osvdb.org/ref/99/rompager407.pdf",
+      "http://antoniovazquezblanco.github.io/docs/advisories/Advisory_RomPagerXSS.pdf",
+      "http://osvdb.org/99694",
+      "http://osvdb.org/ref/99/rompager407.pdf"
+    ]
+  },
+  {
+    "cve_id": "CVE-2012-6316",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "Multiple cross-site scripting (XSS) vulnerabilities in the TP-LINK TL-WR841N router with firmware 3.13.9 Build 120201 Rel.54965n and earlier allow remote administrators to inject arbitrary web script or HTML via the (1) username or (2) pwd parameter to userRpm/NoipDdnsRpm.htm.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2014-09-30T14:55:07.970",
+    "last_modified": "2025-04-12T10:46:40.837",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-79",
+    "references": [
+      "http://seclists.org/fulldisclosure/2012/Dec/93",
+      "http://www.securityfocus.com/bid/56602",
+      "http://seclists.org/fulldisclosure/2012/Dec/93",
+      "http://www.securityfocus.com/bid/56602"
+    ]
+  },
+  {
+    "cve_id": "CVE-2014-4727",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "Cross-site scripting (XSS) vulnerability in the DHCP clients page in the TP-LINK N750 Wireless Dual Band Gigabit Router (TL-WDR4300) with firmware before 140916 allows remote attackers to inject arbitrary web script or HTML via the hostname in a DHCP request.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2014-09-30T16:55:06.607",
+    "last_modified": "2025-04-12T10:46:40.837",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-79",
+    "references": [
+      "http://packetstormsecurity.com/files/128343/TP-LINK-WDR4300-XSS-Denial-Of-Service.html",
+      "http://seclists.org/fulldisclosure/2014/Sep/80",
+      "http://www.securityfocus.com/archive/1/533499/100/0/threaded",
+      "http://www.securityfocus.com/archive/1/533501/100/0/threaded",
+      "http://www.securityfocus.com/bid/70037",
+      "https://exchange.xforce.ibmcloud.com/vulnerabilities/96139",
+      "http://packetstormsecurity.com/files/128343/TP-LINK-WDR4300-XSS-Denial-Of-Service.html",
+      "http://seclists.org/fulldisclosure/2014/Sep/80",
+      "http://www.securityfocus.com/archive/1/533499/100/0/threaded",
+      "http://www.securityfocus.com/archive/1/533501/100/0/threaded",
+      "http://www.securityfocus.com/bid/70037",
+      "https://exchange.xforce.ibmcloud.com/vulnerabilities/96139"
+    ]
+  },
+  {
+    "cve_id": "CVE-2014-4728",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "The web server in the TP-LINK N750 Wireless Dual Band Gigabit Router (TL-WDR4300) with firmware before 140916 allows remote attackers to cause a denial of service (crash) via a long header in a GET request.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2014-09-30T16:55:06.653",
+    "last_modified": "2025-04-12T10:46:40.837",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-399",
+    "references": [
+      "http://packetstormsecurity.com/files/128343/TP-LINK-WDR4300-XSS-Denial-Of-Service.html",
+      "http://seclists.org/fulldisclosure/2014/Sep/80",
+      "http://www.securityfocus.com/archive/1/533499/100/0/threaded",
+      "http://www.securityfocus.com/archive/1/533501/100/0/threaded",
+      "http://www.securityfocus.com/bid/70037",
+      "https://exchange.xforce.ibmcloud.com/vulnerabilities/96140",
+      "http://packetstormsecurity.com/files/128343/TP-LINK-WDR4300-XSS-Denial-Of-Service.html",
+      "http://seclists.org/fulldisclosure/2014/Sep/80",
+      "http://www.securityfocus.com/archive/1/533499/100/0/threaded",
+      "http://www.securityfocus.com/archive/1/533501/100/0/threaded",
+      "http://www.securityfocus.com/bid/70037",
+      "https://exchange.xforce.ibmcloud.com/vulnerabilities/96140"
+    ]
+  },
+  {
+    "cve_id": "CVE-2013-2645",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "Multiple cross-site request forgery (CSRF) vulnerabilities on the TP-LINK WR1043N router with firmware TL-WR1043ND_V1_120405 allow remote attackers to hijack the authentication of administrators for requests that (1) enable FTP access (aka \"FTP directory traversal\") to /tmp via the shareEntire parameter to userRpm/NasFtpCfgRpm.htm, (2) change the FTP administrative password via the nas_admin_pwd parameter to userRpm/NasUserAdvRpm.htm, (3) enable FTP on the WAN interface via the internetA parameter to userRpm/NasFtpCfgRpm.htm, (4) launch the FTP service via the startFtp parameter to userRpm/NasFtpCfgRpm.htm, or (5) enable or disable bandwidth limits via the QoSCtrl parameter to userRpm/QoSCfgRpm.htm.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2014-10-06T01:55:07.727",
+    "last_modified": "2025-04-12T10:46:40.837",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-352",
+    "references": [
+      "http://securityevaluators.com/knowledge/case_studies/routers/tp-link_wr1043n.php",
+      "http://securityevaluators.com/knowledge/case_studies/routers/tp-link_wr1043n.php"
+    ]
+  },
+  {
+    "cve_id": "CVE-2014-9350",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "TP-Link TL-WR740N 4 with firmware 3.17.0 Build 140520, 3.16.6 Build 130529, and 3.16.4 Build 130205 allows remote attackers to cause a denial of service (httpd crash) via vectors involving a \"new\" value in the isNew parameter to PingIframeRpm.htm.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2014-12-08T16:59:22.370",
+    "last_modified": "2025-04-12T10:46:40.837",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-19",
+    "references": [
+      "http://packetstormsecurity.com/files/129227/TP-Link-TL-WR740N-Denial-Of-Service.html",
+      "http://www.exploit-db.com/exploits/35345",
+      "http://www.osvdb.org/115017",
+      "http://www.zeroscience.mk/en/vulnerabilities/ZSL-2014-5210.php",
+      "https://exchange.xforce.ibmcloud.com/vulnerabilities/98927",
+      "http://packetstormsecurity.com/files/129227/TP-Link-TL-WR740N-Denial-Of-Service.html",
+      "http://www.exploit-db.com/exploits/35345",
+      "http://www.osvdb.org/115017",
+      "http://www.zeroscience.mk/en/vulnerabilities/ZSL-2014-5210.php",
+      "https://exchange.xforce.ibmcloud.com/vulnerabilities/98927"
+    ]
+  },
+  {
+    "cve_id": "CVE-2014-9510",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "Cross-site request forgery (CSRF) vulnerability in the administration console in TP-Link TL-WR840N (V1) router with firmware before 3.13.27 build 141120 allows remote attackers to hijack the authentication of administrators for requests that change router settings via a configuration file import.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2015-01-09T18:59:09.210",
+    "last_modified": "2025-04-12T10:46:40.837",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-352",
+    "references": [
+      "http://seclists.org/fulldisclosure/2015/Jan/14",
+      "http://www.secureworks.com/cyber-threat-intelligence/advisories/SWRX-2015-001/",
+      "http://www.securityfocus.com/bid/71913",
+      "http://www.tp-link.com/en/support/download/?model=TL-WR840N&version=V1",
+      "http://seclists.org/fulldisclosure/2015/Jan/14",
+      "http://www.secureworks.com/cyber-threat-intelligence/advisories/SWRX-2015-001/",
+      "http://www.securityfocus.com/bid/71913",
+      "http://www.tp-link.com/en/support/download/?model=TL-WR840N&version=V1"
+    ]
+  },
+  {
+    "cve_id": "CVE-2015-3035",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "Directory traversal vulnerability in TP-LINK Archer C5 (1.2) with firmware before 150317, C7 (2.0) with firmware before 150304, and C8 (1.0) with firmware before 150316, Archer C9 (1.0), TL-WDR3500 (1.0), TL-WDR3600 (1.0), and TL-WDR4300 (1.0) with firmware before 150302, TL-WR740N (5.0) and TL-WR741ND (5.0) with firmware before 150312, and TL-WR841N (9.0), TL-WR841N (10.0), TL-WR841ND (9.0), and TL-WR841ND (10.0) with firmware before 150310 allows remote attackers to read arbitrary files via a .. (dot dot) in the PATH_INFO to login/.",
+    "severity": 7.5,
+    "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+    "published_date": "2015-04-22T01:59:02.553",
+    "last_modified": "2025-10-22T00:15:42.857",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-22",
+    "references": [
+      "http://packetstormsecurity.com/files/131378/TP-LINK-Local-File-Disclosure.html",
+      "http://seclists.org/fulldisclosure/2015/Apr/26",
+      "http://www.securityfocus.com/archive/1/535240/100/0/threaded",
+      "http://www.securityfocus.com/bid/74050",
+      "http://www.tp-link.com/en/download/Archer-C5_V1.20.html#Firmware",
+      "http://www.tp-link.com/en/download/Archer-C7_V2.html#Firmware",
+      "http://www.tp-link.com/en/download/Archer-C8_V1.html#Firmware",
+      "http://www.tp-link.com/en/download/Archer-C9_V1.html#Firmware",
+      "http://www.tp-link.com/en/download/TL-WDR3500_V1.html#Firmware",
+      "http://www.tp-link.com/en/download/TL-WDR3600_V1.html#Firmware",
+      "http://www.tp-link.com/en/download/TL-WDR4300_V1.html#Firmware",
+      "http://www.tp-link.com/en/download/TL-WR740N_V5.html#Firmware",
+      "http://www.tp-link.com/en/download/TL-WR741ND_V5.html#Firmware",
+      "http://www.tp-link.com/en/download/TL-WR841ND_V9.html#Firmware",
+      "http://www.tp-link.com/en/download/TL-WR841N_V9.html#Firmware",
+      "https://www.sec-consult.com/fxdata/seccons/prod/temedia/advisories_txt/20150410-0_TP-Link_Unauthenticated_local_file_disclosure_vulnerability_v10.txt",
+      "http://packetstormsecurity.com/files/131378/TP-LINK-Local-File-Disclosure.html",
+      "http://seclists.org/fulldisclosure/2015/Apr/26",
+      "http://www.securityfocus.com/archive/1/535240/100/0/threaded",
+      "http://www.securityfocus.com/bid/74050",
+      "http://www.tp-link.com/en/download/Archer-C5_V1.20.html#Firmware",
+      "http://www.tp-link.com/en/download/Archer-C7_V2.html#Firmware",
+      "http://www.tp-link.com/en/download/Archer-C8_V1.html#Firmware",
+      "http://www.tp-link.com/en/download/Archer-C9_V1.html#Firmware",
+      "http://www.tp-link.com/en/download/TL-WDR3500_V1.html#Firmware",
+      "http://www.tp-link.com/en/download/TL-WDR3600_V1.html#Firmware",
+      "http://www.tp-link.com/en/download/TL-WDR4300_V1.html#Firmware",
+      "http://www.tp-link.com/en/download/TL-WR740N_V5.html#Firmware",
+      "http://www.tp-link.com/en/download/TL-WR741ND_V5.html#Firmware",
+      "http://www.tp-link.com/en/download/TL-WR841ND_V9.html#Firmware",
+      "http://www.tp-link.com/en/download/TL-WR841N_V9.html#Firmware",
+      "https://www.sec-consult.com/fxdata/seccons/prod/temedia/advisories_txt/20150410-0_TP-Link_Unauthenticated_local_file_disclosure_vulnerability_v10.txt",
+      "https://www.cisa.gov/known-exploited-vulnerabilities-catalog?field_cve=CVE-2015-3035"
+    ]
+  },
+  {
+    "cve_id": "CVE-2015-3036",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "Stack-based buffer overflow in the run_init_sbus function in the KCodes NetUSB module for the Linux kernel, as used in certain NETGEAR products, TP-LINK products, and other products, allows remote attackers to execute arbitrary code by providing a long computer name in a session on TCP port 20005.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2015-05-21T01:59:27.087",
+    "last_modified": "2025-04-12T10:46:40.837",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-119",
+    "references": [
+      "http://blog.sec-consult.com/2015/05/kcodes-netusb-how-small-taiwanese.html",
+      "http://packetstormsecurity.com/files/131987/KCodes-NetUSB-Buffer-Overflow.html",
+      "http://packetstormsecurity.com/files/133919/NetUSB-Stack-Buffer-Overflow.html",
+      "http://seclists.org/fulldisclosure/2015/May/74",
+      "http://seclists.org/fulldisclosure/2015/Oct/50",
+      "http://www.kb.cert.org/vuls/id/177092",
+      "http://www.securityfocus.com/bid/74724",
+      "http://www.securitytracker.com/id/1032377",
+      "https://www.exploit-db.com/exploits/38454/",
+      "https://www.exploit-db.com/exploits/38566/",
+      "https://www.sec-consult.com/fxdata/seccons/prod/temedia/advisories_txt/20150519-0_KCodes_NetUSB_Kernel_Stack_Buffer_Overflow_v10.txt",
+      "http://blog.sec-consult.com/2015/05/kcodes-netusb-how-small-taiwanese.html",
+      "http://packetstormsecurity.com/files/131987/KCodes-NetUSB-Buffer-Overflow.html",
+      "http://packetstormsecurity.com/files/133919/NetUSB-Stack-Buffer-Overflow.html",
+      "http://seclists.org/fulldisclosure/2015/May/74",
+      "http://seclists.org/fulldisclosure/2015/Oct/50",
+      "http://www.kb.cert.org/vuls/id/177092",
+      "http://www.securityfocus.com/bid/74724",
+      "http://www.securitytracker.com/id/1032377",
+      "https://www.exploit-db.com/exploits/38454/",
+      "https://www.exploit-db.com/exploits/38566/",
+      "https://www.sec-consult.com/fxdata/seccons/prod/temedia/advisories_txt/20150519-0_KCodes_NetUSB_Kernel_Stack_Buffer_Overflow_v10.txt"
+    ]
+  },
+  {
+    "cve_id": "CVE-2016-1000009",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "TP-LINK lost control of two domains, www.tplinklogin.net and tplinkextender.net. Please note that these domains are physically printed on many of the devices.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2016-10-06T14:59:16.693",
+    "last_modified": "2025-04-12T10:46:40.837",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-254",
+    "references": [
+      "http://seclists.org/bugtraq/2016/Jul/3",
+      "https://pbs.twimg.com/media/CmnQ3F0WIAAs_X0.jpg",
+      "https://pbs.twimg.com/media/CmnQGI0WAAIbPHA.jpg",
+      "http://seclists.org/bugtraq/2016/Jul/3",
+      "https://pbs.twimg.com/media/CmnQ3F0WIAAs_X0.jpg",
+      "https://pbs.twimg.com/media/CmnQGI0WAAIbPHA.jpg"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-8074",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "On the TP-Link TL-SG108E 1.0, a remote attacker could retrieve credentials from \"SEND data\" log lines where passwords are encoded in hexadecimal. This affects the 1.1.2 Build 20141017 Rel.50749 firmware.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2017-04-23T16:59:00.140",
+    "last_modified": "2025-04-20T01:37:25.860",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-532",
+    "references": [
+      "http://www.securityfocus.com/bid/97981",
+      "https://chmod750.com/2017/04/23/vulnerability-disclosure-tp-link/",
+      "http://www.securityfocus.com/bid/97981",
+      "https://chmod750.com/2017/04/23/vulnerability-disclosure-tp-link/"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-8075",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "On the TP-Link TL-SG108E 1.0, a remote attacker could retrieve credentials from \"Switch Info\" log lines where passwords are in cleartext. This affects the 1.1.2 Build 20141017 Rel.50749 firmware.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2017-04-23T16:59:00.187",
+    "last_modified": "2025-04-20T01:37:25.860",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-532",
+    "references": [
+      "http://www.securityfocus.com/bid/97983",
+      "https://chmod750.com/2017/04/23/vulnerability-disclosure-tp-link/",
+      "http://www.securityfocus.com/bid/97983",
+      "https://chmod750.com/2017/04/23/vulnerability-disclosure-tp-link/"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-8076",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "On the TP-Link TL-SG108E 1.0, admin network communications are RC4 encoded, even though RC4 is deprecated. This affects the 1.1.2 Build 20141017 Rel.50749 firmware.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2017-04-23T16:59:00.220",
+    "last_modified": "2025-04-20T01:37:25.860",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-326",
+    "references": [
+      "https://chmod750.com/2017/04/23/vulnerability-disclosure-tp-link/",
+      "https://chmod750.com/2017/04/23/vulnerability-disclosure-tp-link/"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-8077",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "On the TP-Link TL-SG108E 1.0, there is a hard-coded ciphering key (a long string beginning with Ei2HNryt). This affects the 1.1.2 Build 20141017 Rel.50749 firmware.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2017-04-23T16:59:00.250",
+    "last_modified": "2025-04-20T01:37:25.860",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-798",
+    "references": [
+      "https://chmod750.com/2017/04/23/vulnerability-disclosure-tp-link/",
+      "https://chmod750.com/2017/04/23/vulnerability-disclosure-tp-link/"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-8078",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "On the TP-Link TL-SG108E 1.0, the upgrade process can be requested remotely without authentication (httpupg.cgi with a parameter called cmd). This affects the 1.1.2 Build 20141017 Rel.50749 firmware.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2017-04-23T16:59:00.283",
+    "last_modified": "2025-04-20T01:37:25.860",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-287",
+    "references": [
+      "http://www.securityfocus.com/bid/97985",
+      "https://chmod750.com/2017/04/23/vulnerability-disclosure-tp-link/",
+      "http://www.securityfocus.com/bid/97985",
+      "https://chmod750.com/2017/04/23/vulnerability-disclosure-tp-link/"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-8217",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "TP-Link C2 and C20i devices through firmware 0.9.1 4.2 v0032.0 Build 160706 Rel.37961n have too permissive iptables rules, e.g., SNMP is not blocked on any interface.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2017-04-25T20:59:00.163",
+    "last_modified": "2025-04-20T01:37:25.860",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-862",
+    "references": [
+      "https://pierrekim.github.io/blog/2017-02-09-tplink-c2-and-c20i-vulnerable.html",
+      "https://pierrekim.github.io/blog/2017-02-09-tplink-c2-and-c20i-vulnerable.html"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-8218",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "vsftpd on TP-Link C2 and C20i devices through firmware 0.9.1 4.2 v0032.0 Build 160706 Rel.37961n has a backdoor admin account with the 1234 password, a backdoor guest account with the guest password, and a backdoor test account with the test password.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2017-04-25T20:59:00.197",
+    "last_modified": "2025-04-20T01:37:25.860",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-1188",
+    "references": [
+      "https://pierrekim.github.io/blog/2017-02-09-tplink-c2-and-c20i-vulnerable.html",
+      "https://pierrekim.github.io/blog/2017-02-09-tplink-c2-and-c20i-vulnerable.html"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-8219",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "TP-Link C2 and C20i devices through firmware 0.9.1 4.2 v0032.0 Build 160706 Rel.37961n allow DoSing the HTTP server via a crafted Cookie header to the /cgi/ansi URI.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2017-04-25T20:59:00.227",
+    "last_modified": "2025-04-20T01:37:25.860",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-20",
+    "references": [
+      "https://pierrekim.github.io/blog/2017-02-09-tplink-c2-and-c20i-vulnerable.html",
+      "https://pierrekim.github.io/blog/2017-02-09-tplink-c2-and-c20i-vulnerable.html"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-8220",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "TP-Link C2 and C20i devices through firmware 0.9.1 4.2 v0032.0 Build 160706 Rel.37961n allow remote code execution with a single HTTP request by placing shell commands in a \"host=\" line within HTTP POST data.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2017-04-25T20:59:00.257",
+    "last_modified": "2025-04-20T01:37:25.860",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-78",
+    "references": [
+      "https://pierrekim.github.io/blog/2017-02-09-tplink-c2-and-c20i-vulnerable.html",
+      "https://pierrekim.github.io/blog/2017-02-09-tplink-c2-and-c20i-vulnerable.html"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-9466",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "The executable httpd on the TP-Link WR841N V8 router before TL-WR841N(UN)_V8_170210 contained a design flaw in the use of DES for block encryption. This resulted in incorrect access control, which allowed attackers to gain read-write access to system settings through the protected router configuration service tddp via the LAN and Ath0 (Wi-Fi) interfaces.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2017-06-26T07:29:00.340",
+    "last_modified": "2025-04-20T01:37:25.860",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-327",
+    "references": [
+      "http://blog.senr.io/blog/cve-2017-9466-why-is-my-router-blinking-morse-code",
+      "http://blog.senr.io/blog/cve-2017-9466-why-is-my-router-blinking-morse-code"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-10796",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "On TP-Link NC250 devices with firmware through 1.2.1 build 170515, anyone can view video and audio without authentication via an rtsp://admin@yourip:554/h264_hd.sdp URL.",
+    "severity": 6.5,
+    "cvss_vector": "CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+    "published_date": "2017-07-02T22:29:00.230",
+    "last_modified": "2025-04-20T01:37:25.860",
+    "attack_vector": "ADJACENT_NETWORK",
+    "cwe_id": "CWE-287",
+    "references": [
+      "https://gist.github.com/elbauldelgeek/8f0f24c582f43f51a34b34420a385d75",
+      "https://gist.github.com/elbauldelgeek/8f0f24c582f43f51a34b34420a385d75"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-11519",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "passwd_recovery.lua on the TP-Link Archer C9(UN)_V2_160517 allows an attacker to reset the admin password by leveraging a predictable random number generator seed. This is fixed in C9(UN)_V2_170511.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2017-07-21T21:29:00.277",
+    "last_modified": "2025-04-20T01:37:25.860",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-335",
+    "references": [
+      "http://www.tp-link.com/en/download/Archer-C9_V2.html#Firmware",
+      "https://devcraft.io/posts/2017/07/21/tp-link-archer-c9-admin-password-reset.html",
+      "http://www.tp-link.com/en/download/Archer-C9_V2.html#Firmware",
+      "https://devcraft.io/posts/2017/07/21/tp-link-archer-c9-admin-password-reset.html"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-15291",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "Cross-site scripting (XSS) vulnerability in the Wireless MAC Filtering page in TP-LINK TL-MR3220 wireless routers allows remote attackers to inject arbitrary web script or HTML via the Description field.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2017-10-20T17:29:00.210",
+    "last_modified": "2025-04-20T01:37:25.860",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-79",
+    "references": [
+      "https://fireshellsecurity.team/assets/pdf/Router-TP-LINK-TL-MR3220-Vulnerability-XSS.pdf",
+      "https://www.exploit-db.com/exploits/43023/",
+      "https://fireshellsecurity.team/assets/pdf/Router-TP-LINK-TL-MR3220-Vulnerability-XSS.pdf",
+      "https://www.exploit-db.com/exploits/43023/"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-13772",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "Multiple stack-based buffer overflows in TP-Link WR940N WiFi routers with hardware version 4 allow remote authenticated users to execute arbitrary code via the (1) ping_addr parameter to PingIframeRpm.htm or (2) dnsserver2 parameter to WanStaticIpV6CfgRpm.htm.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2017-10-23T18:29:00.883",
+    "last_modified": "2025-04-20T01:37:25.860",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-119",
+    "references": [
+      "http://packetstormsecurity.com/files/158999/TP-Link-WDR4300-Remote-Code-Execution.html",
+      "https://www.exploit-db.com/exploits/43022/",
+      "https://www.fidusinfosec.com/tp-link-remote-code-execution-cve-2017-13772/",
+      "http://packetstormsecurity.com/files/158999/TP-Link-WDR4300-Remote-Code-Execution.html",
+      "https://www.exploit-db.com/exploits/43022/",
+      "https://www.fidusinfosec.com/tp-link-remote-code-execution-cve-2017-13772/"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-16957",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "TP-Link TL-WVR, TL-WAR, TL-ER, and TL-R devices allow remote authenticated users to execute arbitrary commands via shell metacharacters in the iface field of an admin/diagnostic command to cgi-bin/luci, related to the zone_get_effect_devices function in /usr/lib/lua/luci/controller/admin/diagnostic.lua in uhttpd.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2017-11-27T10:29:00.440",
+    "last_modified": "2025-04-20T01:37:25.860",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-78",
+    "references": [
+      "http://www.securityfocus.com/bid/101968",
+      "https://github.com/coincoin7/Wireless-Router-Vulnerability/blob/master/TplinkDiagnosticAuthenticatedRCE.txt",
+      "http://www.securityfocus.com/bid/101968",
+      "https://github.com/coincoin7/Wireless-Router-Vulnerability/blob/master/TplinkDiagnosticAuthenticatedRCE.txt"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-16958",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "TP-Link TL-WVR, TL-WAR, TL-ER, and TL-R devices allow remote authenticated users to execute arbitrary commands via shell metacharacters in the t_bindif field of an admin/bridge command to cgi-bin/luci, related to the get_device_byif function in /usr/lib/lua/luci/controller/admin/bridge.lua in uhttpd.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2017-11-27T10:29:00.487",
+    "last_modified": "2025-04-20T01:37:25.860",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-78",
+    "references": [
+      "https://github.com/coincoin7/Wireless-Router-Vulnerability/blob/master/TplinkBridgeAuthenticatedRCE.txt",
+      "https://github.com/coincoin7/Wireless-Router-Vulnerability/blob/master/TplinkBridgeAuthenticatedRCE.txt"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-16959",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "The locale feature in cgi-bin/luci on TP-Link TL-WVR, TL-WAR, TL-ER, and TL-R devices allows remote authenticated users to test for the existence of arbitrary files by making an operation=write;locale=%0d request, and then making an operation=read request with a crafted Accept-Language HTTP header, related to the set_sysinfo and get_sysinfo functions in /usr/lib/lua/luci/controller/locale.lua in uhttpd.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2017-11-27T10:29:00.517",
+    "last_modified": "2025-04-20T01:37:25.860",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-22",
+    "references": [
+      "https://github.com/coincoin7/Wireless-Router-Vulnerability/blob/master/TplinkLocalePathDisclosure.txt",
+      "https://github.com/coincoin7/Wireless-Router-Vulnerability/blob/master/TplinkLocalePathDisclosure.txt"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-16960",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "TP-Link TL-WVR, TL-WAR, TL-ER, and TL-R devices allow remote authenticated users to execute arbitrary commands via shell metacharacters in the t_bindif field of an admin/interface command to cgi-bin/luci, related to the get_device_byif function in /usr/lib/lua/luci/controller/admin/interface.lua in uhttpd.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2017-11-27T10:29:00.547",
+    "last_modified": "2025-04-20T01:37:25.860",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-78",
+    "references": [
+      "https://github.com/coincoin7/Wireless-Router-Vulnerability/blob/master/TplinkInterfaceAuthenticatedRCE.txt",
+      "https://github.com/coincoin7/Wireless-Router-Vulnerability/blob/master/TplinkInterfaceAuthenticatedRCE.txt"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-17757",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "TP-Link TL-WVR and TL-WAR devices allow remote authenticated users to execute arbitrary commands via shell metacharacters in the interface field of an admin/wportal command to cgi-bin/luci, related to the get_device_byif function in /usr/lib/lua/luci/controller/admin/wportal.lua in uhttpd.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2017-12-19T07:29:00.200",
+    "last_modified": "2025-04-20T01:37:25.860",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-78",
+    "references": [
+      "https://github.com/L1ZhaoXin/Router-Vulnerability-Research/blob/master/Tplink_LUCI_Wechat_Authenticated_RCE_Record.txt",
+      "https://github.com/L1ZhaoXin/Router-Vulnerability-Research/blob/master/Tplink_LUCI_Wechat_Authenticated_RCE_Record.txt"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-17758",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "TP-Link TL-WVR and TL-WAR devices allow remote authenticated users to execute arbitrary commands via shell metacharacters in the interface field of an admin/dhcps command to cgi-bin/luci, related to the zone_get_iface_bydev function in /usr/lib/lua/luci/controller/admin/dhcps.lua in uhttpd.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2017-12-19T07:29:00.357",
+    "last_modified": "2025-04-20T01:37:25.860",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-78",
+    "references": [
+      "https://github.com/L1ZhaoXin/Router-Vulnerability-Research/blob/master/Tplink_LUCI_Dhcps_Authenticated_RCE_Record.txt",
+      "https://github.com/L1ZhaoXin/Router-Vulnerability-Research/blob/master/Tplink_LUCI_Dhcps_Authenticated_RCE_Record.txt"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-17745",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "Cross-site scripting (XSS) vulnerability in system_name_set.cgi in TP-Link TL-SG108E 1.0.0 allows authenticated remote attackers to submit arbitrary java script via the 'sysName' parameter.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2017-12-20T20:29:00.217",
+    "last_modified": "2025-04-20T01:37:25.860",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-79",
+    "references": [
+      "http://seclists.org/fulldisclosure/2017/Dec/67",
+      "http://seclists.org/fulldisclosure/2017/Dec/67"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-17746",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "Weak access control methods on the TP-Link TL-SG108E 1.0.0 allow any user on a NAT network with an authenticated administrator to access the device without entering user credentials. The authentication record is stored on the device; thus if an administrator authenticates from a NAT network, the authentication applies to the IP address of the NAT gateway, and any user behind that NAT gateway is also treated as authenticated.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2017-12-20T20:29:00.340",
+    "last_modified": "2025-04-20T01:37:25.860",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-306",
+    "references": [
+      "http://seclists.org/fulldisclosure/2017/Dec/67",
+      "http://seclists.org/fulldisclosure/2017/Dec/67"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-17747",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "Weak access controls in the Device Logout functionality on the TP-Link TL-SG108E v1.0.0 allow remote attackers to call the logout functionality, triggering a denial of service condition.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2017-12-20T20:29:00.467",
+    "last_modified": "2025-04-20T01:37:25.860",
+    "attack_vector": "NETWORK",
+    "cwe_id": "CWE-306",
+    "references": [
+      "http://seclists.org/fulldisclosure/2017/Dec/67",
+      "http://seclists.org/fulldisclosure/2017/Dec/67"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-15613",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "TP-Link WVR, WAR and ER devices allow remote authenticated administrators to execute arbitrary commands via command injection in the new-interface variable in the cmxddns.lua file.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2018-01-11T16:29:00.407",
+    "last_modified": "2024-11-21T03:14:51.303",
+    "attack_vector": "NETWORK",
+    "cwe_id": "NVD-CWE-noinfo",
+    "references": [
+      "http://www.securityfocus.com/archive/1/541655/100/0/threaded",
+      "https://github.com/chunibalon/Vulnerability/blob/master/CVE-2017-15613_to_CVE-2017-15637.txt",
+      "http://www.securityfocus.com/archive/1/541655/100/0/threaded",
+      "https://github.com/chunibalon/Vulnerability/blob/master/CVE-2017-15613_to_CVE-2017-15637.txt"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-15614",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "TP-Link WVR, WAR and ER devices allow remote authenticated administrators to execute arbitrary commands via command injection in the new-outif variable in the pptp_client.lua file.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2018-01-11T16:29:00.470",
+    "last_modified": "2024-11-21T03:14:51.490",
+    "attack_vector": "NETWORK",
+    "cwe_id": "NVD-CWE-noinfo",
+    "references": [
+      "http://www.securityfocus.com/archive/1/541655/100/0/threaded",
+      "https://github.com/chunibalon/Vulnerability/blob/master/CVE-2017-15613_to_CVE-2017-15637.txt",
+      "http://www.securityfocus.com/archive/1/541655/100/0/threaded",
+      "https://github.com/chunibalon/Vulnerability/blob/master/CVE-2017-15613_to_CVE-2017-15637.txt"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-15615",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "TP-Link WVR, WAR and ER devices allow remote authenticated administrators to execute arbitrary commands via command injection in the lcpechointerval variable in the pptp_client.lua file.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2018-01-11T16:29:00.517",
+    "last_modified": "2024-11-21T03:14:51.680",
+    "attack_vector": "NETWORK",
+    "cwe_id": "NVD-CWE-noinfo",
+    "references": [
+      "http://www.securityfocus.com/archive/1/541655/100/0/threaded",
+      "https://github.com/chunibalon/Vulnerability/blob/master/CVE-2017-15613_to_CVE-2017-15637.txt",
+      "http://www.securityfocus.com/archive/1/541655/100/0/threaded",
+      "https://github.com/chunibalon/Vulnerability/blob/master/CVE-2017-15613_to_CVE-2017-15637.txt"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-15616",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "TP-Link WVR, WAR and ER devices allow remote authenticated administrators to execute arbitrary commands via command injection in the new-interface variable in the phddns.lua file.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2018-01-11T16:29:00.547",
+    "last_modified": "2024-11-21T03:14:51.893",
+    "attack_vector": "NETWORK",
+    "cwe_id": "NVD-CWE-noinfo",
+    "references": [
+      "http://www.securityfocus.com/archive/1/541655/100/0/threaded",
+      "https://github.com/chunibalon/Vulnerability/blob/master/CVE-2017-15613_to_CVE-2017-15637.txt",
+      "http://www.securityfocus.com/archive/1/541655/100/0/threaded",
+      "https://github.com/chunibalon/Vulnerability/blob/master/CVE-2017-15613_to_CVE-2017-15637.txt"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-15617",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "TP-Link WVR, WAR and ER devices allow remote authenticated administrators to execute arbitrary commands via command injection in the iface variable in the interface_wan.lua file.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2018-01-11T16:29:00.610",
+    "last_modified": "2024-11-21T03:14:52.120",
+    "attack_vector": "NETWORK",
+    "cwe_id": "NVD-CWE-noinfo",
+    "references": [
+      "http://www.securityfocus.com/archive/1/541655/100/0/threaded",
+      "https://github.com/chunibalon/Vulnerability/blob/master/CVE-2017-15613_to_CVE-2017-15637.txt",
+      "http://www.securityfocus.com/archive/1/541655/100/0/threaded",
+      "https://github.com/chunibalon/Vulnerability/blob/master/CVE-2017-15613_to_CVE-2017-15637.txt"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-15618",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "TP-Link WVR, WAR and ER devices allow remote authenticated administrators to execute arbitrary commands via command injection in the new-enable variable in the pptp_client.lua file.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2018-01-11T16:29:00.643",
+    "last_modified": "2024-11-21T03:14:52.293",
+    "attack_vector": "NETWORK",
+    "cwe_id": "NVD-CWE-noinfo",
+    "references": [
+      "http://www.securityfocus.com/archive/1/541655/100/0/threaded",
+      "https://github.com/chunibalon/Vulnerability/blob/master/CVE-2017-15613_to_CVE-2017-15637.txt",
+      "http://www.securityfocus.com/archive/1/541655/100/0/threaded",
+      "https://github.com/chunibalon/Vulnerability/blob/master/CVE-2017-15613_to_CVE-2017-15637.txt"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-15619",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "TP-Link WVR, WAR and ER devices allow remote authenticated administrators to execute arbitrary commands via command injection in the pptphellointerval variable in the pptp_client.lua file.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2018-01-11T16:29:00.690",
+    "last_modified": "2024-11-21T03:14:52.477",
+    "attack_vector": "NETWORK",
+    "cwe_id": "NVD-CWE-noinfo",
+    "references": [
+      "http://www.securityfocus.com/archive/1/541655/100/0/threaded",
+      "https://github.com/chunibalon/Vulnerability/blob/master/CVE-2017-15613_to_CVE-2017-15637.txt",
+      "http://www.securityfocus.com/archive/1/541655/100/0/threaded",
+      "https://github.com/chunibalon/Vulnerability/blob/master/CVE-2017-15613_to_CVE-2017-15637.txt"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-15620",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "TP-Link WVR, WAR and ER devices allow remote authenticated administrators to execute arbitrary commands via command injection in the new-zone variable in the ipmac_import.lua file.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2018-01-11T16:29:00.737",
+    "last_modified": "2024-11-21T03:14:52.660",
+    "attack_vector": "NETWORK",
+    "cwe_id": "NVD-CWE-noinfo",
+    "references": [
+      "http://www.securityfocus.com/archive/1/541655/100/0/threaded",
+      "https://github.com/chunibalon/Vulnerability/blob/master/CVE-2017-15613_to_CVE-2017-15637.txt",
+      "http://www.securityfocus.com/archive/1/541655/100/0/threaded",
+      "https://github.com/chunibalon/Vulnerability/blob/master/CVE-2017-15613_to_CVE-2017-15637.txt"
+    ]
+  },
+  {
+    "cve_id": "CVE-2017-15621",
+    "vendor": "tplink",
+    "product": "router",
+    "description": "TP-Link WVR, WAR and ER devices allow remote authenticated administrators to execute arbitrary commands via command injection in the olmode variable in the interface_wan.lua file.",
+    "severity": 0,
+    "cvss_vector": "",
+    "published_date": "2018-01-11T16:29:00.767",
+    "last_modified": "2024-11-21T03:14:52.840",
+    "attack_vector": "NETWORK",
+    "cwe_id": "NVD-CWE-noinfo",
+    "references": [
+      "http://www.securityfocus.com/archive/1/541655/100/0/threaded",
+      "https://github.com/chunibalon/Vulnerability/blob/master/CVE-2017-15613_to_CVE-2017-15637.txt",
+      "http://www.securityfocus.com/archive/1/541655/100/0/threaded",
+      "https://github.com/chunibalon/Vulnerability/blob/master/CVE-2017-15613_to_CVE-2017-15637.txt"
+    ]
+  }
+]

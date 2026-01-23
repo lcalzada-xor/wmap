@@ -180,9 +180,18 @@ func (m *WSManager) BroadcastWPSStatus(status domain.WPSAttackStatus) {
 }
 
 // NotifyNewVulnerability broadcasts a new vulnerability detection.
-func (m *WSManager) NotifyNewVulnerability(vuln domain.VulnerabilityRecord) {
+func (m *WSManager) NotifyNewVulnerability(ctx context.Context, vuln domain.VulnerabilityRecord) {
 	msg := WSMessage{
 		Type:    "vulnerability:new",
+		Payload: vuln,
+	}
+	m.broadcastMessage(msg)
+}
+
+// NotifyVulnerabilityConfirmed broadcasts a confirmed vulnerability (via active validation).
+func (m *WSManager) NotifyVulnerabilityConfirmed(ctx context.Context, vuln domain.VulnerabilityRecord) {
+	msg := WSMessage{
+		Type:    "vulnerability:confirmed",
 		Payload: vuln,
 	}
 	m.broadcastMessage(msg)

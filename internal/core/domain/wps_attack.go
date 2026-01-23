@@ -19,6 +19,40 @@ const (
 	WPSStatusTimeout        WPSStatus = "timeout"
 )
 
+// WPSFailureReason provides detailed classification of why an attack failed.
+// This allows users to understand the specific reason for failure instead of a generic "failed" status.
+type WPSFailureReason string
+
+const (
+	WPSFailureNone              WPSFailureReason = ""
+	WPSFailureNotVulnerable     WPSFailureReason = "not_vulnerable"     // Pixiewps couldn't crack (router not vulnerable)
+	WPSFailureAssociationFailed WPSFailureReason = "association_failed" // Failed to associate with AP
+	WPSFailureDeauthDetected    WPSFailureReason = "deauth_detected"    // Deauth/Disassoc frames detected
+	WPSFailureTimeout           WPSFailureReason = "timeout"            // Attack timed out
+	WPSFailureUserStopped       WPSFailureReason = "user_stopped"       // User cancelled the attack
+	WPSFailureToolError         WPSFailureReason = "tool_error"         // Tool execution error
+)
+
+// UserMessage returns a user-friendly message for the failure reason.
+func (r WPSFailureReason) UserMessage() string {
+	switch r {
+	case WPSFailureNotVulnerable:
+		return "Router not vulnerable to Pixie Dust attack"
+	case WPSFailureAssociationFailed:
+		return "Failed to associate with access point"
+	case WPSFailureDeauthDetected:
+		return "Deauthentication frames detected - attack interrupted"
+	case WPSFailureTimeout:
+		return "Attack timed out"
+	case WPSFailureUserStopped:
+		return "Attack stopped by user"
+	case WPSFailureToolError:
+		return "Tool execution error"
+	default:
+		return "Unknown failure"
+	}
+}
+
 // Domain Errors
 var (
 	ErrWPSInvalidConfig = errors.New("invalid wps attack configuration")
@@ -107,6 +141,9 @@ type WPSAttackStatus struct {
 
 	// ErrorMessage details if Status is WPSStatusFailed.
 	ErrorMessage string `json:"error_message,omitempty"`
+
+	// FailureReason provides detailed classification when Status is Failed.
+	FailureReason WPSFailureReason `json:"failure_reason,omitempty"`
 }
 
 // IsActive returns true if the attack is in a non-terminal state.

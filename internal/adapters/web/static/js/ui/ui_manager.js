@@ -11,10 +11,10 @@ import { ConsoleManager } from './console.js'; // Helper, though Main Console is
 import { EventBus } from '../core/event_bus.js';
 import { Events } from '../core/constants.js';
 
-// Controllers
 import { DeauthController } from './deauth_controller.js';
 import { WPSController } from './wps_controller.js';
 import { AuthFloodController } from './auth_flood_controller.js';
+import { ReportModal } from './report_modal.js';
 import HealthUI from './health_ui.js';
 
 export class UIManager {
@@ -30,6 +30,7 @@ export class UIManager {
         this.healthUI = null;
         this.auditManager = null;
         this.contextMenu = null;
+        this.reportModal = null;
     }
 
     async init(contextMenu) {
@@ -122,7 +123,14 @@ export class UIManager {
             console.error("Failed to initialize AuditManager", err);
         }
 
-        // 4. Modals
+        // 5. Report Modal
+        try {
+            this.reportModal = new ReportModal();
+        } catch (err) {
+            console.error("Failed to initialize ReportModal", err);
+        }
+
+        // 6. Modals
         try {
             Modals.initChannelModal();
         } catch (err) {
@@ -131,13 +139,18 @@ export class UIManager {
     }
 
     initDOMBindings() {
-        // Report Export
+        // Report Export - Open Modal
         const btnExport = document.getElementById('btn-export-report');
         if (btnExport) {
             btnExport.onclick = () => {
-                window.location.href = '/api/reports/download';
+                if (this.reportModal) {
+                    this.reportModal.open();
+                } else {
+                    console.error('Report modal not initialized');
+                }
             };
         }
+
 
         // Health UI
         this.healthUI = new HealthUI();

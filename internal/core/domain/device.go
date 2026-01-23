@@ -48,13 +48,14 @@ type Device struct {
 	LastSeen       time.Time `json:"last_seen"`
 
 	// --- Network Protocol & Security ---
-	SSID         string      `json:"ssid,omitempty"` // Beacon SSID (AP) or last probed (Sta)
-	Capabilities []string    `json:"capabilities,omitempty"`
-	Crypto       string      `json:"crypto,omitempty"`
-	Security     string      `json:"security,omitempty"`
-	WPSInfo      string      `json:"wps_info,omitempty"`
-	RSNInfo      *RSNInfo    `json:"rsn_info,omitempty"`
-	WPSDetails   *WPSDetails `json:"wps_details,omitempty"`
+	SSID           string          `json:"ssid,omitempty"` // Beacon SSID (AP) or last probed (Sta)
+	Capabilities   []string        `json:"capabilities,omitempty"`
+	Crypto         string          `json:"crypto,omitempty"`
+	Security       string          `json:"security,omitempty"`
+	WPSInfo        string          `json:"wps_info,omitempty"`
+	RSNInfo        *RSNInfo        `json:"rsn_info,omitempty"`
+	WPSDetails     *WPSDetails     `json:"wps_details,omitempty"`
+	MobilityDomain *MobilityDomain `json:"mobility_domain,omitempty"`
 
 	// --- Traffic Analytics ---
 	DataTransmitted int64 `json:"data_tx"`
@@ -74,10 +75,14 @@ type Device struct {
 	ProbedSSIDs      map[string]time.Time `json:"probed_ssids,omitempty"`
 	ConnectedSSID    string               `json:"connected_ssid,omitempty"`
 
+	ObservedSSIDs []string `json:"observed_ssids,omitempty"`
 	// Protocol Flags (802.11k/v/r)
 	Has11k bool `json:"has11k,omitempty"`
 	Has11v bool `json:"has11v,omitempty"`
 	Has11r bool `json:"has11r,omitempty"`
+
+	// Handshake Details
+	LastANonce string `json:"last_anonce,omitempty"` // Hex string of last AP Nonce seen
 
 	// --- Advanced Fingerprinting ---
 	IEFingerprint    string  `json:"ie_fingerprint,omitempty"`
@@ -110,6 +115,13 @@ type RSNCapabilities struct {
 	MFPRequired      bool  `json:"mfp_required"`
 	MFPCapable       bool  `json:"mfp_capable"`
 	PeerKeyEnabled   bool  `json:"peer_key_enabled"`
+}
+
+// MobilityDomain contains 802.11r FT details
+type MobilityDomain struct {
+	MDID        uint16 `json:"mdid"`
+	OverDS      bool   `json:"over_ds"`
+	ResourceReq bool   `json:"resource_req"`
 }
 
 // WPSDetails contains detailed WPS information

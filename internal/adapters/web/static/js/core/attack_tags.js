@@ -1,6 +1,15 @@
 /**
  * Attack Tags Generation
  * Maps security protocols and device states to potential attack vectors.
+ * 
+ * Supported Tags:
+ * - WEP, WPS, UNSECURE (legacy vulnerabilities)
+ * - KARMA, KARMA-CLIENT (rogue AP/client detection)
+ * - PMKID (offline PSK cracking)
+ * - FT-PSK (Fast Roaming vulnerabilities)
+ * - WEAK-CRYPTO (RNG/Nonce anomalies)
+ * - WPA3 (Dragonblood)
+ * - Backend vulnerabilities (from passive intelligence)
  */
 
 export const AttackTags = {
@@ -58,6 +67,56 @@ export const AttackTags = {
         // 5. WPA3 (Dragonblood)
         if (security.includes('WPA3')) {
             addTag({ label: 'WPA3', color: '#007aff', desc: 'Dragonblood / Downgrade', severity: 2 });
+        }
+
+        // 6. Karma/Mana Detection (Multiple SSIDs from same BSSID)
+        if (node.observed_ssids && node.observed_ssids.length > 1) {
+            addTag({
+                label: 'KARMA',
+                color: '#ff3b30',
+                desc: `Rogue AP (${node.observed_ssids.length} SSIDs)`,
+                severity: 10
+            });
+        }
+
+        // 7. PMKID Exposure
+        if (node.vulnerabilities && node.vulnerabilities.some(v => v.name === 'PMKID' || v.name === 'PMKID-EXPOSURE')) {
+            addTag({
+                label: 'PMKID',
+                color: '#ff9500',
+                desc: 'Offline PSK Cracking',
+                severity: 8
+            });
+        }
+
+        // 8. Fast Roaming Vulnerabilities (802.11r)
+        if (node.has_11r && security.includes('PSK')) {
+            addTag({
+                label: 'FT-PSK',
+                color: '#ffcc00',
+                desc: 'Fast Roaming + PSK',
+                severity: 6
+            });
+        }
+
+        // 9. Cryptographic Anomalies (from backend alerts)
+        if (node.crypto_anomaly) {
+            addTag({
+                label: 'WEAK-CRYPTO',
+                color: '#ff3b30',
+                desc: node.crypto_anomaly,
+                severity: 10
+            });
+        }
+
+        // 10. Client-side: Excessive Probing (Karma Client)
+        if (node.probed_ssids && Object.keys(node.probed_ssids).length > 5) {
+            addTag({
+                label: 'KARMA-CLIENT',
+                color: '#ff9500',
+                desc: `Probing ${Object.keys(node.probed_ssids).length} networks`,
+                severity: 5
+            });
         }
 
         // Sort tags by severity (highest first)

@@ -850,9 +850,7 @@
     </div>
 
     <!-- Details Panel (Right Side) -->
-    <div id="details-panel" class="hud-panel details-panel glass">
-        <h3>Node Details <i class="fas fa-times" id="btn-close-details"
-                style="float:right; cursor:pointer; opacity:0.6; font-size:0.8em"></i></h3>
+    <div id="details-panel" class="details-panel">
         <div id="details-content">
             <!-- Content Injected via JS -->
             <div style="text-align:center; opacity:0.6; padding:20px;">
@@ -884,8 +882,106 @@
                 <span class="entry-msg">System Ready.</span>
             </div>
         </div>
-    </div>
+
+        <!-- Executive Report Modal -->
+        <div id="executive-report-modal" class="custom-modal">
+            <div class="modal-content report-modal-content">
+                <h3>
+                    <i class="fas fa-file-contract"></i>
+                    Executive Summary Report
+                </h3>
+
+                <!-- Date Range Section -->
+                <div class="report-section">
+                    <label class="report-label">
+                        <i class="fas fa-calendar-alt"></i>
+                        Report Period
+                    </label>
+                    <div class="date-preset-pills">
+                        <button class="preset-pill" data-days="7">Last 7 Days</button>
+                        <button class="preset-pill" data-days="30">Last 30 Days</button>
+                        <button class="preset-pill" data-days="90">Last 90 Days</button>
+                        <button class="preset-pill active" data-days="custom">Custom Range</button>
+                    </div>
+                    <div class="date-inputs">
+                        <div class="input-group">
+                            <label class="input-label">Start Date</label>
+                            <input type="date" id="report-start-date" class="report-input">
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">End Date</label>
+                            <input type="date" id="report-end-date" class="report-input">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Organization Name Section -->
+                <div class="report-section">
+                    <label class="report-label">
+                        <i class="fas fa-building"></i>
+                        Organization Name
+                    </label>
+                    <input type="text" id="report-org-name" class="report-input" placeholder="Enter organization name"
+                        value="WMAP Security Report">
+                </div>
+
+                <!-- Format Selection Section -->
+                <div class="report-section">
+                    <label class="report-label">
+                        <i class="fas fa-file-export"></i>
+                        Export Format
+                    </label>
+                    <div class="format-selector">
+                        <div class="format-option active" data-format="pdf">
+                            <i class="fas fa-file-pdf"></i>
+                            <div class="format-details">
+                                <span class="format-name">PDF Document</span>
+                                <span class="format-desc">Professional report with charts</span>
+                            </div>
+                            <i class="fas fa-check-circle format-check"></i>
+                        </div>
+                        <div class="format-option" data-format="json">
+                            <i class="fas fa-code"></i>
+                            <div class="format-details">
+                                <span class="format-name">JSON Data</span>
+                                <span class="format-desc">Raw data for integration</span>
+                            </div>
+                            <i class="fas fa-check-circle format-check"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Report Preview Info -->
+                <div class="report-preview">
+                    <i class="fas fa-info-circle"></i>
+                    <div class="preview-text">
+                        <strong>Report will include:</strong>
+                        <span id="report-summary">Risk assessment, vulnerability statistics, top risks, and actionable
+                            recommendations</span>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="modal-buttons">
+                    <button id="btn-report-cancel" class="btn-secondary">
+                        <i class="fas fa-times"></i>
+                        Cancel
+                    </button>
+                    <button id="btn-report-generate" class="btn-primary">
+                        <i class="fas fa-download"></i>
+                        Generate Report
+                    </button>
+                </div>
+
+                <!-- Loading Overlay -->
+                <div id="report-loading" class="report-loading" style="display: none;">
+                    <div class="loading-spinner"></div>
+                    <p>Generating executive summary...</p>
+                </div>
+            </div>
+        </div>
 
 </body>
+
 
 </html>

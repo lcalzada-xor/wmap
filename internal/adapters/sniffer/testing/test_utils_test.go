@@ -12,6 +12,7 @@ import (
 type EAPOLOptions struct {
 	ReplayCounter uint64
 	Nonce         []byte
+	IsFromDS      bool
 }
 
 func createEAPOLPacket(src, dst, bssid string, messageNum int, opts ...EAPOLOptions) gopacket.Packet {
@@ -28,6 +29,14 @@ func createEAPOLPacket(src, dst, bssid string, messageNum int, opts ...EAPOLOpti
 		Address1: dstMac,
 		Address2: srcMac,
 		Address3: bssidMac,
+	}
+
+	// Apply Options
+	if len(opts) > 0 {
+		opt := opts[0]
+		if opt.IsFromDS {
+			dot11.Flags |= layers.Dot11FlagsFromDS
+		}
 	}
 
 	// EAPOL Key Frame Construction (simplified for testing)

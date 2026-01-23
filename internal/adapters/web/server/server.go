@@ -7,10 +7,12 @@ import (
 
 	"time"
 
+	"github.com/lcalzada-xor/wmap/internal/adapters/reporting"
 	"github.com/lcalzada-xor/wmap/internal/adapters/web"
 	"github.com/lcalzada-xor/wmap/internal/adapters/web/handlers"
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
 	"github.com/lcalzada-xor/wmap/internal/core/ports"
+	reportingService "github.com/lcalzada-xor/wmap/internal/core/services/reporting"
 	"github.com/lcalzada-xor/wmap/internal/core/services/security"
 	"github.com/lcalzada-xor/wmap/internal/core/services/workspace"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -41,7 +43,11 @@ type Server struct {
 }
 
 // NewServer creates a new web server.
-func NewServer(addr string, service ports.NetworkService, workspaceManager *workspace.WorkspaceManager, authService ports.AuthService, auditService ports.AuditService, vulnService *security.VulnerabilityPersistenceService) *Server {
+func NewServer(addr string, service ports.NetworkService, workspaceManager *workspace.WorkspaceManager, authService ports.AuthService, auditService ports.AuditService, vulnService *security.VulnerabilityPersistenceService, executiveGenerator *reportingService.ExecutiveReportGenerator, pdfExporter *reporting.PDFExporter) *Server {
+	reportHandler := handlers.NewReportHandler(service, auditService, workspaceManager)
+	reportHandler.ExecutiveGenerator = executiveGenerator
+	reportHandler.PDFExporter = pdfExporter
+
 	return &Server{
 		Addr:             addr,
 		Service:          service,
@@ -54,7 +60,7 @@ func NewServer(addr string, service ports.NetworkService, workspaceManager *work
 		DeauthHandler:    handlers.NewDeauthHandler(service),
 		AuthFloodHandler: handlers.NewAuthFloodHandler(service),
 		AuditHandler:     handlers.NewAuditHandler(auditService),
-		ReportHandler:    handlers.NewReportHandler(service, auditService, workspaceManager),
+		ReportHandler:    reportHandler,
 		AuthHandler:      handlers.NewAuthHandler(authService),
 		ScanHandler:      handlers.NewScanHandler(service),
 		ConfigHandler:    handlers.NewConfigHandler(service),

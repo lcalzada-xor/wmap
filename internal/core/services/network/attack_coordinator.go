@@ -62,7 +62,7 @@ func (c *AttackCoordinator) StartDeauthAttack(ctx context.Context, config domain
 		return "", fmt.Errorf("deauth engine not initialized")
 	}
 
-	// Channel Auto-detection
+	// Channel Auto-detection (use request context for synchronous lookup)
 	if config.Channel == 0 {
 		device, exists := c.registry.GetDevice(ctx, config.TargetMAC)
 		if exists && device.Channel > 0 {
@@ -72,7 +72,7 @@ func (c *AttackCoordinator) StartDeauthAttack(ctx context.Context, config domain
 		}
 	}
 
-	// Interface Auto-detection
+	// Interface Auto-detection (use request context for synchronous lookup)
 	if config.Interface == "" {
 		if c.sniffer != nil {
 			interfaces, _ := c.sniffer.GetInterfaces(ctx)
@@ -98,7 +98,7 @@ func (c *AttackCoordinator) StartDeauthAttack(ctx context.Context, config domain
 		}
 	}
 
-	// Smart Targeting Logic
+	// Smart Targeting Logic (use request context for synchronous lookup)
 	if config.AttackType == domain.DeauthBroadcast {
 		// Find clients connected to this AP
 		devices := c.registry.GetAllDevices(ctx)
@@ -124,7 +124,9 @@ func (c *AttackCoordinator) StartDeauthAttack(ctx context.Context, config domain
 		}
 	}
 
-	id, err := c.deauthEngine.StartAttack(ctx, config)
+	// Use background context for long-running attack execution
+	// This prevents the attack from being canceled when the HTTP request completes
+	id, err := c.deauthEngine.StartAttack(context.Background(), config)
 	if err == nil && c.audit != nil {
 		c.audit.Log(ctx, domain.ActionDeauthStart, config.TargetMAC, fmt.Sprintf("Type: %s, Ch: %d", config.AttackType, config.Channel))
 	} else if err != nil {
@@ -174,7 +176,7 @@ func (c *AttackCoordinator) StartWPSAttack(ctx context.Context, config domain.WP
 		return "", fmt.Errorf("target BSSID is required")
 	}
 
-	// Auto-detect channel
+	// Auto-detect channel (use request context for synchronous lookup)
 	if config.Channel == 0 {
 		device, exists := c.registry.GetDevice(ctx, config.TargetBSSID)
 		if exists && device.Channel > 0 {
@@ -184,7 +186,7 @@ func (c *AttackCoordinator) StartWPSAttack(ctx context.Context, config domain.WP
 		}
 	}
 
-	// Auto-detect interface
+	// Auto-detect interface (use request context for synchronous lookup)
 	if config.Interface == "" {
 		if c.sniffer != nil {
 			interfaces, _ := c.sniffer.GetInterfaces(ctx)
@@ -198,7 +200,8 @@ func (c *AttackCoordinator) StartWPSAttack(ctx context.Context, config domain.WP
 		}
 	}
 
-	return c.wpsEngine.StartAttack(ctx, config)
+	// Use background context for long-running attack execution
+	return c.wpsEngine.StartAttack(context.Background(), config)
 }
 
 // StopWPSAttack stops a WPS attack.
@@ -223,6 +226,7 @@ func (c *AttackCoordinator) StartAuthFloodAttack(ctx context.Context, config dom
 		return "", fmt.Errorf("auth flood engine not initialized")
 	}
 
+	// Auto-detect channel (use request context for synchronous lookup)
 	if config.Channel == 0 && config.TargetBSSID != "" {
 		device, exists := c.registry.GetDevice(ctx, config.TargetBSSID)
 		if exists && device.Channel > 0 {
@@ -230,6 +234,7 @@ func (c *AttackCoordinator) StartAuthFloodAttack(ctx context.Context, config dom
 		}
 	}
 
+	// Auto-detect interface (use request context for synchronous lookup)
 	if config.Interface == "" && c.sniffer != nil {
 		interfaces, _ := c.sniffer.GetInterfaces(ctx)
 		if len(interfaces) > 0 {
@@ -237,7 +242,8 @@ func (c *AttackCoordinator) StartAuthFloodAttack(ctx context.Context, config dom
 		}
 	}
 
-	id, err := c.authFloodEngine.StartAttack(ctx, config)
+	// Use background context for long-running attack execution
+	id, err := c.authFloodEngine.StartAttack(context.Background(), config)
 	if err == nil && c.audit != nil {
 		c.audit.Log(ctx, domain.ActionDeauthStart, config.TargetBSSID, "Started Auth Flood")
 	}

@@ -1,0 +1,64 @@
+{
+  "vendors": [
+    {
+      "vendor": "Netgear",
+      "default_ssids": ["NETGEAR", "NETGEAR-5G", "NETGEAR-2.4G"],
+      "default_password": "password",
+      "known_vulns": ["WPS-ENABLED", "DEFAULT-SSID"]
+    },
+    {
+      "vendor": "Linksys",
+      "default_ssids": ["Linksys", "linksys"],
+      "default_password": "admin",
+      "known_vulns": ["WPS-ENABLED", "DEFAULT-SSID"]
+    },
+    {
+      "vendor": "TP-Link",
+      "default_ssids": ["TP-LINK", "TP-Link_", "TP-LINK_"],
+      "default_password": "admin",
+      "known_vulns": ["WPS-ENABLED", "DEFAULT-SSID"]
+    },
+    {
+      "vendor": "D-Link",
+      "default_ssids": ["dlink", "D-Link", "DIR-"],
+      "default_password": "admin",
+      "known_vulns": ["WPS-ENABLED", "DEFAULT-SSID"]
+    },
+    {
+      "vendor": "Asus",
+      "default_ssids": ["ASUS", "ASUS_"],
+      "default_password": "admin",
+      "known_vulns": ["WPS-ENABLED"]
+    },
+    {
+      "vendor": "Belkin",
+      "default_ssids": ["Belkin.", "belkin."],
+      "default_password": "",
+      "known_vulns": ["OPEN-NETWORK", "DEFAULT-SSID"]
+    },
+    {
+      "vendor": "Cisco",
+      "default_ssids": ["cisco", "Cisco"],
+      "default_password": "cisco",
+      "known_vulns": ["DEFAULT-SSID"]
+    },
+    {
+      "vendor": "Huawei",
+      "default_ssids": ["HUAWEI-", "Huawei-"],
+      "default_password": "admin",
+      "known_vulns": ["WPS-ENABLED", "DEFAULT-SSID"]
+    },
+    {
+      "vendor": "Xiaomi",
+      "default_ssids": ["Xiaomi_", "XIAOMI_"],
+      "default_password": "",
+      "known_vulns": ["DEFAULT-SSID"]
+    },
+    {
+      "vendor": "Arris",
+      "default_ssids": ["ARRIS-"],
+      "default_password": "password",
+      "known_vulns": ["WPS-ENABLED", "DEFAULT-SSID"]
+    }
+  ]
+}

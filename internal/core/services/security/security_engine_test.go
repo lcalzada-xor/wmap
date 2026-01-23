@@ -73,7 +73,7 @@ func TestSecurityEngine_Intelligence(t *testing.T) {
 	t.Run("Karma Detection", func(t *testing.T) {
 		device := domain.Device{
 			MAC:  "AA:BB:CC:DD:EE:FF",
-			Type: "ap",
+			Type: "station", // Existing detector logic checks for ProbedSSIDs (Client behavior)
 			ProbedSSIDs: map[string]time.Time{
 				"Home": time.Now(), "Guest": time.Now(), "Starbucks": time.Now(),
 				"FreeWifi": time.Now(), "Airport": time.Now(), "Hotel": time.Now(), // > 5
@@ -92,6 +92,28 @@ func TestSecurityEngine_Intelligence(t *testing.T) {
 			}
 		}
 		assert.True(t, found, "Expected KARMA_DETECTION alert")
+	})
+
+	t.Run("AP Karma Detection (Mana)", func(t *testing.T) {
+		device := domain.Device{
+			MAC:           "11:22:33:44:55:66",
+			Type:          "ap",
+			ObservedSSIDs: []string{"FreeWiFi", "Corporate"},
+		}
+
+		engine.Analyze(context.Background(), device)
+
+		alerts := engine.GetAlerts(context.Background())
+		found := false
+		for _, alert := range alerts {
+			if alert.Subtype == "KARMA_AP_DETECTED" && alert.DeviceMAC == "11:22:33:44:55:66" {
+				found = true
+				assert.Equal(t, domain.SeverityCritical, alert.Severity)
+				assert.Contains(t, alert.Details, "broadcasting 2 distinct SSIDs")
+				break
+			}
+		}
+		assert.True(t, found, "Expected KARMA_AP_DETECTED alert")
 	})
 
 	t.Run("Evil Twin Detection", func(t *testing.T) {
