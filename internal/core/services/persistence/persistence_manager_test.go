@@ -41,6 +41,13 @@ func (m *MockStorage) SaveUser(user domain.User) error                          
 func (m *MockStorage) GetUser(id string) (domain.User, error)                       { return domain.User{}, nil }
 func (m *MockStorage) GetByUsername(username string) (domain.User, error)           { return domain.User{}, nil }
 
+func (m *MockStorage) SaveConnectionEvent(ctx context.Context, event domain.ConnectionEvent) error {
+	return nil
+}
+func (m *MockStorage) GetConnectionHistory(ctx context.Context, mac string, limit int) ([]domain.ConnectionEvent, error) {
+	return nil, nil
+}
+
 // Vulnerability Persistence mocks
 func (m *MockStorage) SaveVulnerability(ctx context.Context, record domain.VulnerabilityRecord) error {
 	return nil

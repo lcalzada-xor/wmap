@@ -11,22 +11,30 @@ import (
 	"github.com/google/gopacket/layers"
 	"github.com/lcalzada-xor/wmap/internal/adapters/fingerprint"
 	"github.com/lcalzada-xor/wmap/internal/adapters/fingerprint/mapper"
-	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/handshake"
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
-	"github.com/lcalzada-xor/wmap/internal/geo"
 )
+
+// HandshakeManager defines the interface required by parser to interact with handshakes.
+type HandshakeManager interface {
+	ProcessFrame(packet gopacket.Packet) bool
+	SavePMKID(packet gopacket.Packet, bssid string, station string)
+	HasHandshake(mac string) bool
+	GetHandshakeFile(mac string) string
+}
 
 // PacketHandler encapsulates the logic for parsing packets.
 type PacketHandler struct {
-	Location          geo.Provider
 	Debug             bool
-	HandshakeManager  *handshake.HandshakeManager
+	HandshakeManager  HandshakeManager
 	FingerprintEngine *fingerprint.FingerprintEngine
 	VendorRepo        fingerprint.VendorRepository
 	PauseCallback     func(time.Duration)
 
 	// Optimization: Throttle cache (Sharded)
 	throttleCache *ShardedCache
+
+	// State Management
+	StateManager *domain.ConnectionStateManager
 }
 
 const shardCount = 32
@@ -95,47 +103,48 @@ func (h *PacketHandler) getVendor(macStr string) string {
 }
 
 // NewPacketHandler creates a new PacketHandler.
-func NewPacketHandler(loc geo.Provider, debug bool, hm *handshake.HandshakeManager, repo fingerprint.VendorRepository, pauseFunc func(time.Duration)) *PacketHandler {
+func NewPacketHandler(debug bool, hm HandshakeManager, repo fingerprint.VendorRepository, pauseFunc func(time.Duration)) *PacketHandler {
 	return &PacketHandler{
-		Location:          loc,
 		Debug:             debug,
 		HandshakeManager:  hm,
 		FingerprintEngine: fingerprint.NewFingerprintEngine(fingerprint.NewSignatureStore(nil)),
 		VendorRepo:        repo,
 		PauseCallback:     pauseFunc,
 		throttleCache:     newShardedCache(),
+		StateManager:      domain.NewConnectionStateManager(),
 	}
 }
 
 // HandlePacket processes a single packet and returns a Device if relevant info is found.
-// It also returns an Alert if a threat is detected.
-func (h *PacketHandler) HandlePacket(packet gopacket.Packet) (dev *domain.Device, alt *domain.Alert) {
+// It also returns an Alert if a threat is detected, and a ConnectionEvent if state changed.
+func (h *PacketHandler) HandlePacket(packet gopacket.Packet) (dev *domain.Device, alt *domain.Alert, evt *domain.ConnectionEvent) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("Recovered from panic in PacketHandler: %v", r)
 			// Return nil to safely ignore this packet
 			dev = nil
 			alt = nil
+			evt = nil
 		}
 	}()
 
 	// 1. Handshake & Passive Vulnerability Detection
 	if stop, alert := h.handleHandshakeCapture(packet); stop || alert != nil {
-		return nil, alert
+		return nil, alert, nil
 	}
 
 	dot11Layer := packet.Layer(layers.LayerTypeDot11)
 	if dot11Layer == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	dot11, ok := dot11Layer.(*layers.Dot11)
 	if !ok {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	// 2. Throttling
 	if h.shouldThrottlePacket(dot11, packet) {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	// 3. Basic RF Info
@@ -147,26 +156,26 @@ func (h *PacketHandler) HandlePacket(packet gopacket.Packet) (dev *domain.Device
 		Frequency:      freq,
 		Channel:        frequencyToChannel(freq), // Derive channel from frequency
 		ChannelWidth:   channelWidth,
-		Latitude:       h.Location.GetLocation().Latitude,
-		Longitude:      h.Location.GetLocation().Longitude,
 		LastPacketTime: time.Now(),
 		LastSeen:       time.Now(),
 	}
 
 	// 4. Threat Detection (Deauth/Disassoc)
-	if threatDev, threatAlert := h.detectThreats(dot11, packet, device); threatAlert != nil {
-		return threatDev, threatAlert
+	if threatDev, threatAlert, threatEvt := h.detectThreats(dot11, packet, device); threatAlert != nil {
+		return threatDev, threatAlert, threatEvt
 	}
 
 	// 5. Dispatch based on frame type
 	mainType := dot11.Type.MainType()
 	if mainType == layers.Dot11TypeMgmt {
-		return h.handleMgmtFrame(packet, dot11, device), nil
+		d, e := h.handleMgmtFrame(packet, dot11, device)
+		return d, nil, e
 	} else if mainType == layers.Dot11TypeData {
-		return h.handleDataFrame(packet, dot11, device), nil
+		d, e := h.handleDataFrame(packet, dot11, device)
+		return d, nil, e
 	}
 
-	return nil, nil
+	return nil, nil, nil
 }
 
 func (h *PacketHandler) shouldThrottlePacket(dot11 *layers.Dot11, packet gopacket.Packet) bool {
@@ -204,15 +213,20 @@ func extractBasicDeviceInfo(packet gopacket.Packet) (rssi, freq, channelWidth in
 	return
 }
 
-func (h *PacketHandler) detectThreats(dot11 *layers.Dot11, packet gopacket.Packet, device *domain.Device) (*domain.Device, *domain.Alert) {
+func (h *PacketHandler) detectThreats(dot11 *layers.Dot11, packet gopacket.Packet, device *domain.Device) (*domain.Device, *domain.Alert, *domain.ConnectionEvent) {
 	// Active Thread Detection (Deauth/Disassoc)
 	// Type: Mgmt (0), Subtype: Disassoc (10) or Deauth (12)
 	if dot11.Type != layers.Dot11TypeMgmtDeauthentication && dot11.Type != layers.Dot11TypeMgmtDisassociation {
-		return nil, nil
+		return nil, nil, nil
+	}
+
+	// Throttle Alert Generation to prevent UI flooding
+	throttleKey := "alert:deauth:" + dot11.Address2.String()
+	if h.throttleCache.shouldThrottle(throttleKey, 200*time.Millisecond) {
+		return nil, nil, nil
 	}
 
 	// Create Alert
-	// Addr1: Dest (Target), Addr2: Source (Attacker?), Addr3: BSSID
 	alert := &domain.Alert{
 		Type:      domain.AlertAnomaly,
 		Subtype:   "DEAUTH_DETECTED",
@@ -227,32 +241,19 @@ func (h *PacketHandler) detectThreats(dot11 *layers.Dot11, packet gopacket.Packe
 	}
 
 	// Logic: Identify who is disconnecting
-	// Addr1: Dest, Addr2: Source, Addr3: BSSID
 	isAPKicking := dot11.Address2.String() == dot11.Address3.String()
 
 	targetMAC := ""
 	if isAPKicking {
-		// AP is kicking the Station. Update the Station (Dest).
 		targetMAC = dot11.Address1.String()
-		// Ignore Broadcast Deauths for specific device updates for now
 		if targetMAC == "ff:ff:ff:ff:ff:ff" {
-			// Broadcast Deauth: AP is resetting everyone.
-			return nil, alert // Alert is still valid
+			return nil, alert, nil // Alert is still valid, return event nil? Or maybe event helps context? Let's return nil event for broadcast deauth.
 		}
 	} else {
-		// Station is leaving. Update the Station (Source).
 		targetMAC = dot11.Address2.String()
 	}
 
-	// Update Device State for the Station
-	device.MAC = targetMAC
-	device.ConnectionState = domain.StateDisconnected
-	device.ConnectionTarget = ""
-	device.ConnectedSSID = ""
-	device.Vendor = h.getVendor(device.MAC) // Ensure vendor is set
-
-	// Auth Failure Diagnostics
-	// Check Reason Code
+	// Extract Reason Code First
 	var reasonCode layers.Dot11Reason
 	foundReason := false
 
@@ -272,21 +273,40 @@ func (h *PacketHandler) detectThreats(dot11 *layers.Dot11, packet gopacket.Packe
 		}
 	}
 
+	// Update State via Manager
+	eventType := domain.EventDeauth
+	if dot11.Type == layers.Dot11TypeMgmtDisassociation {
+		eventType = domain.EventDisassoc
+	}
+
+	event := domain.ConnectionEvent{
+		Type:      eventType,
+		SourceMAC: dot11.Address2.String(),
+		TargetMAC: dot11.Address1.String(),
+		Timestamp: time.Now(),
+		Reason:    int(reasonCode),
+	}
+
+	newState, newTarget := h.StateManager.UpdateState(targetMAC, event)
+
+	// Update Device State for the Station
+	device.MAC = targetMAC
+	device.ConnectionState = newState
+	device.ConnectionTarget = newTarget
+	device.ConnectedSSID = "" // Clear connected SSID on deauth
+	device.Vendor = h.getVendor(device.MAC)
+
 	if foundReason {
 		alert.Details += fmt.Sprintf(", Reason: %d", reasonCode)
-		// Reason 2: Previous authentication no longer valid
-		// Reason 15: 4-Way Handshake timeout
-		// Reason 23: IEEE 802.1X authentication failed
 		if reasonCode == 2 || reasonCode == 15 || reasonCode == 23 {
 			device.ConnectionError = "auth_failed"
 		}
 	}
 
-	return device, alert
+	return device, alert, &event
 }
 
-func (h *PacketHandler) handleMgmtFrame(packet gopacket.Packet, dot11 *layers.Dot11, device *domain.Device) *domain.Device {
-	// Address2 is Source (SA) in Mgmt frames
+func (h *PacketHandler) handleMgmtFrame(packet gopacket.Packet, dot11 *layers.Dot11, device *domain.Device) (*domain.Device, *domain.ConnectionEvent) {
 	device.MAC = dot11.Address2.String()
 	device.Vendor = h.getVendor(device.MAC)
 	device.PacketsCount = 1
@@ -296,120 +316,26 @@ func (h *PacketHandler) handleMgmtFrame(packet gopacket.Packet, dot11 *layers.Do
 	isBeacon := false
 	isProbe := false
 
-	// Check Frame Type based on Dot11 header first (safer than checking for layer existence)
-	if dot11.Type == layers.Dot11TypeMgmtBeacon {
+	switch dot11.Type {
+	case layers.Dot11TypeMgmtBeacon:
+		h.handleBeacon(packet, device, &ieData)
 		isBeacon = true
-		device.Type = "ap"
-		device.Capabilities = append(device.Capabilities, "Beacon")
-		if beacon := packet.Layer(layers.LayerTypeDot11MgmtBeacon); beacon != nil {
-			ieData = beacon.LayerPayload()
-		}
-	} else if dot11.Type == layers.Dot11TypeMgmtProbeReq {
+	case layers.Dot11TypeMgmtProbeReq:
+		h.handleProbeReq(packet, device, &ieData)
 		isProbe = true
-		device.Type = "station"
-		device.Capabilities = append(device.Capabilities, "Probe")
-		if probe := packet.Layer(layers.LayerTypeDot11MgmtProbeReq); probe != nil {
-			ieData = probe.LayerPayload()
-		}
-	} else if dot11.Type == layers.Dot11TypeMgmtProbeResp {
-		isBeacon = true // Treat as AP for update purposes (Address2 is Sender/AP)
-		device.Type = "ap"
-		device.Capabilities = append(device.Capabilities, "ProbeResp")
-		if resp := packet.Layer(layers.LayerTypeDot11MgmtProbeResp); resp != nil {
-			ieData = resp.LayerPayload()
-		}
-	} else if dot11.Type == layers.Dot11TypeMgmtAssociationReq || dot11.Type == layers.Dot11TypeMgmtReassociationReq {
-		// Client -> AP (Requesting connection)
-		isProbe = false // Not a probe, but similar client behavior
-		device.Type = "station"
-		device.Capabilities = append(device.Capabilities, "AssocReq")
-		// For Assoc Req, Address1 is BSSID (Target AP)
-		device.ConnectionTarget = dot11.Address1.String()
-		device.ConnectionState = domain.StateAssociating
-
-		// Note: IE parsing happens below in the consolidated section
-	} else if dot11.Type == layers.Dot11TypeMgmtAuthentication {
-		// Authentication (Pre-Assoc)
-		device.Type = "station"
-		device.Capabilities = append(device.Capabilities, "Auth")
-		device.ConnectionState = domain.StateAuthenticating
-		device.ConnectionTarget = dot11.Address1.String() // BSSID
-
-		if auth := packet.Layer(layers.LayerTypeDot11MgmtAuthentication); auth != nil {
-			ieData = auth.LayerPayload()
-			// Extract Auth Algorithm and Status if available?
-			// gopacket might expose them on the layer struct.
-			// Dot11MgmtAuthentication fields: Algorithm, Sequence, Status
-			if a, ok := auth.(*layers.Dot11MgmtAuthentication); ok {
-				if a.Status != 0 {
-					// Auth Failure!
-					device.ConnectionError = fmt.Sprintf("auth_failed_code_%d", a.Status)
-					// Generate Alert?
-				}
-			}
-		}
-
-	} else if dot11.Type == layers.Dot11TypeMgmtAction {
-		// Action Frames (Spectrum, QoS, BlockAck, Radio Measurement, etc.)
-		// Address1=RA, Address2=TA (Source), Address3=BSSID
-		// We care about Source Capabilities (11k, 11v, 11r active use)
-		device.Type = "station" // Usually stations send actions, or APs.
-		if isAP(dot11) {
-			device.Type = "ap"
-		}
-
-		// Parse Category Code (first byte of payload)
-		payload := packet.Layer(layers.LayerTypeDot11MgmtAction).LayerPayload()
-		if len(payload) > 0 {
-			category := payload[0]
-			switch category {
-			case 0: // Spectrum Management (802.11h)
-				device.Capabilities = append(device.Capabilities, "11h")
-			case 5: // Radio Measurement (802.11k)
-				device.Has11k = true
-				device.Capabilities = append(device.Capabilities, "11k")
-			case 6: // Fast BSS Transition (802.11r)
-				device.Has11r = true
-				device.Capabilities = append(device.Capabilities, "11r")
-			case 10: // WNM (802.11v)
-				device.Has11v = true
-				device.Capabilities = append(device.Capabilities, "11v")
-			}
-		}
-		ieData = payload // Might contain IEs too? Action frames structure varies.
-		// Usually Action frames act as wrappers.
-
-	} else if dot11.Type == layers.Dot11TypeMgmtDeauthentication || dot11.Type == layers.Dot11TypeMgmtDisassociation {
-		// Disconnection detected
-		// Addr1: Dest, Addr2: Source.
-		// If Source is Client, Client is leaving. If Source is AP, AP is kicking Client.
-		// We want to update the CLIENT's state.
-
-		// Check if we are tracking the Source (Client leaving)
-		// We return the device corresponding to Address2 (Source) usually.
-		device.MAC = dot11.Address2.String()
-		device.ConnectionState = domain.StateDisconnected
-		device.ConnectionTarget = ""
-		// We might want to clear ConnectedSSID too, but let's keep it as "last connected" for now, or clear it if strict.
-		// Let's clear ConnectedSSID to be consistent with graph.
-		device.ConnectedSSID = ""
-
-		// If Dest is the client (AP kicking client), we need to handle that too?
-		// For now, handleMgmtFrame sets device.MAC = Address2.
-		// If AP kicks Client, Address2 is AP. We are updating the AP's state? No, AP doesn't have "ConnectionState".
-		// We need to support updating the Destination if it's a station.
-		// This might require returning multiple devices or handling it in HandlePacket.
-		// For simplicity V1: Only handle Client-initiated disconnects here, or if we can handle AP-initiated.
-		// Let's stick to standard flow: handleMgmtFrame returns *one* device.
-
-		// Case: AP (Addr2) kicks Station (Addr1).
-		// We are currently creating a device for Addr2 (AP).
-		// We should probably check if Addr2 is AP.
-		// Ideally we catch this in HandlePacket high level logic, but let's leave this for now.
-		return device
-
-	} else {
-		return nil
+	case layers.Dot11TypeMgmtProbeResp:
+		h.handleProbeResp(packet, device, &ieData)
+		isBeacon = true
+	case layers.Dot11TypeMgmtAssociationReq, layers.Dot11TypeMgmtReassociationReq:
+		return h.handleAssocReq(dot11, device)
+	case layers.Dot11TypeMgmtAuthentication:
+		return h.handleAuth(packet, dot11, device)
+	case layers.Dot11TypeMgmtAction:
+		h.handleAction(packet, dot11, device, &ieData)
+	case layers.Dot11TypeMgmtDeauthentication, layers.Dot11TypeMgmtDisassociation:
+		return h.handleDeauth(dot11, device)
+	default:
+		return nil, nil
 	}
 
 	// Fallback: If ieData is empty, check if gopacket decoded IEs into individual layers
@@ -458,16 +384,156 @@ func (h *PacketHandler) handleMgmtFrame(packet gopacket.Packet, dot11 *layers.Do
 	// Check for HasHandshake if it's an AP
 	if device.Type == "ap" && h.HandshakeManager != nil {
 		device.HasHandshake = h.HandshakeManager.HasHandshake(device.MAC)
+		if device.HasHandshake {
+			device.HandshakeFile = h.HandshakeManager.GetHandshakeFile(device.MAC)
+		}
 	}
 
 	// Only return if we actually classified it
 	if isBeacon || isProbe || device.ConnectionState == domain.StateAssociating || device.ConnectionState == domain.StateAuthenticating || device.ConnectionState == domain.StateDisconnected || device.ConnectionState == domain.StateConnected || device.ConnectionState == domain.StateHandshake {
-		return device
+		return device, nil // Return device but nil event if logic above didn't return early
 	}
-	return nil
+	return nil, nil
 }
 
-func (h *PacketHandler) handleDataFrame(packet gopacket.Packet, dot11 *layers.Dot11, device *domain.Device) *domain.Device {
+func (h *PacketHandler) handleBeacon(packet gopacket.Packet, device *domain.Device, ieData *[]byte) {
+	device.Type = "ap"
+	device.Capabilities = append(device.Capabilities, "Beacon")
+	if layer := packet.Layer(layers.LayerTypeDot11MgmtBeacon); layer != nil {
+		if beacon, ok := layer.(*layers.Dot11MgmtBeacon); ok {
+			*ieData = beacon.LayerPayload()
+		} else {
+			*ieData = layer.LayerPayload()
+		}
+	}
+}
+
+func (h *PacketHandler) handleProbeReq(packet gopacket.Packet, device *domain.Device, ieData *[]byte) {
+	device.Type = "station"
+	device.Capabilities = append(device.Capabilities, "Probe")
+	if layer := packet.Layer(layers.LayerTypeDot11MgmtProbeReq); layer != nil {
+		if probe, ok := layer.(*layers.Dot11MgmtProbeReq); ok {
+			*ieData = probe.LayerPayload()
+		} else {
+			*ieData = layer.LayerPayload()
+		}
+	}
+}
+
+func (h *PacketHandler) handleProbeResp(packet gopacket.Packet, device *domain.Device, ieData *[]byte) {
+	device.Type = "ap"
+	device.Capabilities = append(device.Capabilities, "ProbeResp")
+	if layer := packet.Layer(layers.LayerTypeDot11MgmtProbeResp); layer != nil {
+		if resp, ok := layer.(*layers.Dot11MgmtProbeResp); ok {
+			*ieData = resp.LayerPayload()
+		} else {
+			*ieData = layer.LayerPayload()
+		}
+	}
+}
+
+func (h *PacketHandler) handleAssocReq(dot11 *layers.Dot11, device *domain.Device) (*domain.Device, *domain.ConnectionEvent) {
+	device.Type = "station"
+	device.Capabilities = append(device.Capabilities, "AssocReq")
+
+	target := dot11.Address1.String()
+	event := domain.ConnectionEvent{
+		Type:      domain.EventAssocReq,
+		SourceMAC: device.MAC,
+		TargetMAC: target,
+		Timestamp: time.Now(),
+	}
+	newState, newTarget := h.StateManager.UpdateState(device.MAC, event)
+	device.ConnectionState = newState
+	device.ConnectionTarget = newTarget
+
+	return device, &event
+}
+
+func (h *PacketHandler) handleAuth(packet gopacket.Packet, dot11 *layers.Dot11, device *domain.Device) (*domain.Device, *domain.ConnectionEvent) {
+	device.Type = "station"
+	device.Capabilities = append(device.Capabilities, "Auth")
+
+	if authLayer := packet.Layer(layers.LayerTypeDot11MgmtAuthentication); authLayer != nil {
+		if auth, ok := authLayer.(*layers.Dot11MgmtAuthentication); ok {
+			if auth.Status != 0 {
+				device.ConnectionError = fmt.Sprintf("auth_failed_code_%d", auth.Status)
+			}
+		}
+	}
+
+	target := dot11.Address1.String()
+	event := domain.ConnectionEvent{
+		Type:      domain.EventAuthReq,
+		SourceMAC: device.MAC,
+		TargetMAC: target,
+		Timestamp: time.Now(),
+	}
+	newState, newTarget := h.StateManager.UpdateState(device.MAC, event)
+	device.ConnectionState = newState
+	device.ConnectionTarget = newTarget
+
+	return device, &event
+}
+
+func (h *PacketHandler) handleAction(packet gopacket.Packet, dot11 *layers.Dot11, device *domain.Device, ieData *[]byte) {
+	device.Type = "station"
+	if isAP(dot11) {
+		device.Type = "ap"
+	}
+
+	if layer := packet.Layer(layers.LayerTypeDot11MgmtAction); layer != nil {
+		payload := layer.LayerPayload()
+		if len(payload) > 0 {
+			category := payload[0]
+			switch category {
+			case 0:
+				device.Capabilities = append(device.Capabilities, "11h")
+			case 5:
+				device.Has11k = true
+				device.Capabilities = append(device.Capabilities, "11k")
+			case 6:
+				device.Has11r = true
+				device.Capabilities = append(device.Capabilities, "11r")
+			case 10:
+				device.Has11v = true
+				device.Capabilities = append(device.Capabilities, "11v")
+			}
+		}
+		*ieData = payload
+	}
+}
+
+func (h *PacketHandler) handleDeauth(dot11 *layers.Dot11, device *domain.Device) (*domain.Device, *domain.ConnectionEvent) {
+	eventType := domain.EventDeauth
+	if dot11.Type == layers.Dot11TypeMgmtDisassociation {
+		eventType = domain.EventDisassoc
+	}
+
+	isAPKicking := dot11.Address2.String() == dot11.Address3.String()
+	targetMAC := dot11.Address2.String()
+	if isAPKicking {
+		targetMAC = dot11.Address1.String()
+	}
+
+	event := domain.ConnectionEvent{
+		Type:      eventType,
+		SourceMAC: dot11.Address2.String(),
+		TargetMAC: dot11.Address1.String(),
+		Timestamp: time.Now(),
+	}
+	newState, newTarget := h.StateManager.UpdateState(targetMAC, event)
+
+	if targetMAC == device.MAC {
+		device.ConnectionState = newState
+		device.ConnectionTarget = newTarget
+		device.ConnectedSSID = ""
+	}
+
+	return device, &event
+}
+
+func (h *PacketHandler) handleDataFrame(packet gopacket.Packet, dot11 *layers.Dot11, device *domain.Device) (*domain.Device, *domain.ConnectionEvent) {
 	isToDS := dot11.Flags.ToDS()
 	isFromDS := dot11.Flags.FromDS()
 	payloadLen := int64(len(packet.Data()))
@@ -483,49 +549,68 @@ func (h *PacketHandler) handleDataFrame(packet gopacket.Packet, dot11 *layers.Do
 		device.Type = "station"
 		device.Vendor = h.getVendor(device.MAC)
 		device.Capabilities = []string{"Data-Tx"}
-		device.ConnectedSSID = dot11.Address1.String()
-		device.ConnectionTarget = dot11.Address1.String()
 
+		target := dot11.Address1.String()
+		device.ConnectedSSID = target // Preserving existing behavior (BSSID)
+
+		eventType := domain.EventDataTransfer
 		if isEAPOLKey(packet) {
-			device.ConnectionState = domain.StateHandshake
-		} else {
-			device.ConnectionState = domain.StateConnected
+			eventType = domain.EventEAPOL
 		}
+
+		event := domain.ConnectionEvent{
+			Type:      eventType,
+			SourceMAC: device.MAC,
+			TargetMAC: target,
+			Timestamp: time.Now(),
+		}
+		newState, newTarget := h.StateManager.UpdateState(device.MAC, event)
+		device.ConnectionState = newState
+		device.ConnectionTarget = newTarget
 
 		device.DataTransmitted = payloadLen
 		device.PacketsCount = 1
 		device.RetryCount = retryVal
 		h.FingerprintEngine.AnalyzeRandomization(dot11.Address2, device)
-		return device
+		return device, &event
 	} else if !isToDS && isFromDS {
 		// Download: AP -> STA
 		// Avoid multicast/broadcast destinations
 		if len(dot11.Address1) > 0 && (dot11.Address1[0]&0x01) == 1 {
-			return nil
+			return nil, nil
 		}
 
 		device.MAC = dot11.Address1.String()
 		device.Type = "station" // We track the receiving station
 		device.Vendor = h.getVendor(device.MAC)
 		device.Capabilities = []string{"Data-Rx"}
-		device.ConnectedSSID = dot11.Address2.String()
-		device.ConnectionTarget = dot11.Address2.String()
 
+		target := dot11.Address2.String()
+		device.ConnectedSSID = target
+
+		eventType := domain.EventDataTransfer
 		if isEAPOLKey(packet) {
-			device.ConnectionState = domain.StateHandshake
-		} else {
-			device.ConnectionState = domain.StateConnected
+			eventType = domain.EventEAPOL
 		}
+
+		event := domain.ConnectionEvent{
+			Type:      eventType,
+			SourceMAC: device.MAC,
+			TargetMAC: target,
+			Timestamp: time.Now(),
+		}
+		newState, newTarget := h.StateManager.UpdateState(device.MAC, event)
+		device.ConnectionState = newState
+		device.ConnectionTarget = newTarget
 
 		device.DataReceived = payloadLen
 		device.PacketsCount = 1
 		// Retries here are usually AP retrying sending to STA.
-		// We might not attribute this to the STA's "bad behavior" but it reflects link quality.
 		h.FingerprintEngine.AnalyzeRandomization(dot11.Address1, device)
-		return device
+		return device, &event
 	}
 
-	return nil
+	return nil, nil
 }
 
 // isAP tries to guess if the frame sender is an AP based on addressing or type
@@ -537,9 +622,6 @@ func isAP(dot11 *layers.Dot11) bool {
 	// If SA == BSSID, it's likely an AP.
 	return dot11.Address2.String() == dot11.Address3.String()
 }
-
-// parseWPSAttributes extracts Model/Manufacturer/State from WPS IEs
-// Returns "Manufacturer Model" string
 
 // frequencyToChannel converts WiFi frequency (MHz) to channel number
 func frequencyToChannel(freq int) int {

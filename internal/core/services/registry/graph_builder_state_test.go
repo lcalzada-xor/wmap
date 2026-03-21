@@ -63,7 +63,7 @@ func TestGraphBuilder_AllConnectionStatesRendered(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Create fresh registry for each test case to avoid state pollution
-			registry := NewDeviceRegistry(nil, nil)
+			registry := NewDeviceRegistry(nil)
 			builder := NewGraphBuilder(registry)
 
 			// Register AP first

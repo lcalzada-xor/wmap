@@ -37,7 +37,7 @@ func (d *RetryRateDetector) Analyze(device *domain.Device, _ ports.DeviceRegistr
 	return []domain.Alert{{
 		Type:      domain.AlertAnomaly,
 		Subtype:   "HIGH_RETRY_RATE",
-		Severity:  domain.SeverityMedium,
+		Severity:  "Medium",
 		Message:   "High retry rate detected",
 		DeviceMAC: device.MAC,
 		Timestamp: time.Now(),
@@ -74,7 +74,7 @@ func (d *ClientKarmaDetector) Analyze(device *domain.Device, _ ports.DeviceRegis
 	return []domain.Alert{{
 		Type:      domain.AlertAnomaly,
 		Subtype:   "KARMA_DETECTION",
-		Severity:  domain.SeverityHigh,
+		Severity:  "High",
 		Message:   "Potential Karma attack (many probed SSIDs)",
 		DeviceMAC: device.MAC,
 		Timestamp: time.Now(),
@@ -107,7 +107,7 @@ func (d *EvilTwinDetector) Analyze(device *domain.Device, registry ports.DeviceR
 	return []domain.Alert{{
 		Type:      domain.AlertAnomaly,
 		Subtype:   "EVIL_TWIN_DETECTED",
-		Severity:  domain.SeverityCritical,
+		Severity:  "Critical",
 		Message:   "Evil Twin Detected: Security Mismatch",
 		DeviceMAC: device.MAC,
 		Timestamp: time.Now(),
@@ -127,7 +127,7 @@ func (d *SpoofingDetector) Analyze(device *domain.Device, _ ports.DeviceRegistry
 	return []domain.Alert{{
 		Type:      domain.AlertAnomaly,
 		Subtype:   "OUI_SPOOFING",
-		Severity:  domain.SeverityMedium,
+		Severity:  "Medium",
 		Message:   "OUI Spoofing Detected: Vendor " + device.Vendor + " but generic signature",
 		DeviceMAC: device.MAC,
 		Timestamp: time.Now(),
@@ -157,7 +157,7 @@ func (d *APKarmaDetector) Analyze(device *domain.Device, _ ports.DeviceRegistry)
 		return []domain.Alert{{
 			Type:      domain.AlertAnomaly,
 			Subtype:   "KARMA_AP_DETECTED",
-			Severity:  domain.SeverityCritical,
+			Severity:  "Critical",
 			Message:   "Karma/Mana AP Detected: Single BSSID advertising multiple SSIDs",
 			Details:   details,
 			DeviceMAC: device.MAC,
@@ -200,7 +200,7 @@ func (d *RuleDetector) Analyze(device *domain.Device, _ ports.DeviceRegistry) []
 				Type:      rule.Type,
 				Subtype:   "RULE_MATCH",
 				RuleID:    rule.ID,
-				Severity:  domain.SeverityHigh,
+				Severity:  "High",
 				Message:   "Security Rule Triggered: " + rule.Value,
 				DeviceMAC: device.MAC,
 				Timestamp: time.Now(),
@@ -219,9 +219,9 @@ func (d *RuleDetector) matchRule(device *domain.Device, rule domain.AlertRule) b
 		return strings.Contains(device.SSID, rule.Value)
 	case domain.AlertMAC:
 		return device.MAC == rule.Value
-	case domain.AlertVendor:
+	case "VENDOR":
 		return device.Vendor == rule.Value
-	case domain.AlertProbe:
+	case "PROBE":
 		for ssid := range device.ProbedSSIDs {
 			if rule.Exact {
 				if ssid == rule.Value {

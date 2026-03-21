@@ -32,8 +32,10 @@ type DeviceFilter struct {
 	Vendor             string    `json:"vendor"`              // Partial match (case-insensitive)
 	SSID               string    `json:"ssid"`                // Partial match (case-insensitive)
 	IsRandomized       *bool     `json:"is_randomized"`       // nil = any
-	MinSeverity        Severity  `json:"min_severity"`        // Minimal vulnerability severity (1-10)
-	HasVulnerabilities *bool     `json:"has_vulnerabilities"` // nil = any
+
+	// Pagination
+	Limit  int `json:"limit"`
+	Offset int `json:"offset"`
 }
 
 // NewDeviceFilter initializes a filter with sensible defaults.
@@ -62,6 +64,16 @@ func (f *DeviceFilter) WithSecurity(s string) *DeviceFilter {
 
 func (f *DeviceFilter) WithSSID(ssid string) *DeviceFilter {
 	f.SSID = ssid
+	return f
+}
+
+func (f *DeviceFilter) WithLimit(limit int) *DeviceFilter {
+	f.Limit = limit
+	return f
+}
+
+func (f *DeviceFilter) WithOffset(offset int) *DeviceFilter {
+	f.Offset = offset
 	return f
 }
 
@@ -128,26 +140,6 @@ func (f *DeviceFilter) Matches(d *Device) bool {
 	// 8. Randomized MAC Match (from Identity embedded struct)
 	if f.IsRandomized != nil && d.IsRandomized != *f.IsRandomized {
 		return false
-	}
-
-	// 9. Vulnerability Filtering
-	if f.HasVulnerabilities != nil {
-		hasVulns := len(d.Vulnerabilities) > 0
-		if *f.HasVulnerabilities != hasVulns {
-			return false
-		}
-	}
-
-	if f.MinSeverity > 0 {
-		maxSev := Severity(0)
-		for _, v := range d.Vulnerabilities {
-			if v.Severity > maxSev {
-				maxSev = v.Severity
-			}
-		}
-		if maxSev < f.MinSeverity {
-			return false
-		}
 	}
 
 	return true

@@ -9,6 +9,7 @@ func TestHandshakeManager_CleanupSessions(t *testing.T) {
 	// Create a temporary directory for testing
 	tmpDir := t.TempDir()
 	hm := NewHandshakeManager(tmpDir)
+	defer hm.Close()
 
 	// Manually inject a session
 	// Manually inject sessions
@@ -61,6 +62,7 @@ func TestHandshakeManager_CleanupSessions(t *testing.T) {
 func TestHandshakeManager_MaxFramesLimit(t *testing.T) {
 	tmpDir := t.TempDir()
 	hm := NewHandshakeManager(tmpDir)
+	defer hm.Close()
 
 	bssid := "00:11:22:33:44:55"
 	station := "AA:BB:CC:DD:EE:FF"
@@ -70,12 +72,14 @@ func TestHandshakeManager_MaxFramesLimit(t *testing.T) {
 	hm.ProcessFrame(packetM1)
 
 	// Create M2 (RC=1)
-	packetM2 := createEAPOLPacket(bssid, station, bssid, 2, 1)
+	// Create M2 (RC=1)
+	// packetM2 := createEAPOLPacket(bssid, station, bssid, 2, 1) // Unused now
 
 	// Send 24 more packets (M2) to hit/exceed limit (Total 25)
 	for i := 0; i < 24; i++ {
-		// We need to ensure a session is created. ProcessFrame does that for EAPOL.
-		hm.ProcessFrame(packetM2)
+		// Create unique M2 to bypass duplicate filter
+		p := createEAPOLPacket(bssid, station, bssid, 2, uint64(i+100))
+		hm.ProcessFrame(p)
 	}
 
 	// Check frames in session

@@ -9,7 +9,6 @@ import (
 
 	"github.com/lcalzada-xor/wmap/internal/app"
 	"github.com/lcalzada-xor/wmap/internal/config"
-	"github.com/lcalzada-xor/wmap/internal/telemetry"
 )
 
 func main() {
@@ -20,22 +19,15 @@ func main() {
 	// load config
 	cfg := config.Load()
 
-	// Initialize Tracing
-	shutdownTracer, err := telemetry.InitTracer()
-	if err != nil {
-		slog.Error("Failed to init tracer", "error", err)
-	} else {
-		defer func() {
-			if err := shutdownTracer(context.Background()); err != nil {
-				slog.Error("Failed to shutdown tracer", "error", err)
-			}
-		}()
-	}
-
 	// Initialize Application
 	application, err := app.New(cfg)
 	if err != nil {
 		slog.Error("Failed to initialize application", "error", err)
+		// Even if application creation fails, try to restore networking
+		// if a partial application was created
+		if application != nil {
+			application.RestoreNetwork()
+		}
 		os.Exit(1)
 	}
 

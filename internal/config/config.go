@@ -13,17 +13,16 @@ import (
 type Config struct {
 	Interfaces   []string
 	Addr         string
-	Latitude     float64
-	Longitude    float64
 	MockMode     bool
 	DBPath       string
 	PcapPath     string
 	GRPCPort     int
 	Debug        bool
 	DwellTime    int // in milliseconds
-	ReaverPath   string
-	PixiewpsPath string
-	WorkspaceDir string
+	WorkspaceDir      string
+	HandshakeDir      string
+	ChannelConfigPath string
+	BaseDir           string
 }
 
 // Load parses command line flags and environment variables to populate Config.
@@ -31,32 +30,31 @@ type Config struct {
 func Load() *Config {
 	cfg := &Config{}
 
-	// Defaults and Environment Variables
+	// 1. Base Directory Setup
+	defaultBase := getEnv("WMAP_DIR", getDefaultBaseDir())
+	flag.StringVar(&cfg.BaseDir, "dir", defaultBase, "Base directory for all WMAP data (~/.wmap)")
+
+	// 2. Other Configuration flags
 	ifaceStr := getEnv("WMAP_INTERFACE", "wlan0")
 	cfg.Addr = getEnv("WMAP_ADDR", ":8080")
-	cfg.Latitude = getEnvFloat("WMAP_LAT", 40.4168)
-	cfg.Longitude = getEnvFloat("WMAP_LNG", -3.7038)
 	cfg.MockMode = getEnvBool("WMAP_MOCK", false)
-	cfg.DBPath = getEnv("WMAP_DB", getDefaultDBPath())
-	cfg.WorkspaceDir = getEnv("WMAP_WORKSPACE_DIR", getDefaultWorkspaceDir())
 	cfg.GRPCPort = int(getEnvFloat("WMAP_GRPC", 9000))
 
-	// Command Line Flags (Override Env)
 	flag.StringVar(&ifaceStr, "i", ifaceStr, "Network interface(s) in monitor mode (comma separated)")
 	flag.StringVar(&cfg.Addr, "addr", cfg.Addr, "HTTP server address")
-	flag.Float64Var(&cfg.Latitude, "lat", cfg.Latitude, "Static Latitude")
-	flag.Float64Var(&cfg.Longitude, "lng", cfg.Longitude, "Static Longitude")
 	flag.BoolVar(&cfg.MockMode, "mock", cfg.MockMode, "Run in mock mode (simulation)")
-	flag.StringVar(&cfg.DBPath, "db", cfg.DBPath, "Path to SQLite database")
-	flag.StringVar(&cfg.PcapPath, "pcap", "", "Path to save PCAP file (empty to disable)")
 	flag.IntVar(&cfg.GRPCPort, "grpc", cfg.GRPCPort, "gRPC Server Port")
 	flag.BoolVar(&cfg.Debug, "debug", false, "Enable verbose debug logging")
 	flag.IntVar(&cfg.DwellTime, "dwell", 300, "Channel dwell time in milliseconds")
-	flag.StringVar(&cfg.ReaverPath, "reaver-path", "reaver", "Path to reaver binary")
-	flag.StringVar(&cfg.PixiewpsPath, "pixiewps-path", "pixiewps", "Path to pixiewps binary")
-	flag.StringVar(&cfg.WorkspaceDir, "workspace-dir", cfg.WorkspaceDir, "Path to workspace directory")
+	flag.StringVar(&cfg.PcapPath, "pcap", "", "Path to save PCAP file (empty to disable)")
 
 	flag.Parse()
+
+	// 3. Resolve static paths relative to BaseDir (after flag.Parse)
+	cfg.DBPath = filepath.Join(cfg.BaseDir, "wmap.db")
+	cfg.WorkspaceDir = filepath.Join(cfg.BaseDir, "workspaces")
+	cfg.HandshakeDir = filepath.Join(cfg.BaseDir, "handshakes")
+	cfg.ChannelConfigPath = filepath.Join(cfg.BaseDir, "channels.json")
 
 	// Parse interfaces
 	cfg.Interfaces = parseInterfaces(ifaceStr)
@@ -104,31 +102,13 @@ func getEnvBool(key string, fallback bool) bool {
 	return fallback
 }
 
-// getDefaultDBPath returns the default database path in user's home directory.
-// Creates the directory if it doesn't exist.
-func getDefaultDBPath() string {
+// getDefaultBaseDir returns the default base directory in user's home directory.
+func getDefaultBaseDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		log.Printf("Warning: Could not get user home directory, using current dir: %v", err)
-		return "wmap.db"
+		return ".wmap"
 	}
 
-	// Use ~/.wmap directory
-	wmapDir := filepath.Join(home, ".wmap")
-
-	// Create directory if it doesn't exist
-	if err := os.MkdirAll(wmapDir, 0755); err != nil {
-		log.Printf("Warning: Could not create .wmap directory, using current dir: %v", err)
-		return "wmap.db"
-	}
-
-	return filepath.Join(wmapDir, "wmap.db")
-}
-
-func getDefaultWorkspaceDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "workspaces"
-	}
-	return filepath.Join(home, ".local", "share", "wmap", "workspaces")
+	return filepath.Join(home, ".wmap")
 }

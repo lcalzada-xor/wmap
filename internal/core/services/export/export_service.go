@@ -30,7 +30,6 @@ func ExportCSV(w io.Writer, devices []domain.Device) error {
 		"DataTx", "DataRx", "Packets", "Retries",
 		"IsRandomized", "IsWiFi6", "IsWiFi7",
 		"FirstSeen", "LastSeen",
-		"Latitude", "Longitude",
 	}
 	if err := writer.Write(headers); err != nil {
 		return err
@@ -61,8 +60,6 @@ func ExportCSV(w io.Writer, devices []domain.Device) error {
 			fmt.Sprintf("%t", d.IsWiFi7),
 			d.FirstSeen.Format(time.RFC3339),
 			d.LastSeen.Format(time.RFC3339),
-			fmt.Sprintf("%.6f", d.Latitude),
-			fmt.Sprintf("%.6f", d.Longitude),
 		}
 		if err := writer.Write(row); err != nil {
 			return err

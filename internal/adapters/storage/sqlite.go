@@ -2,7 +2,6 @@ package storage
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 	"time"
 
@@ -10,9 +9,7 @@ import (
 	"github.com/lcalzada-xor/wmap/internal/core/ports"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
-	"gorm.io/plugin/opentelemetry/tracing"
 )
 
 // SQLiteAdapter implements ports.Storage using GORM and SQLite.
@@ -34,8 +31,6 @@ type DeviceModel struct {
 	Frequency      int    // 2412, 5180, etc.
 	ChannelWidth   int    // 20, 40, 80, 160 MHz
 	WPSInfo        string // Configured, Unconfigured
-	Latitude       float64
-	Longitude      float64
 	LastPacketTime time.Time
 	FirstSeen      time.Time
 	LastSeen       time.Time
@@ -67,6 +62,13 @@ type DeviceModel struct {
 	ConnectionTarget string
 	ConnectionError  string
 
+	// Security & Cracking (New Fields)
+	HasHandshake      bool
+	HandshakeFile     string
+	EncryptionDetails string // JSON encoded RSNInfo
+	WPSData           string // JSON encoded WPSDetails
+	IEFingerprint     string
+
 	// ProbedSSIDs is a many-to-many or one-to-many relationship,
 	// but for simplicity in SQLite we can store it in a separate table.
 	ProbedSSIDs []ProbeModel `gorm:"foreignKey:DeviceMAC"`
@@ -80,20 +82,16 @@ type ProbeModel struct {
 	LastSeen  time.Time
 }
 
-// VulnerabilityModel is the GORM model for vulnerabilities
-type VulnerabilityModel struct {
-	ID              string `gorm:"primaryKey"`
-	DeviceMAC       string `gorm:"index"`
-	Name            string `gorm:"index"`
-	Severity        int
-	Confidence      float64
-	FirstSeen       time.Time
-	LastSeen        time.Time
-	Status          string `gorm:"index;default:'active'"` // active, ignored, fixed
-	StatusChangedAt time.Time
-	Notes           string
-	Evidence        string // JSON encoded
-	Description     string
+
+
+// ConnectionEventModel stores history of connection states.
+type ConnectionEventModel struct {
+	ID        uint   `gorm:"primaryKey"`
+	DeviceMAC string `gorm:"index"`
+	EventType string `gorm:"index"`
+	TargetMAC string
+	Timestamp time.Time `gorm:"index"` // Ordered history
+	Reason    int
 }
 
 // NewSQLiteAdapter initializes the database and migrates schema.
@@ -105,13 +103,7 @@ func NewSQLiteAdapter(path string) (*SQLiteAdapter, error) {
 		return nil, err
 	}
 
-	// Auto Migrate
-	if err := db.AutoMigrate(&DeviceModel{}, &ProbeModel{}, &domain.User{}, &domain.AuditLog{}, &VulnerabilityModel{}); err != nil {
-		return nil, err
-	}
-
-	// Instrument with OpenTelemetry
-	if err := db.Use(tracing.NewPlugin()); err != nil {
+	if err := db.AutoMigrate(&DeviceModel{}, &ProbeModel{}, &ConnectionEventModel{}); err != nil {
 		return nil, err
 	}
 
@@ -123,60 +115,54 @@ func NewSQLiteAdapter(path string) (*SQLiteAdapter, error) {
 	// Synchronous NORMAL is faster and safe enough for WAL
 	db.Exec("PRAGMA synchronous=NORMAL;")
 
-	// Manual Migration fallbacks for SQLite (sometimes AutoMigrate misses columns in existing tables)
-	if !db.Migrator().HasColumn(&DeviceModel{}, "SSID") {
-		log.Println("Manually adding missing column: device_models.ssid")
-		db.Migrator().AddColumn(&DeviceModel{}, "SSID")
-	}
-	if !db.Migrator().HasColumn(&ProbeModel{}, "SSID") {
-		log.Println("Manually adding missing column: probe_models.ssid")
-		db.Migrator().AddColumn(&ProbeModel{}, "SSID")
-	}
 
 	// Create Indices for Performance
-	db.Exec("CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON device_models(last_seen)")
-	db.Exec("CREATE INDEX IF NOT EXISTS idx_devices_type ON device_models(type)")
-	db.Exec("CREATE INDEX IF NOT EXISTS idx_devices_ssid ON device_models(ssid)")
-	db.Exec("CREATE INDEX IF NOT EXISTS idx_probes_ssid ON probe_models(ssid)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_devices_security ON device_models(security)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_conn_history_mac_time ON connection_event_models(device_mac, timestamp)")
 
 	return &SQLiteAdapter{db: db}, nil
 }
 
-// SaveDevice saves or updates a device and its probes.
+// SaveDevice saves or updates a device and its probes inside a transaction.
 func (a *SQLiteAdapter) SaveDevice(ctx context.Context, d domain.Device) error {
 	// Convert domain.Device to DeviceModel
 	model := toModel(d)
 
-	// Upsert Device
-	// On conflict (MAC), update all fields.
-	if err := a.db.WithContext(ctx).Save(&model).Error; err != nil {
-		return err
-	}
-	// Save Probed SSIDs
-	for ssid, ts := range d.ProbedSSIDs {
-		// Use FirstOrCreate to avoid duplicates, update timestamp if exists
-		var probe ProbeModel
-		if err := a.db.WithContext(ctx).Where(&ProbeModel{DeviceMAC: d.MAC, SSID: ssid}).First(&probe).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				// Create new
-				probe = ProbeModel{
-					DeviceMAC: d.MAC,
-					SSID:      ssid,
-					LastSeen:  ts,
+	return a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Upsert Device
+		// On conflict (MAC), update all fields.
+		if err := tx.Save(&model).Error; err != nil {
+			return err
+		}
+
+		// Save Probed SSIDs
+		for ssid, ts := range d.ProbedSSIDs {
+			// Check if exists using the transaction 'tx'
+			var probe ProbeModel
+			if err := tx.Where(&ProbeModel{DeviceMAC: d.MAC, SSID: ssid}).First(&probe).Error; err != nil {
+				if err == gorm.ErrRecordNotFound {
+					// Create new
+					probe = ProbeModel{
+						DeviceMAC: d.MAC,
+						SSID:      ssid,
+						LastSeen:  ts,
+					}
+					if err := tx.Create(&probe).Error; err != nil {
+						return err
+					}
+				} else {
+					return err
 				}
-				if err := a.db.WithContext(ctx).Create(&probe).Error; err != nil {
-					log.Printf("Failed to save probe: %v", err)
+			} else {
+				// Update existing timestamp
+				probe.LastSeen = ts
+				if err := tx.Save(&probe).Error; err != nil {
+					return err
 				}
 			}
-		} else {
-			// Update existing timestamp
-			probe.LastSeen = ts
-			a.db.WithContext(ctx).Save(&probe)
 		}
-	}
-
-	return nil
+		return nil
+	})
 }
 
 // SaveDevicesBatch saves multiple devices in a single transaction.
@@ -185,15 +171,41 @@ func (a *SQLiteAdapter) SaveDevicesBatch(ctx context.Context, devices []domain.D
 		return nil
 	}
 
-	models := make([]DeviceModel, len(devices))
-	for i, d := range devices {
-		models[i] = toModel(d)
-	}
-
 	return a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return tx.Clauses(clause.OnConflict{
-			UpdateAll: true,
-		}).CreateInBatches(models, 100).Error
+		for _, d := range devices {
+			model := toModel(d)
+
+			// Upsert device
+			if err := tx.Save(&model).Error; err != nil {
+				return err
+			}
+
+			// Persist ProbedSSIDs (same logic as SaveDevice)
+			for ssid, ts := range d.ProbedSSIDs {
+				var probe ProbeModel
+				err := tx.Where("device_mac = ? AND ssid = ?", d.MAC, ssid).First(&probe).Error
+				if err != nil {
+					if err == gorm.ErrRecordNotFound {
+						probe = ProbeModel{
+							DeviceMAC: d.MAC,
+							SSID:      ssid,
+							LastSeen:  ts,
+						}
+						if err := tx.Create(&probe).Error; err != nil {
+							return err
+						}
+					} else {
+						return err
+					}
+				} else {
+					probe.LastSeen = ts
+					if err := tx.Save(&probe).Error; err != nil {
+						return err
+					}
+				}
+			}
+		}
+		return nil
 	})
 }
 
@@ -203,6 +215,7 @@ func (a *SQLiteAdapter) GetDevice(ctx context.Context, mac string) (*domain.Devi
 	if err := a.db.WithContext(ctx).Preload("ProbedSSIDs").First(&model, "mac = ?", mac).Error; err != nil {
 		return nil, err
 	}
+
 	return toDomain(model), nil
 }
 
@@ -257,6 +270,21 @@ func (a *SQLiteAdapter) GetDevicesByFilter(ctx context.Context, filter domain.De
 		query = query.Where("is_randomized = ?", *filter.IsRandomized)
 	}
 
+	// Pagination
+	if filter.Limit > 0 {
+		query = query.Limit(filter.Limit)
+	} else {
+		// Default limit to 100 to prevent OOM if not specified
+		// Users who want *all* must fetch mostly via batches or similar,
+		// but providing a safe default is better for general usage.
+		// If explicit "all" is needed, we might need a specific flag or convention (e.g. -1).
+		// For now, let's stick to safe default.
+		query = query.Limit(100)
+	}
+	if filter.Offset > 0 {
+		query = query.Offset(filter.Offset)
+	}
+
 	var models []DeviceModel
 	if err := query.Find(&models).Error; err != nil {
 		return nil, err
@@ -270,114 +298,35 @@ func (a *SQLiteAdapter) GetDevicesByFilter(ctx context.Context, filter domain.De
 }
 
 func (a *SQLiteAdapter) SaveProbe(ctx context.Context, mac string, ssid string) error {
-	return nil
-}
+	log.Printf("DEBUG SaveProbe: Called with MAC=%s SSID=%s", mac, ssid)
+	return a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var existing ProbeModel
+		// Use manual check to handle upsert without unique index constraint on (device_mac, ssid)
+		err := tx.Where("device_mac = ? AND ssid = ?", mac, ssid).First(&existing).Error
+		log.Printf("DEBUG SaveProbe: Query result - err=%v", err)
 
-// SaveVulnerability saves or updates a vulnerability record.
-func (a *SQLiteAdapter) SaveVulnerability(ctx context.Context, record domain.VulnerabilityRecord) error {
-	// Serialize evidence
-	evidenceBytes, _ := json.Marshal(record.Evidence)
-
-	model := VulnerabilityModel{
-		ID:              record.ID,
-		DeviceMAC:       record.DeviceMAC,
-		Name:            record.Name,
-		Severity:        int(record.Severity),
-		Confidence:      float64(record.Confidence),
-		FirstSeen:       record.FirstSeen,
-		LastSeen:        record.LastSeen,
-		Status:          string(record.Status),
-		StatusChangedAt: record.StatusChangedAt,
-		Notes:           record.Notes,
-		Description:     record.Description,
-		Evidence:        string(evidenceBytes),
-	}
-
-	// Using Upsert logic
-	return a.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "id"}},
-		DoUpdates: clause.AssignmentColumns([]string{"last_seen", "confidence", "severity", "evidence"}),
-	}).Create(&model).Error
-}
-
-// GetVulnerabilities retrieves vulnerabilities based on filter.
-func (a *SQLiteAdapter) GetVulnerabilities(ctx context.Context, filter domain.VulnerabilityFilter) ([]domain.VulnerabilityRecord, error) {
-	var models []VulnerabilityModel
-	query := a.db.WithContext(ctx).Model(&VulnerabilityModel{})
-
-	if filter.DeviceMAC != "" {
-		query = query.Where("device_mac = ?", filter.DeviceMAC)
-	}
-	if filter.Status != nil {
-		query = query.Where("status = ?", *filter.Status)
-	}
-	if filter.MinSeverity > 0 {
-		query = query.Where("severity >= ?", filter.MinSeverity)
-	}
-
-	if err := query.Find(&models).Error; err != nil {
-		return nil, err
-	}
-
-	records := make([]domain.VulnerabilityRecord, len(models))
-	for i, m := range models {
-		records[i] = domain.VulnerabilityRecord{
-			ID:              m.ID,
-			DeviceMAC:       m.DeviceMAC,
-			Name:            m.Name,
-			Severity:        domain.Severity(m.Severity),
-			Confidence:      domain.Confidence(m.Confidence),
-			FirstSeen:       m.FirstSeen,
-			LastSeen:        m.LastSeen,
-			Status:          domain.VulnerabilityStatus(m.Status),
-			StatusChangedAt: m.StatusChangedAt,
-			Notes:           m.Notes,
-			Description:     m.Description,
-			Evidence:        []string{}, // Unmarshal if needed
+		if err != nil {
+			if err == gorm.ErrRecordNotFound {
+				probe := ProbeModel{
+					DeviceMAC: mac,
+					SSID:      ssid,
+					LastSeen:  time.Now(),
+				}
+				log.Printf("DEBUG SaveProbe: Creating new probe for MAC=%s SSID=%s", mac, ssid)
+				createErr := tx.Create(&probe).Error
+				log.Printf("DEBUG SaveProbe: Create result - err=%v, probe.ID=%d", createErr, probe.ID)
+				return createErr
+			}
+			log.Printf("DEBUG SaveProbe: Unexpected error: %v", err)
+			return err
 		}
-		if m.Evidence != "" {
-			json.Unmarshal([]byte(m.Evidence), &records[i].Evidence)
-		}
-	}
-	return records, nil
+		log.Printf("DEBUG SaveProbe: Updating existing probe ID=%d for MAC=%s SSID=%s", existing.ID, mac, ssid)
+		existing.LastSeen = time.Now()
+		return tx.Save(&existing).Error
+	})
 }
 
-// GetVulnerability retrieves a single vulnerability by ID.
-func (a *SQLiteAdapter) GetVulnerability(ctx context.Context, id string) (*domain.VulnerabilityRecord, error) {
-	var m VulnerabilityModel
-	if err := a.db.WithContext(ctx).Where("id = ?", id).First(&m).Error; err != nil {
-		return nil, err
-	}
 
-	record := &domain.VulnerabilityRecord{
-		ID:              m.ID,
-		DeviceMAC:       m.DeviceMAC,
-		Name:            m.Name,
-		Severity:        domain.Severity(m.Severity),
-		Confidence:      domain.Confidence(m.Confidence),
-		FirstSeen:       m.FirstSeen,
-		LastSeen:        m.LastSeen,
-		Status:          domain.VulnerabilityStatus(m.Status),
-		StatusChangedAt: m.StatusChangedAt,
-		Notes:           m.Notes,
-		Description:     m.Description,
-		Evidence:        []string{},
-	}
-	if m.Evidence != "" {
-		json.Unmarshal([]byte(m.Evidence), &record.Evidence)
-	}
-	return record, nil
-}
-
-// UpdateVulnerabilityStatus updates the status of a vulnerability with notes.
-func (a *SQLiteAdapter) UpdateVulnerabilityStatus(ctx context.Context, id string, status domain.VulnerabilityStatus, notes string) error {
-	updates := map[string]interface{}{
-		"status":            status,
-		"notes":             notes,
-		"status_changed_at": time.Now(),
-	}
-	return a.db.WithContext(ctx).Model(&VulnerabilityModel{}).Where("id = ?", id).Updates(updates).Error
-}
 
 func (a *SQLiteAdapter) Close() error {
 	sqlDB, err := a.db.DB()

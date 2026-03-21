@@ -93,7 +93,10 @@ func (d *WirelessDriver) getPhyCapabilities(phy string) (map[string]bool, []int,
 
 	scanner := bufio.NewScanner(bytes.NewReader(out))
 	inFrequencies := false
-	reChannel := regexp.MustCompile(`\[([0-9]+)\]`)
+
+	// Regex to match line like: "* 2412 MHz [1]" or "* 2412.0 MHz [1]"
+	// Capture groups: 1=Frequency(MHz) (integer part), 2=Decimal part (optional), 3=Channel
+	reFreqChan := regexp.MustCompile(`\*\s+([0-9]+)(\.[0-9]+)?\s+MHz\s+\[([0-9]+)\]`)
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -111,15 +114,20 @@ func (d *WirelessDriver) getPhyCapabilities(phy string) (map[string]bool, []int,
 					}
 				}
 
-				matches := reChannel.FindStringSubmatch(line)
-				if len(matches) > 1 {
-					ch, _ := strconv.Atoi(matches[1])
+				matches := reFreqChan.FindStringSubmatch(line)
+				if len(matches) > 3 {
+					freq, _ := strconv.Atoi(matches[1])
+					ch, _ := strconv.Atoi(matches[3]) // Group 3 is channel now
+
 					supportedChannels = append(supportedChannels, ch)
 
-					if ch >= 1 && ch <= 14 {
-						bands["2.4ghz"] = true
-					} else if ch >= 36 {
-						bands["5ghz"] = true
+					// Frequency-based detection is more robust
+					if freq < 4000 {
+						bands["2.4GHz"] = true // Match domain.Band24GHz
+					} else if freq >= 4900 && freq < 5900 {
+						bands["5GHz"] = true // Match domain.Band5GHz
+					} else if freq >= 5900 {
+						bands["6GHz"] = true // Match domain.Band6GHz
 					}
 				}
 			} else if !strings.HasPrefix(line, "*") {
@@ -171,18 +179,26 @@ func KillConflictingProcesses() error {
 }
 
 func (d *WirelessDriver) KillConflictingProcesses() error {
+	log.Println("Stopping conflicting network processes...")
 	commands := [][]string{
 		{"systemctl", "stop", "NetworkManager"},
 		{"systemctl", "stop", "wpa_supplicant"},
 	}
 
+	var errs []string
 	for _, cmdParts := range commands {
 		cmdName := cmdParts[0]
 		cmdArgs := cmdParts[1:]
 		out, err := d.executor.Execute(cmdName, cmdArgs...)
 		if err != nil {
-			return fmt.Errorf("failed to execute %s %v: %v (%s)", cmdName, cmdArgs, err, string(out))
+			msg := fmt.Sprintf("failed to stop %s: %v (%s)", cmdArgs[1], err, strings.TrimSpace(string(out)))
+			log.Printf("Warning: %s", msg)
+			errs = append(errs, msg)
 		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("encountered errors stopping processes: %s", strings.Join(errs, "; "))
 	}
 	return nil
 }
@@ -193,21 +209,28 @@ func RestoreNetworkServices() error {
 }
 
 func (d *WirelessDriver) RestoreNetworkServices() error {
+	log.Println("Restoring network services...")
 	commands := [][]string{
 		{"systemctl", "start", "wpa_supplicant"},
 		{"systemctl", "start", "NetworkManager"},
 	}
 
-	var lastErr error
+	var errs []string
 	for _, cmdParts := range commands {
 		cmdName := cmdParts[0]
 		cmdArgs := cmdParts[1:]
 		out, err := d.executor.Execute(cmdName, cmdArgs...)
 		if err != nil {
-			lastErr = fmt.Errorf("failed to execute %s %v: %v (%s)", cmdName, cmdArgs, err, string(out))
+			msg := fmt.Sprintf("failed to start %s: %v (%s)", cmdArgs[1], err, strings.TrimSpace(string(out)))
+			log.Printf("Warning: %s", msg)
+			errs = append(errs, msg)
 		}
 	}
-	return lastErr
+
+	if len(errs) > 0 {
+		return fmt.Errorf("encountered errors restoring processes: %s", strings.Join(errs, "; "))
+	}
+	return nil
 }
 
 // EnableMonitorMode puts the interface into monitor mode
@@ -215,25 +238,70 @@ func EnableMonitorMode(iface string) error {
 	return DefaultDriver.EnableMonitorMode(iface)
 }
 
-func (d *WirelessDriver) EnableMonitorMode(iface string) error {
+func (d *WirelessDriver) EnableMonitorMode(iface string) (err error) {
 	log.Printf("Enabling monitor mode on %s...", iface)
 
-	if err := d.runCmd("ip", "link", "set", iface, "down"); err != nil {
-		return err
+	// Get current interface state before making changes
+	originalMode, _, getErr := d.GetInterfaceCurrentConfig(iface)
+	if getErr != nil {
+		log.Printf("Warning: Could not get current interface state for %s: %v", iface, getErr)
+		originalMode = "unknown"
 	}
 
-	if err := d.runCmd("iw", iface, "set", "type", "monitor"); err != nil {
-		log.Printf("Error setting monitor mode. Hint: try killing conflicting processes.")
-		return err
+	if originalMode == "monitor" {
+		log.Printf("Interface %s is already in monitor mode", iface)
+		return d.runCmd("ip", "link", "set", iface, "up")
 	}
 
-	// Set default channel
+	needsRestore := false
+	defer func() {
+		if err != nil && needsRestore {
+			log.Printf("Error enabling monitor mode, rolling back %s to %s...", iface, originalMode)
+			d.restoreInterfaceState(iface, originalMode)
+		}
+	}()
+
+	// Try to bring interface down
+	if err = d.runCmd("ip", "link", "set", iface, "down"); err != nil {
+		return fmt.Errorf("failed to bring interface down: %w", err)
+	}
+	needsRestore = true
+
+	// Try to set monitor mode
+	if err = d.runCmd("iw", iface, "set", "type", "monitor"); err != nil {
+		return fmt.Errorf("failed to set monitor mode: %w", err)
+	}
+
+	// Set default channel (non-critical, don't fail if this doesn't work)
 	_ = d.SetInterfaceChannel(iface, 6)
 
-	if err := d.runCmd("ip", "link", "set", iface, "up"); err != nil {
-		return err
+	// Bring interface up
+	if err = d.runCmd("ip", "link", "set", iface, "up"); err != nil {
+		return fmt.Errorf("failed to bring interface up: %w", err)
 	}
+
 	return nil
+}
+
+// restoreInterfaceState attempts to restore an interface to its original mode
+func (d *WirelessDriver) restoreInterfaceState(iface string, originalMode string) {
+	log.Printf("Attempting to restore %s to original mode: %s", iface, originalMode)
+
+	// First bring interface down
+	_ = d.runCmd("ip", "link", "set", iface, "down")
+
+	// Try to restore to original mode if we know it
+	if originalMode != "unknown" && originalMode != "" {
+		_ = d.runCmd("iw", iface, "set", "type", originalMode)
+	} else {
+		// Default to managed mode if we don't know the original
+		_ = d.runCmd("iw", iface, "set", "type", "managed")
+	}
+
+	// Bring interface back up
+	_ = d.runCmd("ip", "link", "set", iface, "up")
+
+	log.Printf("Interface %s restoration attempted", iface)
 }
 
 // DisableMonitorMode puts the interface back into managed mode
@@ -255,4 +323,73 @@ func (d *WirelessDriver) runCmd(name string, args ...string) error {
 		return err
 	}
 	return nil
+}
+
+// GetDriverInfo returns the driver name for the interface.
+func GetDriverInfo(iface string) (string, error) {
+	return DefaultDriver.GetDriverInfo(iface)
+}
+
+func (d *WirelessDriver) GetDriverInfo(iface string) (string, error) {
+	// Try ethtool first (standard for driver info)
+	// Output format:
+	// driver: iwlwifi
+	// ...
+	out, err := d.executor.Execute("ethtool", "-i", iface)
+	if err != nil {
+		// Fallback? Maybe /sys/class/net/<iface>/device/driver/module
+		return "", err
+	}
+
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "driver:") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "driver:")), nil
+		}
+	}
+	return "unknown", nil
+}
+
+// GetInterfaceCurrentConfig returns current Mode and TxPower
+func GetInterfaceCurrentConfig(iface string) (string, int, error) {
+	return DefaultDriver.GetInterfaceCurrentConfig(iface)
+}
+
+func (d *WirelessDriver) GetInterfaceCurrentConfig(iface string) (string, int, error) {
+	out, err := d.executor.Execute("iw", "dev", iface, "info")
+	if err != nil {
+		return "", 0, err
+	}
+
+	// Output example:
+	// Interface wlan0
+	// 	ifindex 3
+	// 	wdev 0x1
+	// 	addr ...
+	// 	type managed
+	// 	wiphy 0
+	// 	channel 1 (2412 MHz), width: 20 MHz, center1: 2412 MHz
+	// 	txpower 20.00 dBm
+
+	mode := "unknown"
+	txPower := 0
+
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "type ") {
+			mode = strings.TrimPrefix(line, "type ")
+		} else if strings.HasPrefix(line, "txpower ") {
+			parts := strings.Fields(line)
+			if len(parts) >= 2 {
+				val, err := strconv.ParseFloat(parts[1], 64)
+				if err == nil {
+					txPower = int(val)
+				}
+			}
+		}
+	}
+
+	return mode, txPower, nil
 }

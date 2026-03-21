@@ -17,12 +17,3 @@ type SecurityEngine interface {
 	// GetAlerts returns the history of detected security events.
 	GetAlerts(ctx context.Context) []domain.Alert
 }
-
-// VulnerabilityNotifier handles the real-time dissemination of security findings.
-type VulnerabilityNotifier interface {
-	// NotifyNewVulnerability emits a notification for a newly discovered weakness.
-	NotifyNewVulnerability(ctx context.Context, vuln domain.VulnerabilityRecord)
-
-	// NotifyVulnerabilityConfirmed emits a notification when a vulnerability is confirmed via active validation.
-	NotifyVulnerabilityConfirmed(ctx context.Context, vuln domain.VulnerabilityRecord)
-}

@@ -12,7 +12,7 @@ import (
 // TestDeviceRegistry_MergeType verifies that Type field is properly merged
 // with APs taking precedence over stations
 func TestDeviceRegistry_MergeType(t *testing.T) {
-	registry := NewDeviceRegistry(nil, nil)
+	registry := NewDeviceRegistry(nil)
 	mac := "AA:BB:CC:DD:EE:FF"
 
 	// Scenario 1: Station → AP (should update)
@@ -93,7 +93,7 @@ func TestDeviceRegistry_MergeType(t *testing.T) {
 
 // TestDeviceRegistry_MergeChannel verifies that Channel field is properly updated
 func TestDeviceRegistry_MergeChannel(t *testing.T) {
-	registry := NewDeviceRegistry(nil, nil)
+	registry := NewDeviceRegistry(nil)
 	mac := "BB:BB:BB:BB:BB:BB"
 
 	// Initial device on channel 6
@@ -133,7 +133,7 @@ func TestDeviceRegistry_MergeChannel(t *testing.T) {
 // TestDeviceRegistry_MergeProtocolFlags verifies that protocol capability flags
 // are properly merged (once detected, always true)
 func TestDeviceRegistry_MergeProtocolFlags(t *testing.T) {
-	registry := NewDeviceRegistry(nil, nil)
+	registry := NewDeviceRegistry(nil)
 	mac := "CC:CC:CC:CC:CC:CC"
 
 	// First packet: no protocol flags
@@ -205,7 +205,7 @@ func TestDeviceRegistry_MergeProtocolFlags(t *testing.T) {
 
 // TestDeviceRegistry_MergeAllNewFields tests all new merge fields together
 func TestDeviceRegistry_MergeAllNewFields(t *testing.T) {
-	registry := NewDeviceRegistry(nil, nil)
+	registry := NewDeviceRegistry(nil)
 	mac := "DD:DD:DD:DD:DD:DD"
 
 	// Initial packet: station on channel 1
@@ -252,7 +252,7 @@ func TestDeviceRegistry_MergeAllNewFields(t *testing.T) {
 }
 
 func TestDeviceRegistry_MergeObservedSSIDs(t *testing.T) {
-	registry := NewDeviceRegistry(nil, nil)
+	registry := NewDeviceRegistry(nil)
 	mac := "EE:EE:EE:EE:EE:EE"
 
 	// 1. First Observation: SSID="NetworkA"

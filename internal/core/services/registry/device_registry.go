@@ -32,14 +32,10 @@ type DeviceRegistry struct {
 	// MAC -> Last processed Signature
 	discoCacheMu sync.RWMutex
 	sigMatcher   ports.SignatureMatcher
-
-	// Vulnerability Persistence
-	VulnPersistence *security.VulnerabilityPersistenceService
-	VulnDetector    *security.VulnerabilityDetector
 }
 
 // NewDeviceRegistry creates a new sharded registry.
-func NewDeviceRegistry(sigMatcher ports.SignatureMatcher, vulnStore *security.VulnerabilityPersistenceService) *DeviceRegistry {
+func NewDeviceRegistry(sigMatcher ports.SignatureMatcher) *DeviceRegistry {
 	r := &DeviceRegistry{
 		shards:          make([]*deviceShard, numShards),
 		ssidManager:     NewSSIDManager(),
@@ -48,11 +44,7 @@ func NewDeviceRegistry(sigMatcher ports.SignatureMatcher, vulnStore *security.Vu
 		discoCache:      make(map[string]string),
 		BehaviorEngine:  security.NewBehaviorEngine(),
 		sigMatcher:      sigMatcher,
-		VulnPersistence: vulnStore,
 	}
-	// r.VulnDetector will be set after 'r' is created to avoid circular dep issues in constructor params,
-	// but we can set it here using 'r' reference.
-	r.VulnDetector = security.NewVulnerabilityDetector(r)
 
 	for i := 0; i < numShards; i++ {
 		r.shards[i] = &deviceShard{
@@ -134,22 +126,7 @@ func (r *DeviceRegistry) ProcessDevice(ctx context.Context, newDevice domain.Dev
 
 		r.subject.NotifyAdded(ctx, newDevice) // Notify Observers
 
-		// Vulnerability Detection for New Devices (All Types)
-		if r.VulnPersistence != nil && r.VulnDetector != nil {
-			go func(d domain.Device) {
-				vulns := r.VulnDetector.DetectVulnerabilities(&d)
-				if len(vulns) > 0 {
-					deviceDesc := d.SSID
-					if deviceDesc == "" {
-						deviceDesc = string(d.Type)
-					}
-					fmt.Printf("[VULN] Detected %d vulnerabilities for new device %s (%s)\n", len(vulns), d.MAC, deviceDesc)
-					if err := r.VulnPersistence.ProcessDetections(d.MAC, vulns); err != nil {
-						fmt.Printf("[VULN] Error persisting vulnerabilities for %s: %v\n", d.MAC, err)
-					}
-				}
-			}(newDevice)
-		}
+
 
 		return newDevice, true
 	}
@@ -181,22 +158,7 @@ func (r *DeviceRegistry) ProcessDevice(ctx context.Context, newDevice domain.Dev
 
 	r.subject.NotifyUpdated(ctx, existing) // Notify Observers
 
-	// Vulnerability Detection for Updated Devices (All Types)
-	if r.VulnPersistence != nil && r.VulnDetector != nil {
-		go func(d domain.Device) {
-			vulns := r.VulnDetector.DetectVulnerabilities(&d)
-			if len(vulns) > 0 {
-				deviceDesc := d.SSID
-				if deviceDesc == "" {
-					deviceDesc = string(d.Type)
-				}
-				fmt.Printf("[VULN] Detected %d vulnerabilities for device %s (%s)\n", len(vulns), d.MAC, deviceDesc)
-				if err := r.VulnPersistence.ProcessDetections(d.MAC, vulns); err != nil {
-					fmt.Printf("[VULN] Error persisting vulnerabilities for %s: %v\n", d.MAC, err)
-				}
-			}
-		}(existing)
-	}
+
 
 	return existing, shouldPerformDiscovery
 }

@@ -6,20 +6,19 @@ import (
 
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
 	"github.com/lcalzada-xor/wmap/internal/core/ports"
-	"github.com/lcalzada-xor/wmap/internal/core/services/security"
 )
 
 // GraphBuilder handles the construction of the visual graph.
 type GraphBuilder struct {
-	registry              ports.DeviceRegistry
-	vulnerabilityDetector *security.VulnerabilityDetector
+	registry ports.DeviceRegistry
+	config   *domain.GraphConfig
 }
 
 // NewGraphBuilder creates a new graph builder.
 func NewGraphBuilder(registry ports.DeviceRegistry) *GraphBuilder {
 	return &GraphBuilder{
-		registry:              registry,
-		vulnerabilityDetector: security.NewVulnerabilityDetector(registry),
+		registry: registry,
+		config:   domain.DefaultGraphConfig(),
 	}
 }
 
@@ -106,8 +105,7 @@ func (b *GraphBuilder) BuildGraph(ctx context.Context) domain.GraphData {
 			label += "\n[5GHz]"
 		}
 
-		// Passive Vulnerability Detection
-		vulns := b.vulnerabilityDetector.DetectVulnerabilities(&device)
+
 
 		nodes = append(nodes, domain.GraphNode{
 			NodeIdentity: domain.NodeIdentity{
@@ -120,19 +118,24 @@ func (b *GraphBuilder) BuildGraph(ctx context.Context) domain.GraphData {
 				FirstSeen: device.FirstSeen,
 			},
 			RadioDetails: domain.RadioDetails{
-				RSSI:         device.RSSI,
-				Capabilities: device.Capabilities,
-				IsRandomized: device.IsRandomized,
-				HasHandshake: device.HasHandshake,
-				SSID:         device.SSID,
-				Channel:      device.Channel,
-				Security:     device.Security,
-				Standard:     device.Standard,
-				Frequency:    device.Frequency,
-				IsWiFi6:      device.IsWiFi6,
-				IsWiFi7:      device.IsWiFi7,
-				WPSInfo:      device.WPSInfo,
-				IETags:       device.IETags,
+				RSSI:           device.RSSI,
+				Capabilities:   device.Capabilities,
+				IsRandomized:   device.IsRandomized,
+				HasHandshake:   device.HasHandshake,
+				SSID:           device.SSID,
+				Channel:        device.Channel,
+				Security:       device.Security,
+				Standard:       device.Standard,
+				Frequency:      device.Frequency,
+				IsWiFi6:        device.IsWiFi6,
+				IsWiFi7:        device.IsWiFi7,
+				WPSInfo:        device.WPSInfo,
+				IETags:         device.IETags,
+				HandshakeFile:  device.HandshakeFile,
+				RSNInfo:        device.RSNInfo,
+				WPSDetails:     device.WPSDetails,
+				MobilityDomain: device.MobilityDomain,
+				ProbedSSIDs:    getProbedSSIDsList(device.ProbedSSIDs),
 			},
 			TrafficStats: domain.TrafficStats{
 				DataTransmitted: device.DataTransmitted,
@@ -148,7 +151,11 @@ func (b *GraphBuilder) BuildGraph(ctx context.Context) domain.GraphData {
 				Model:          device.Model,
 				OS:             device.OS,
 			},
-			Vulnerabilities: vulns,
+			ConnectionDetails: domain.ConnectionDetails{
+				ConnectionState:  device.ConnectionState,
+				ConnectionTarget: device.ConnectionTarget,
+				ConnectionError:  device.ConnectionError,
+			},
 		})
 
 		// SSID Edges (Logical Relation)
@@ -210,18 +217,18 @@ func (b *GraphBuilder) BuildGraph(ctx context.Context) domain.GraphData {
 			var edgeColor string
 			// Dynamic RSSI Coloring for active connections
 			if device.ConnectionState == domain.StateConnected || device.ConnectionState == domain.StateHandshake {
-				if device.RSSI > -65 {
-					edgeColor = "#32d74b" // Green (Excellent)
-				} else if device.RSSI > -80 {
-					edgeColor = "#ffcc00" // Yellow (Fair)
+				if device.RSSI > b.config.RSSIThresholds.Good {
+					edgeColor = b.config.Colors.Good // Green (Excellent)
+				} else if device.RSSI > b.config.RSSIThresholds.Fair {
+					edgeColor = b.config.Colors.Fair // Yellow (Fair)
 				} else {
-					edgeColor = "#ff453a" // Red (Poor)
+					edgeColor = b.config.Colors.Poor // Red (Poor)
 				}
 			}
 
 			// Auth Failure Red Override
 			if device.ConnectionError == "auth_failed" {
-				edgeColor = "#ff453a" // Red
+				edgeColor = b.config.Colors.AuthFailed // Red
 			}
 
 			edges = append(edges, domain.GraphEdge{
@@ -292,5 +299,18 @@ func (b *GraphBuilder) BuildGraph(ctx context.Context) domain.GraphData {
 		}
 	}
 
-	return domain.GraphData{Nodes: nodes, Edges: edges}
+	return domain.GraphData{
+		Nodes:  nodes,
+		Edges:  edges,
+		Config: b.config,
+	}
+}
+
+// getProbedSSIDsList extracts keys from the map
+func getProbedSSIDsList(probes map[string]time.Time) []string {
+	list := make([]string, 0, len(probes))
+	for ssid := range probes {
+		list = append(list, ssid)
+	}
+	return list
 }

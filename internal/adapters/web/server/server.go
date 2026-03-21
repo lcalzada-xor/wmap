@@ -4,70 +4,34 @@ import (
 	"context"
 	"log"
 	"net/http"
-
 	"time"
 
-	"github.com/lcalzada-xor/wmap/internal/adapters/reporting"
 	"github.com/lcalzada-xor/wmap/internal/adapters/web"
 	"github.com/lcalzada-xor/wmap/internal/adapters/web/handlers"
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
 	"github.com/lcalzada-xor/wmap/internal/core/ports"
-	reportingService "github.com/lcalzada-xor/wmap/internal/core/services/reporting"
-	"github.com/lcalzada-xor/wmap/internal/core/services/security"
-	"github.com/lcalzada-xor/wmap/internal/core/services/workspace"
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // Server handles HTTP and WebSocket connections.
 type Server struct {
 	Addr             string
 	Service          ports.NetworkService
-	WorkspaceManager *workspace.WorkspaceManager
-	AuthService      ports.AuthService
-	AuditService     ports.AuditService
 	WSManager        *web.WSManager
-	WPSHandler       *handlers.WPSHandler
 
-	DeauthHandler    *handlers.DeauthHandler
-	AuthFloodHandler *handlers.AuthFloodHandler
-	AuditHandler     *handlers.AuditHandler
-	ReportHandler    *handlers.ReportHandler
-	AuthHandler      *handlers.AuthHandler
 	ScanHandler      *handlers.ScanHandler
 	ConfigHandler    *handlers.ConfigHandler
-	WorkspaceHandler *handlers.WorkspaceHandler
-	ExportHandler    *handlers.ExportHandler
-	VulnHandler      *handlers.VulnerabilityHandler
-	CaptureHandler   *handlers.CaptureHandler
 	srv              *http.Server
 }
 
 // NewServer creates a new web server.
-func NewServer(addr string, service ports.NetworkService, workspaceManager *workspace.WorkspaceManager, authService ports.AuthService, auditService ports.AuditService, vulnService *security.VulnerabilityPersistenceService, executiveGenerator *reportingService.ExecutiveReportGenerator, pdfExporter *reporting.PDFExporter) *Server {
-	reportHandler := handlers.NewReportHandler(service, auditService, workspaceManager)
-	reportHandler.ExecutiveGenerator = executiveGenerator
-	reportHandler.PDFExporter = pdfExporter
-
+func NewServer(addr string, service ports.NetworkService) *Server {
 	return &Server{
 		Addr:             addr,
 		Service:          service,
-		WorkspaceManager: workspaceManager,
-		AuthService:      authService,
-		AuditService:     auditService,
 
 		WSManager:        web.NewWSManager(service),
-		WPSHandler:       handlers.NewWPSHandler(service),
-		DeauthHandler:    handlers.NewDeauthHandler(service),
-		AuthFloodHandler: handlers.NewAuthFloodHandler(service),
-		AuditHandler:     handlers.NewAuditHandler(auditService),
-		ReportHandler:    reportHandler,
-		AuthHandler:      handlers.NewAuthHandler(authService),
 		ScanHandler:      handlers.NewScanHandler(service),
 		ConfigHandler:    handlers.NewConfigHandler(service),
-		WorkspaceHandler: handlers.NewWorkspaceHandler(service, workspaceManager),
-		ExportHandler:    handlers.NewExportHandler(service),
-		VulnHandler:      handlers.NewVulnerabilityHandler(vulnService),
-		CaptureHandler:   handlers.NewCaptureHandler(),
 	}
 }
 
@@ -79,13 +43,9 @@ func (s *Server) Run(ctx context.Context) error {
 	// Setup Routes
 	handler := SetupRoutes(s)
 
-	// Instrument with OpenTelemetry
-	// "wmap-server" is the name of the operation (span)
-	instrumentedHandler := otelhttp.NewHandler(handler, "wmap-server")
-
 	s.srv = &http.Server{
 		Addr:              s.Addr,
-		Handler:           instrumentedHandler,
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

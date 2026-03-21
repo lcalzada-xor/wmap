@@ -13,8 +13,9 @@ import (
 // handleHandshakeCapture checks for Handshakes, PMKID, and M1 anomalies
 func (h *PacketHandler) handleHandshakeCapture(packet gopacket.Packet) (bool, *domain.Alert) {
 	if h.HandshakeManager != nil {
-		// Aggressive Pause: If we see EAPOL, pause IMMEDIATELY
-		if isEAPOLKey(packet) {
+		// Aggressive Pause: If we see EAPOL or Auth/Assoc, pause IMMEDIATELY
+		// to maximize chances of capturing the full 4-way handshake
+		if isEAPOLKey(packet) || isRelevantMgmt(packet) {
 			if h.PauseCallback != nil {
 				h.PauseCallback(5 * time.Second)
 			}
@@ -44,16 +45,16 @@ func (h *PacketHandler) handleHandshakeCapture(packet gopacket.Packet) (bool, *d
 
 		// Passive PMKID Detection
 		if isEAPOLKey(packet) {
-			if vuln := h.detectPMKID(packet); vuln != nil {
+			if detected := h.detectPMKID(packet); detected {
 				dot11 := packet.Layer(layers.LayerTypeDot11).(*layers.Dot11)
 				alert := &domain.Alert{
-					Type:      domain.AlertAnomaly,
+					Type:      "ANOMALY",
 					Subtype:   "VULNERABILITY_DETECTED",
 					DeviceMAC: dot11.Address3.String(), // BSSID is the vulnerable entity
 					Timestamp: time.Now(),
 					Message:   "Vulnerability Detected: PMKID Exposure",
-					Details:   fmt.Sprintf("Device is broadcasting PMKID in EAPOL M1. Evidence: %s", vuln.Evidence[0]),
-					Severity:  domain.SeverityHigh, // Using string severity for Alert
+					Details:   "Device is broadcasting PMKID in EAPOL M1. Evidence: PMKID IE present",
+					Severity:  "High", // Using string severity for Alert
 				}
 				return true, alert
 			}
@@ -78,27 +79,41 @@ func isEAPOLKey(packet gopacket.Packet) bool {
 	return false
 }
 
-func (h *PacketHandler) detectPMKID(packet gopacket.Packet) *domain.VulnerabilityTag {
+func isRelevantMgmt(packet gopacket.Packet) bool {
+	dot11Layer := packet.Layer(layers.LayerTypeDot11)
+	if dot11Layer == nil {
+		return false
+	}
+	dot11, ok := dot11Layer.(*layers.Dot11)
+	if !ok {
+		return false
+	}
+	return dot11.Type == layers.Dot11TypeMgmtAuthentication ||
+		dot11.Type == layers.Dot11TypeMgmtAssociationReq ||
+		dot11.Type == layers.Dot11TypeMgmtReassociationReq
+}
+
+func (h *PacketHandler) detectPMKID(packet gopacket.Packet) bool {
 	eapolLayer := packet.Layer(layers.LayerTypeEAPOL)
 	if eapolLayer == nil {
-		return nil
+		return false
 	}
 
 	eapol, ok := eapolLayer.(*layers.EAPOL)
 	if !ok || eapol.Type != layers.EAPOLTypeKey {
-		return nil
+		return false
 	}
 
 	// Parse EAPOL Key frame
 	payload := eapol.LayerPayload()
 	if len(payload) < 95 {
-		return nil
+		return false
 	}
 
 	// Check for PMKID in Key Data (after offset 95)
 	keyDataLen := int(payload[93])<<8 | int(payload[94])
 	if keyDataLen == 0 || 95+keyDataLen > len(payload) {
-		return nil
+		return false
 	}
 
 	keyData := payload[95 : 95+keyDataLen]
@@ -106,7 +121,7 @@ func (h *PacketHandler) detectPMKID(packet gopacket.Packet) *domain.Vulnerabilit
 	if ie.ParsePMKID(keyData) {
 		dot11Layer := packet.Layer(layers.LayerTypeDot11)
 		if dot11Layer == nil {
-			return nil
+			return false
 		}
 		dot11 := dot11Layer.(*layers.Dot11)
 
@@ -115,19 +130,10 @@ func (h *PacketHandler) detectPMKID(packet gopacket.Packet) *domain.Vulnerabilit
 			h.HandshakeManager.SavePMKID(packet, dot11.Address3.String(), "")
 		}
 
-		return &domain.VulnerabilityTag{
-			Name:        "PMKID",
-			Severity:    domain.VulnSeverityHigh,
-			Confidence:  domain.ConfidenceConfirmed,
-			Evidence:    []string{"PMKID present in EAPOL M1", "BSSID: " + dot11.Address3.String()},
-			DetectedAt:  time.Now(),
-			Category:    "protocol",
-			Description: "PMKID exposed - allows offline PSK cracking without handshake",
-			Mitigation:  "Disable PMKID caching or use WPA3",
-		}
+		return true
 	}
 
-	return nil
+	return false
 }
 
 func (h *PacketHandler) analyzeM1(packet gopacket.Packet) *domain.Alert {
@@ -179,9 +185,9 @@ func (h *PacketHandler) analyzeM1(packet gopacket.Packet) *domain.Alert {
 
 	if allZero {
 		return &domain.Alert{
-			Type:      domain.AlertAnomaly,
+			Type:      "ANOMALY",
 			Subtype:   "WEAK_CRYPTO_ZERO_NONCE",
-			Severity:  domain.SeverityCritical,
+			Severity:  "Critical",
 			Message:   "Critical Crypto Flaw: AP generating Zero Nonce in Handshake",
 			Details:   "BSSID: " + dot11.Address3.String(),
 			DeviceMAC: dot11.Address3.String(),
@@ -200,9 +206,9 @@ func (h *PacketHandler) analyzeM1(packet gopacket.Packet) *domain.Alert {
 	}
 	if allSame {
 		return &domain.Alert{
-			Type:      domain.AlertAnomaly,
+			Type:      "ANOMALY",
 			Subtype:   "WEAK_CRYPTO_BAD_RNG",
-			Severity:  domain.SeverityHigh,
+			Severity:  "High",
 			Message:   "Weak RNG Detected: Nonce contains repeating bytes",
 			Details:   fmt.Sprintf("Pattern: %02x, BSSID: %s", first, dot11.Address3.String()),
 			DeviceMAC: dot11.Address3.String(),

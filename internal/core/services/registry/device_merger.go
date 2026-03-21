@@ -19,8 +19,6 @@ func (dm *DeviceMerger) Merge(existing *domain.Device, newDevice domain.Device) 
 	existing.LastPacketTime = newDevice.LastPacketTime
 	existing.LastSeen = newDevice.LastPacketTime
 	existing.RSSI = newDevice.RSSI
-	existing.Latitude = newDevice.Latitude
-	existing.Longitude = newDevice.Longitude
 
 	if newDevice.Vendor != "" {
 		existing.Vendor = newDevice.Vendor

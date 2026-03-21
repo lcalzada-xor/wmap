@@ -3,7 +3,7 @@ package parser_test
 import (
 	"testing"
 
-	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/ie"
+
 )
 
 func TestParseWPSAttributes_Version(t *testing.T) {

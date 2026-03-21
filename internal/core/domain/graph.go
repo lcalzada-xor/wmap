@@ -19,11 +19,11 @@ type GraphNode struct {
 	RadioDetails
 	TrafficStats
 	NodeBehavioralData
+	ConnectionDetails
 
 	// State and Metadata
 	Title           string             `json:"title,omitempty"` // Tooltip/Popup content
 	IsStale         bool               `json:"is_stale,omitempty"`
-	Vulnerabilities []VulnerabilityTag `json:"vulnerabilities,omitempty"`
 }
 
 // NodeIdentity encapsulates basic identification and classification.
@@ -39,21 +39,27 @@ type NodeIdentity struct {
 
 // RadioDetails encapsulates WiFi physical and link layer attributes.
 type RadioDetails struct {
-	SSID         string   `json:"ssid,omitempty"`
-	Channel      int      `json:"channel,omitempty"`
-	ChannelWidth int      `json:"bw"`
-	Frequency    int      `json:"frequency,omitempty"`
-	RSSI         int      `json:"rssi,omitempty"`
-	Security     string   `json:"security,omitempty"`
-	Standard     string   `json:"standard,omitempty"`
-	Capabilities []string `json:"capabilities,omitempty"`
-	IsWiFi6      bool     `json:"is_wifi6,omitempty"`
-	IsWiFi7      bool     `json:"is_wifi7,omitempty"`
-	IsRandomized bool     `json:"is_randomized,omitempty"`
-	HasHandshake bool     `json:"has_handshake,omitempty"`
-	ProbedSSIDs  []string `json:"probedSSIDs,omitempty"`
-	IETags       []int    `json:"ieTags,omitempty"`
-	WPSInfo      string   `json:"wps_info,omitempty"` // "Configured", "Unconfigured" or empty
+	SSID          string   `json:"ssid,omitempty"`
+	Channel       int      `json:"channel,omitempty"`
+	ChannelWidth  int      `json:"bw"`
+	Frequency     int      `json:"frequency,omitempty"`
+	RSSI          int      `json:"rssi,omitempty"`
+	Security      string   `json:"security,omitempty"`
+	Standard      string   `json:"standard,omitempty"`
+	Capabilities  []string `json:"capabilities,omitempty"`
+	IsWiFi6       bool     `json:"is_wifi6,omitempty"`
+	IsWiFi7       bool     `json:"is_wifi7,omitempty"`
+	IsRandomized  bool     `json:"is_randomized,omitempty"`
+	HasHandshake  bool     `json:"has_handshake,omitempty"`
+	ProbedSSIDs   []string `json:"probedSSIDs,omitempty"`
+	IETags        []int    `json:"ieTags,omitempty"`
+	WPSInfo       string   `json:"wps_info,omitempty"` // "Configured", "Unconfigured" or empty
+	HandshakeFile string   `json:"handshake_file,omitempty"`
+
+	// Richer Details (Added for Node Details Panel)
+	RSNInfo        *RSNInfo        `json:"rsn_info,omitempty"`
+	WPSDetails     *WPSDetails     `json:"wps_details,omitempty"`
+	MobilityDomain *MobilityDomain `json:"mobility_domain,omitempty"`
 }
 
 // TrafficStats captures data transmission metrics.
@@ -72,6 +78,13 @@ type NodeBehavioralData struct {
 	Signature      string  `json:"signature,omitempty"`
 	Model          string  `json:"model,omitempty"`
 	OS             string  `json:"os,omitempty"`
+}
+
+// ConnectionDetails captures current association state.
+type ConnectionDetails struct {
+	ConnectionState  ConnectionState `json:"connection_state,omitempty"`
+	ConnectionTarget string          `json:"connection_target,omitempty"`
+	ConnectionError  string          `json:"connection_error,omitempty"`
 }
 
 // EdgeType defines the nature of the connection between nodes.
@@ -95,6 +108,39 @@ type GraphEdge struct {
 
 // GraphData allows sending the whole graph state to the frontend.
 type GraphData struct {
-	Nodes []GraphNode `json:"nodes"`
-	Edges []GraphEdge `json:"edges"`
+	Nodes  []GraphNode  `json:"nodes"`
+	Edges  []GraphEdge  `json:"edges"`
+	Config *GraphConfig `json:"config,omitempty"`
+}
+
+type GraphConfig struct {
+	RSSIThresholds RSSIThresholds `json:"rssi_thresholds"`
+	Colors         GraphColors    `json:"colors"`
+}
+
+type RSSIThresholds struct {
+	Good int `json:"good"` // e.g. -65
+	Fair int `json:"fair"` // e.g. -80
+}
+
+type GraphColors struct {
+	Good       string `json:"good"`
+	Fair       string `json:"fair"`
+	Poor       string `json:"poor"`
+	AuthFailed string `json:"auth_failed"`
+}
+
+func DefaultGraphConfig() *GraphConfig {
+	return &GraphConfig{
+		RSSIThresholds: RSSIThresholds{
+			Good: -65,
+			Fair: -80,
+		},
+		Colors: GraphColors{
+			Good:       "#32d74b",
+			Fair:       "#ffcc00",
+			Poor:       "#ff453a",
+			AuthFailed: "#ff453a",
+		},
+	}
 }

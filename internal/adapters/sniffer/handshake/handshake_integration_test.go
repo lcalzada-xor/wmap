@@ -59,7 +59,13 @@ func TestPCAPGeneration_Exhaustive(t *testing.T) {
 	require.True(t, ok, "Beacon should be cached")
 	require.NotNil(t, cachedBeacon)
 
-	// 2. Process Handshake (M1, M2)
+	// 2. Process Auth and Assoc
+	auth := createAuthFrame(sta, bssid, bssid)
+	assoc := createAssocReqFrame(sta, bssid)
+	hm.ProcessFrame(auth)
+	hm.ProcessFrame(assoc)
+
+	// 3. Process Handshake (M1, M2)
 	// This triggers a save condition (M2 + M1)
 	m1 := makeEAPOL(packetParams{MsgNum: 1, SRC: bssid, DST: sta, BSSID: bssid, ReplayCounter: 100})
 	m2 := makeEAPOL(packetParams{MsgNum: 2, SRC: sta, DST: bssid, BSSID: bssid, ReplayCounter: 100})
@@ -134,10 +140,69 @@ func TestPCAPGeneration_Exhaustive(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, 3, packetCount, "Expected exactly 3 packets (Beacon, M1, M2)")
+	assert.Equal(t, 5, packetCount, "Expected exactly 5 packets (Beacon, Auth, Assoc, M1, M2)")
 	assert.True(t, hasBeacon, "Beacon missing from PCAP")
 	assert.True(t, hasM1, "M1 missing from PCAP")
 	assert.True(t, hasM2, "M2 missing from PCAP")
+	assert.Equal(t, layers.LinkType(105), reader.LinkType(), "Expected pure Dot11 LinkType (105) for these frames")
+}
+
+func TestPCAPGeneration_TimestampSorting(t *testing.T) {
+	tmpDir := t.TempDir()
+	hm := NewHandshakeManager(tmpDir)
+	defer hm.Close()
+
+	bssid := "00:11:22:33:44:00"
+	sta := "aa:bb:cc:dd:ee:ff"
+	ssid := "SortTest"
+
+	// Create packets with out-of-order arrival but correct chronological timestamps
+	now := time.Now()
+
+	p2 := makeEAPOL(packetParams{MsgNum: 2, SRC: sta, DST: bssid, BSSID: bssid, ReplayCounter: 100})
+	p2.Metadata().Timestamp = now.Add(2 * time.Second)
+
+	p1 := makeEAPOL(packetParams{MsgNum: 1, SRC: bssid, DST: sta, BSSID: bssid, ReplayCounter: 100})
+	p1.Metadata().Timestamp = now.Add(1 * time.Second)
+
+	beacon := createManualBeacon(bssid, ssid)
+	beacon.Metadata().Timestamp = now
+
+	// Inject out of order arrival, but chronological timestamps
+	// 1. M1 (TS=now + 1s)
+	hm.ProcessFrame(p1)
+
+	// 2. Beacon (TS=now) - arrived late
+	hm.RegisterNetwork(bssid, ssid)
+	hm.ProcessFrame(beacon)
+
+	// 3. M2 (TS=now + 2s) - triggers save
+	saved := hm.ProcessFrame(p2)
+	require.True(t, saved)
+
+	time.Sleep(500 * time.Millisecond)
+
+	expectedFilename := fmt.Sprintf("%s_%s_%s.pcap", sanitizeFilename(bssid), sanitizeFilename(ssid), sanitizeFilename(sta))
+	fullPath := filepath.Join(tmpDir, expectedFilename)
+
+	f, _ := os.Open(fullPath)
+	defer f.Close()
+	reader, _ := pcapgo.NewReader(f)
+
+	var lastTS time.Time
+	count := 0
+	for {
+		_, ci, err := reader.ReadPacketData()
+		if err != nil {
+			break
+		}
+		if !lastTS.IsZero() {
+			assert.True(t, ci.Timestamp.After(lastTS) || ci.Timestamp.Equal(lastTS), "Packets should be in chronological order")
+		}
+		lastTS = ci.Timestamp
+		count++
+	}
+	assert.Equal(t, 3, count)
 }
 
 func TestConcurrentCapture_Exhaustive(t *testing.T) {

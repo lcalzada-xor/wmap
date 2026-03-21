@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/lcalzada-xor/wmap/internal/adapters/web/middleware"
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
 	"github.com/lcalzada-xor/wmap/internal/core/ports"
 )
@@ -50,14 +49,14 @@ type WSMessage struct {
 
 type WSManager struct {
 	Service ports.NetworkService
-	Clients map[*websocket.Conn]*domain.User
+	Clients map[*websocket.Conn]bool
 	mu      sync.Mutex
 }
 
 func NewWSManager(service ports.NetworkService) *WSManager {
 	return &WSManager{
 		Service: service,
-		Clients: make(map[*websocket.Conn]*domain.User),
+		Clients: make(map[*websocket.Conn]bool),
 	}
 }
 
@@ -66,13 +65,6 @@ func (m *WSManager) Start(ctx context.Context) {
 }
 
 func (m *WSManager) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
-	// Extract user from context (set by AuthMiddleware)
-	user, ok := r.Context().Value(middleware.UserContextKey).(*domain.User)
-	if !ok || user == nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println("Upgrade error:", err)
@@ -80,10 +72,10 @@ func (m *WSManager) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	m.mu.Lock()
-	m.Clients[conn] = user
+	m.Clients[conn] = true
 	m.mu.Unlock()
 
-	log.Printf("WebSocket connected: user=%s, role=%s", user.Username, user.Role)
+	log.Printf("WebSocket connected")
 
 	// Clean up on disconnect
 	go func() {
@@ -92,7 +84,7 @@ func (m *WSManager) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			m.mu.Lock()
 			delete(m.Clients, conn)
 			m.mu.Unlock()
-			log.Printf("WebSocket disconnected: user=%s", user.Username)
+			log.Printf("WebSocket disconnected")
 		}()
 		for {
 			_, _, err := conn.ReadMessage()
@@ -154,48 +146,7 @@ func (m *WSManager) BroadcastAlert(alert domain.Alert) {
 	m.broadcastMessage(msg)
 }
 
-// BroadcastWPSLog sends a WPS log line to all connected clients
-func (m *WSManager) BroadcastWPSLog(attackID, line string) {
-	payload := map[string]string{
-		"attack_id": attackID,
-		"line":      line,
-	}
 
-	msg := WSMessage{
-		Type:    "wps.log",
-		Payload: payload,
-	}
-
-	m.broadcastMessage(msg)
-}
-
-// BroadcastWPSStatus sends a WPS status update to all connected clients
-func (m *WSManager) BroadcastWPSStatus(status domain.WPSAttackStatus) {
-	msg := WSMessage{
-		Type:    "wps.status",
-		Payload: status,
-	}
-
-	m.broadcastMessage(msg)
-}
-
-// NotifyNewVulnerability broadcasts a new vulnerability detection.
-func (m *WSManager) NotifyNewVulnerability(ctx context.Context, vuln domain.VulnerabilityRecord) {
-	msg := WSMessage{
-		Type:    "vulnerability:new",
-		Payload: vuln,
-	}
-	m.broadcastMessage(msg)
-}
-
-// NotifyVulnerabilityConfirmed broadcasts a confirmed vulnerability (via active validation).
-func (m *WSManager) NotifyVulnerabilityConfirmed(ctx context.Context, vuln domain.VulnerabilityRecord) {
-	msg := WSMessage{
-		Type:    "vulnerability:confirmed",
-		Payload: vuln,
-	}
-	m.broadcastMessage(msg)
-}
 
 func (m *WSManager) broadcastMessage(msg WSMessage) {
 	data, err := json.Marshal(msg)

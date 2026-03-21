@@ -27,8 +27,6 @@ func toDomain(m DeviceModel) *domain.Device {
 		Frequency:        m.Frequency,
 		ChannelWidth:     m.ChannelWidth,
 		WPSInfo:          m.WPSInfo,
-		Latitude:         m.Latitude,
-		Longitude:        m.Longitude,
 		LastPacketTime:   m.LastPacketTime,
 		FirstSeen:        m.FirstSeen,
 		LastSeen:         m.LastSeen,
@@ -66,6 +64,19 @@ func toDomain(m DeviceModel) *domain.Device {
 		LastUpdated:    m.LastSeen,
 	}
 
+	// Map Security & Cracking fields (Restoration)
+	dev.HasHandshake = m.HasHandshake
+	dev.HandshakeFile = m.HandshakeFile
+	dev.IEFingerprint = m.IEFingerprint
+
+	if m.EncryptionDetails != "" {
+		_ = json.Unmarshal([]byte(m.EncryptionDetails), &dev.RSNInfo)
+	}
+
+	if m.WPSData != "" {
+		_ = json.Unmarshal([]byte(m.WPSData), &dev.WPSDetails)
+	}
+
 	return dev
 }
 
@@ -84,8 +95,6 @@ func toModel(d domain.Device) DeviceModel {
 		Frequency:        d.Frequency,
 		ChannelWidth:     d.ChannelWidth,
 		WPSInfo:          d.WPSInfo,
-		Latitude:         d.Latitude,
-		Longitude:        d.Longitude,
 		LastPacketTime:   d.LastPacketTime,
 		FirstSeen:        d.FirstSeen,
 		LastSeen:         d.LastSeen,
@@ -116,6 +125,21 @@ func toModel(d domain.Device) DeviceModel {
 			hBytes, _ := json.Marshal(d.Behavioral.ActiveHours)
 			model.ActiveHours = string(hBytes)
 		}
+	}
+
+	// Map Security & Cracking fields
+	model.HasHandshake = d.HasHandshake
+	model.HandshakeFile = d.HandshakeFile
+	model.IEFingerprint = d.IEFingerprint
+
+	if d.RSNInfo != nil {
+		rsnBytes, _ := json.Marshal(d.RSNInfo)
+		model.EncryptionDetails = string(rsnBytes)
+	}
+
+	if d.WPSDetails != nil {
+		wpsBytes, _ := json.Marshal(d.WPSDetails)
+		model.WPSData = string(wpsBytes)
 	}
 
 	return model

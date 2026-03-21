@@ -28,14 +28,14 @@ func (m *MockSignatureMatcher) ReloadSignatures() error {
 }
 
 func TestNewDeviceRegistry(t *testing.T) {
-	registry := NewDeviceRegistry(nil, nil)
+	registry := NewDeviceRegistry(nil)
 	assert.NotNil(t, registry)
 	assert.Equal(t, numShards, len(registry.shards))
 	assert.NotNil(t, registry.ssidManager)
 }
 
 func TestDeviceRegistry_ProcessDevice_NewDevice(t *testing.T) {
-	registry := NewDeviceRegistry(nil, nil)
+	registry := NewDeviceRegistry(nil)
 
 	dev := domain.Device{
 		MAC:            "AA:BB:CC:DD:EE:FF",
@@ -57,7 +57,7 @@ func TestDeviceRegistry_ProcessDevice_NewDevice(t *testing.T) {
 }
 
 func TestDeviceRegistry_ProcessDevice_ExistingDevice_Merge(t *testing.T) {
-	registry := NewDeviceRegistry(nil, nil)
+	registry := NewDeviceRegistry(nil)
 
 	// timestamp 1
 	t1 := time.Now().Add(-1 * time.Minute)
@@ -90,7 +90,7 @@ func TestDeviceRegistry_ProcessDevice_ExistingDevice_Merge(t *testing.T) {
 }
 
 func TestDeviceRegistry_ConcurrentAccess(t *testing.T) {
-	registry := NewDeviceRegistry(nil, nil)
+	registry := NewDeviceRegistry(nil)
 	mac := "00:11:22:33:44:55"
 
 	// Create 100 goroutines trying to update the same device
@@ -119,7 +119,7 @@ func TestDeviceRegistry_ConcurrentAccess(t *testing.T) {
 }
 
 func TestDeviceRegistry_PruneOldDevices(t *testing.T) {
-	registry := NewDeviceRegistry(nil, nil)
+	registry := NewDeviceRegistry(nil)
 
 	// Old device
 	registry.ProcessDevice(context.Background(), domain.Device{
@@ -144,7 +144,7 @@ func TestDeviceRegistry_PruneOldDevices(t *testing.T) {
 }
 
 func TestDeviceRegistry_ProcessDevice_MergeHandshake(t *testing.T) {
-	registry := NewDeviceRegistry(nil, nil)
+	registry := NewDeviceRegistry(nil)
 	mac := "00:AA:BB:CC:DD:EE"
 
 	// 1. Packet WITHOUT handshake

@@ -63,15 +63,12 @@ type Device struct {
 	PacketsCount    int   `json:"packets"`
 	RetryCount      int   `json:"retries"`
 
-	// --- Geospatial ---
-	Latitude  float64 `json:"lat"`
-	Longitude float64 `json:"lng"`
-
 	// --- Connectivity & Behavioral ---
 	ConnectionState  ConnectionState      `json:"connection_state,omitempty"`
 	ConnectionTarget string               `json:"connection_target,omitempty"` // BSSID of the AP
 	ConnectionError  string               `json:"connection_error,omitempty"`
 	HasHandshake     bool                 `json:"has_handshake,omitempty"`
+	HandshakeFile    string               `json:"handshake_file,omitempty"`
 	ProbedSSIDs      map[string]time.Time `json:"probed_ssids,omitempty"`
 	ConnectedSSID    string               `json:"connected_ssid,omitempty"`
 
@@ -94,7 +91,6 @@ type Device struct {
 
 	// --- Domain Relations ---
 	Behavioral      *BehavioralProfile `json:"behavioral,omitempty"`
-	Vulnerabilities []VulnerabilityTag `json:"vulnerabilities,omitempty"`
 }
 
 // RSNInfo contains parsed RSN IE details
@@ -164,12 +160,4 @@ func (d *Device) UpdateTraffic(tx, rx int64, packets int) {
 	d.PacketsCount += packets
 }
 
-// HasVulnerability checks if a specific vulnerability has been detected.
-func (d *Device) HasVulnerability(name string) bool {
-	for _, v := range d.Vulnerabilities {
-		if v.Name == name {
-			return true
-		}
-	}
-	return false
-}
+

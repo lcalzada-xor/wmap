@@ -12,7 +12,7 @@ import (
 // TestDeviceRegistry_MergeConnectionState verifies that connection state fields
 // are properly merged when processing an existing device.
 func TestDeviceRegistry_MergeConnectionState(t *testing.T) {
-	registry := NewDeviceRegistry(nil, nil)
+	registry := NewDeviceRegistry(nil)
 	mac := "AA:BB:CC:DD:EE:FF"
 	apMAC := "00:11:22:33:44:55"
 
@@ -89,7 +89,7 @@ func TestDeviceRegistry_MergeConnectionState(t *testing.T) {
 
 // TestDeviceRegistry_ConnectionStateTransitions verifies all state transitions
 func TestDeviceRegistry_ConnectionStateTransitions(t *testing.T) {
-	registry := NewDeviceRegistry(nil, nil)
+	registry := NewDeviceRegistry(nil)
 	mac := "11:22:33:44:55:66"
 	apMAC := "AA:BB:CC:DD:EE:FF"
 

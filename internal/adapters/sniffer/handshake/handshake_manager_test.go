@@ -4,10 +4,12 @@ import (
 	"encoding/binary"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Helper to create a dummy EAPOL packet
@@ -116,7 +118,14 @@ func createEAPOLPacket(src, dst, bssid string, messageNum int, replayCounter uin
 
 	// Add layers
 	gopacket.SerializeLayers(buf, opts, dot11, llc, snap, eapol, gopacket.Payload(payload))
-	return gopacket.NewPacket(buf.Bytes(), layers.LayerTypeDot11, gopacket.Default)
+	pkt := gopacket.NewPacket(buf.Bytes(), layers.LayerTypeDot11, gopacket.Default)
+
+	// Set capture metadata to avoid warnings and ensure valid pcap files
+	pkt.Metadata().CaptureInfo.CaptureLength = len(buf.Bytes())
+	pkt.Metadata().CaptureInfo.Length = len(buf.Bytes())
+	pkt.Metadata().CaptureInfo.Timestamp = time.Now()
+
+	return pkt
 }
 
 func parseMACAddr(s string) (net.HardwareAddr, error) {
@@ -186,6 +195,119 @@ func TestHandshakeManager_ProcessFrame(t *testing.T) {
 	if !hm.HasHandshake(bssid) {
 		t.Errorf("HasHandshake should be true")
 	}
+}
+
+func TestHandshakeManager_ManagementFrames(t *testing.T) {
+	tmpDir := t.TempDir()
+	hm := NewHandshakeManager(tmpDir)
+
+	bssid := "00:11:22:33:44:55"
+	client := "aa:bb:cc:dd:ee:ff"
+
+	// 1. Create Auth Frame (Station -> AP)
+	auth := createAuthFrame(client, bssid, bssid)
+	hm.ProcessFrame(auth)
+
+	// Verify session exists and has 1 frame
+	hm.mu.RLock()
+	key := bssid + "_" + client
+	session, exists := hm.sessions[key]
+	hm.mu.RUnlock()
+
+	assert.True(t, exists, "Session should be created even for Auth frames")
+	assert.Equal(t, 1, len(session.Frames), "Auth frame should be stored")
+
+	// 2. Create Assoc Req (Station -> AP)
+	assoc := createAssocReqFrame(client, bssid)
+	hm.ProcessFrame(assoc)
+
+	hm.mu.RLock()
+	session = hm.sessions[key]
+	hm.mu.RUnlock()
+
+	assert.Equal(t, 2, len(session.Frames), "Assoc frame should be stored")
+}
+
+func TestHandshakeManager_LinkTypeDetection(t *testing.T) {
+	tmpDir := t.TempDir()
+	hm := NewHandshakeManager(tmpDir)
+
+	bssid1 := "00:11:22:33:44:55"
+	client1 := "aa:bb:cc:dd:ee:ff"
+
+	// 1. Packet with RadioTap
+	p1 := createEAPOLPacket(bssid1, client1, bssid1, 1, 1)
+
+	// Create common layers for RadioTap packet
+	rt := &layers.RadioTap{DBMAntennaSignal: -50}
+
+	buf := gopacket.NewSerializeBuffer()
+	gopacket.SerializeLayers(buf, gopacket.SerializeOptions{FixLengths: true}, rt, gopacket.Payload(p1.Data()))
+	p1rt := gopacket.NewPacket(buf.Bytes(), layers.LayerTypeRadioTap, gopacket.Default)
+
+	hm.ProcessFrame(p1rt)
+
+	hm.mu.RLock()
+	session := hm.sessions[bssid1+"_"+client1]
+	hm.mu.RUnlock()
+
+	require.NotNil(t, session)
+	assert.Equal(t, layers.LinkTypeIEEE80211Radio, session.LinkType, "Should detect RadioTap LinkType")
+
+	// 2. Packet without RadioTap (pure Dot11)
+	bssid2 := "00:11:22:33:44:66"
+	client2 := "aa:bb:cc:dd:ee:ee"
+	p2 := createEAPOLPacket(bssid2, client2, bssid2, 1, 1)
+
+	hm.ProcessFrame(p2)
+
+	hm.mu.RLock()
+	session2 := hm.sessions[bssid2+"_"+client2]
+	hm.mu.RUnlock()
+
+	require.NotNil(t, session2)
+	assert.Equal(t, layers.LinkType(105), session2.LinkType, "Should detect Dot11 LinkType (105)")
+}
+
+func createAuthFrame(src, dst, bssid string) gopacket.Packet {
+	srcMac, _ := net.ParseMAC(src)
+	dstMac, _ := net.ParseMAC(dst)
+	bssidMac, _ := net.ParseMAC(bssid)
+
+	dot11 := &layers.Dot11{
+		Type:     layers.Dot11TypeMgmtAuthentication,
+		Address1: dstMac,
+		Address2: srcMac,
+		Address3: bssidMac,
+	}
+
+	buf := gopacket.NewSerializeBuffer()
+	gopacket.SerializeLayers(buf, gopacket.SerializeOptions{}, dot11, gopacket.Payload([]byte{0, 0, 0, 1, 0, 0})) // Minimal Auth body
+	pkt := gopacket.NewPacket(buf.Bytes(), layers.LayerTypeDot11, gopacket.Default)
+	pkt.Metadata().CaptureInfo.CaptureLength = len(buf.Bytes())
+	pkt.Metadata().CaptureInfo.Length = len(buf.Bytes())
+	pkt.Metadata().CaptureInfo.Timestamp = time.Now()
+	return pkt
+}
+
+func createAssocReqFrame(src, bssid string) gopacket.Packet {
+	srcMac, _ := net.ParseMAC(src)
+	bssidMac, _ := net.ParseMAC(bssid)
+
+	dot11 := &layers.Dot11{
+		Type:     layers.Dot11TypeMgmtAssociationReq,
+		Address1: bssidMac,
+		Address2: srcMac,
+		Address3: bssidMac,
+	}
+
+	buf := gopacket.NewSerializeBuffer()
+	gopacket.SerializeLayers(buf, gopacket.SerializeOptions{}, dot11, gopacket.Payload([]byte{0, 0, 0, 0})) // Minimal Assoc body
+	pkt := gopacket.NewPacket(buf.Bytes(), layers.LayerTypeDot11, gopacket.Default)
+	pkt.Metadata().CaptureInfo.CaptureLength = len(buf.Bytes())
+	pkt.Metadata().CaptureInfo.Length = len(buf.Bytes())
+	pkt.Metadata().CaptureInfo.Timestamp = time.Now()
+	return pkt
 }
 
 func TestHandshakeManager_HasHandshake(t *testing.T) {
@@ -301,7 +423,14 @@ func TestHandshakeManager_Frankenstein(t *testing.T) {
 		payload[94] = 0
 
 		gopacket.SerializeLayers(buf, opts, dot11, llc, snap, eapol, gopacket.Payload(payload))
-		return gopacket.NewPacket(buf.Bytes(), layers.LayerTypeDot11, gopacket.Default)
+		pkt := gopacket.NewPacket(buf.Bytes(), layers.LayerTypeDot11, gopacket.Default)
+
+		// Set capture metadata
+		pkt.Metadata().CaptureInfo.CaptureLength = len(buf.Bytes())
+		pkt.Metadata().CaptureInfo.Length = len(buf.Bytes())
+		pkt.Metadata().CaptureInfo.Timestamp = time.Now()
+
+		return pkt
 	}
 
 	p3 := createPacketWithNonce(0xDD) // Nonce 0xDD... != 0x00...

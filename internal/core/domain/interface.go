@@ -20,10 +20,12 @@ var (
 	ErrUnsupportedBand      = errors.New("unsupported wifi band")
 )
 
-// InterfaceCapabilities helps the UI know what an interface supports.
 type InterfaceCapabilities struct {
 	SupportedBands    []WiFiBand `json:"supported_bands"`
 	SupportedChannels []int      `json:"supported_channels"`
+	DriverName        string     `json:"driver_name,omitempty"`    // e.g., "iwlwifi"
+	TxPower           int        `json:"tx_power,omitempty"`       // dBm
+	OperationMode     string     `json:"operation_mode,omitempty"` // e.g., "managed", "monitor"
 }
 
 // InterfaceInfo represents a network interface and its state.

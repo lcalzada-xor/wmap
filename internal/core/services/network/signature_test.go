@@ -14,10 +14,10 @@ import (
 )
 
 func setupSignatureTestService(sigStore ports.SignatureMatcher) *NetworkService {
-	reg := registry.NewDeviceRegistry(sigStore, nil)
+	reg := registry.NewDeviceRegistry(sigStore)
 	sec := security.NewSecurityEngine(reg)
 	persistence := persistence.NewPersistenceManager(nil, 100)
-	return NewNetworkService(reg, sec, persistence, nil, nil)
+	return NewNetworkService(reg, sec, persistence, nil)
 }
 
 func TestSignatureMatching(t *testing.T) {
