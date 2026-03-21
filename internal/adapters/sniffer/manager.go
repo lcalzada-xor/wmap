@@ -69,7 +69,6 @@ func (m *SnifferManager) Start(ctx context.Context) error {
 	}
 
 	// 1. Define Channel Pool (2.4GHz + limited 5GHz for now)
-	// TODO: Make this configurable or dynamic based on hardware capabilities
 	allChannels := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 36, 40, 44, 48, 149, 153, 157, 161}
 
 	// 2. Load Config from Disk (Phase 3 Persistence)

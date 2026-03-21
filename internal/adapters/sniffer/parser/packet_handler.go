@@ -10,7 +10,7 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/lcalzada-xor/wmap/internal/adapters/fingerprint"
-	"github.com/lcalzada-xor/wmap/internal/adapters/fingerprint/mapper"
+	"github.com/lcalzada-xor/wmap/internal/adapters/fingerprint/ie"
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
 )
 
@@ -356,14 +356,10 @@ func (h *PacketHandler) handleMgmtFrame(packet gopacket.Packet, dot11 *layers.Do
 		log.Printf("DEBUG Handler: MAC=%s Type=%s PayloadLen=%d", device.MAC, device.Type, len(ieData))
 	}
 
-	mapper.ParseIEs(ieData, device)
+	ie.ParseIEs(ieData, device)
 
 	// Randomized MAC Check & Fingerprinting
 	h.FingerprintEngine.AnalyzeRandomization(dot11.Address2, device)
-	// Fingerprint OS if not yet done
-	if device.OS == "" {
-		mapper.DetectOS(ieData, device)
-	}
 
 	if isProbe && device.SSID != "" {
 		if device.ProbedSSIDs == nil {

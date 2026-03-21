@@ -1,4 +1,4 @@
-package fingerprint
+package vendor
 
 // CommonOUIs is a static map of common MAC prefixes.
 // This is not exhaustive but statistically covers >90% of consumer devices found in the wild.
@@ -101,7 +101,7 @@ var CommonOUIs = map[string]string{
 	"00:21:5C": "Intel", "00:21:6A": "Intel", "00:22:FA": "Intel", "00:22:FB": "Intel",
 	"00:23:14": "Intel", "00:23:15": "Intel", "00:23:7D": "Intel", "00:24:D7": "Intel",
 	"00:26:C6": "Intel", "00:26:C7": "Intel", "00:27:0E": "Intel", "00:27:10": "Intel",
-	"04:21:B0": "Intel", // Common on laptops
+	"04:21:B0": "Intel",
 	"A4:4D:5E": "Intel", "E4:F8:EF": "Intel", "F4:8E:92": "Intel", "F4:96:34": "Intel",
 
 	// --- ESPRESSIF (ESP32 / ESP8266 IoT) ---

@@ -1,4 +1,4 @@
-package fingerprint
+package vendor
 
 import (
 	"bufio"
@@ -10,22 +10,21 @@ import (
 )
 
 var (
-	// Global repository instance for backward compatibility
+	// globalRepo is the application-level repository, initialized once at startup.
+	// Deprecated: Prefer injecting VendorRepository directly for better testability.
 	globalRepo     VendorRepository
 	globalRepoOnce sync.Once
 	globalRepoErr  error
 	globalRepoMu   sync.RWMutex
 )
 
-// InitOUIDatabase initializes the global OUI database repository
-// This should be called once at application startup
-// Deprecated: Use NewCompositeVendorRepository directly for better testability
+// InitOUIDatabase initializes the global OUI database repository.
+// Call this once at application startup.
+// Deprecated: Use NewCompositeVendorRepository directly for better testability.
 func InitOUIDatabase(dbPath string, cacheSize int) error {
 	globalRepoOnce.Do(func() {
-		// Create static repository from common OUIs
 		staticRepo := NewStaticVendorRepository(CommonOUIs)
 
-		// Create database repository with static as fallback
 		ouiDB, err := NewOUIDatabase(dbPath, cacheSize, staticRepo)
 		if err != nil {
 			log.Printf("Warning: Failed to initialize OUI database: %v. Using fallback static map.", err)
@@ -45,48 +44,40 @@ func InitOUIDatabase(dbPath string, cacheSize int) error {
 	return globalRepoErr
 }
 
-// LookupVendor attempts to find a vendor for a given MAC address.
-// It uses the global repository initialized by InitOUIDatabase.
-// Deprecated: Use VendorRepository.LookupVendor directly for better testability
+// LookupVendor attempts to find a vendor for a given MAC address string.
+// Uses the global repository initialized by InitOUIDatabase.
+// Deprecated: Use VendorRepository.LookupVendor directly for better testability.
 func LookupVendor(mac string) string {
 	globalRepoMu.RLock()
 	repo := globalRepo
 	globalRepoMu.RUnlock()
 
-	// If not initialized, use static repository
 	if repo == nil {
 		repo = NewStaticVendorRepository(CommonOUIs)
 	}
 
-	// Parse MAC address
 	macAddr, err := ParseMAC(mac)
 	if err != nil {
-		// Check for randomization using legacy method
 		if len(mac) >= 2 && isLocallyAdministered(mac[1]) {
 			return "Randomized"
 		}
 		return "Unknown"
 	}
 
-	// Check for randomization first
 	if macAddr.IsRandomized() {
 		return "Randomized"
 	}
 
-	// Lookup vendor
 	ctx := context.Background()
 	vendor, err := repo.LookupVendor(ctx, macAddr)
 	if err != nil {
 		return "Unknown"
 	}
-
 	return vendor
 }
 
-// isLocallyAdministered checks if a hex character indicates LAA bit is set
+// isLocallyAdministered checks if a hex character indicates the LAA bit is set.
 func isLocallyAdministered(hexChar byte) bool {
-	// 2, 6, A, E are basic unicast LAA
-	// 3, 7, B, F are multicast LAA (shouldn't be source, but possible)
 	switch hexChar {
 	case '2', '3', '6', '7', 'a', 'b', 'e', 'f', 'A', 'B', 'E', 'F':
 		return true
@@ -94,21 +85,21 @@ func isLocallyAdministered(hexChar byte) bool {
 	return false
 }
 
-// FileVendorRepository loads vendors from a text file
+// FileVendorRepository loads vendor data from a plaintext file.
+// Format: "XX:XX:XX Vendor Name" or "XX-XX-XX   Vendor Name"
 type FileVendorRepository struct {
 	vendors map[string]string
 	mu      sync.RWMutex
 }
 
-// NewFileVendorRepository creates a new file-based vendor repository
+// NewFileVendorRepository creates a new file-based vendor repository.
 func NewFileVendorRepository() *FileVendorRepository {
 	return &FileVendorRepository{
 		vendors: make(map[string]string),
 	}
 }
 
-// LoadFromFile loads OUI data from a file
-// Supports format: "XX:XX:XX Vendor Name" or "XX-XX-XX   Vendor Name"
+// LoadFromFile loads OUI data from a text file.
 func (f *FileVendorRepository) LoadFromFile(path string) error {
 	file, err := os.Open(path)
 	if err != nil {
@@ -125,8 +116,6 @@ func (f *FileVendorRepository) LoadFromFile(path string) error {
 			continue
 		}
 
-		// Extract first 8 chars as prefix
-		// Expected format: "00:00:00" or "00-00-00"
 		rawPrefix := line[0:8]
 		normalized := strings.ToUpper(strings.ReplaceAll(rawPrefix, "-", ":"))
 
@@ -135,7 +124,6 @@ func (f *FileVendorRepository) LoadFromFile(path string) error {
 			vendor = strings.TrimSpace(line[8:])
 		}
 
-		// Basic validation of hex
 		if isValidOUI(normalized) && vendor != "" {
 			newOUIs[normalized] = vendor
 		}
@@ -145,7 +133,6 @@ func (f *FileVendorRepository) LoadFromFile(path string) error {
 		return err
 	}
 
-	// Merge into vendor map
 	f.mu.Lock()
 	for k, v := range newOUIs {
 		f.vendors[k] = v
@@ -155,7 +142,7 @@ func (f *FileVendorRepository) LoadFromFile(path string) error {
 	return nil
 }
 
-// LookupVendor implements VendorRepository interface
+// LookupVendor implements VendorRepository.
 func (f *FileVendorRepository) LookupVendor(ctx context.Context, mac MACAddress) (string, error) {
 	oui := mac.OUI()
 
@@ -166,11 +153,10 @@ func (f *FileVendorRepository) LookupVendor(ctx context.Context, mac MACAddress)
 	if !ok {
 		return "", ErrVendorNotFound
 	}
-
 	return vendor, nil
 }
 
-// Close implements VendorRepository interface
+// Close implements VendorRepository.
 func (f *FileVendorRepository) Close() error {
 	f.mu.Lock()
 	f.vendors = make(map[string]string)
@@ -178,29 +164,26 @@ func (f *FileVendorRepository) Close() error {
 	return nil
 }
 
-// LoadOUIFile loads a text file containing "OUI Vendor" lines into the global repository.
-// Deprecated: Use FileVendorRepository directly for better testability
+// LoadOUIFile loads a text file into the global repository.
+// Deprecated: Use FileVendorRepository directly for better testability.
 func LoadOUIFile(path string) error {
 	fileRepo := NewFileVendorRepository()
 	if err := fileRepo.LoadFromFile(path); err != nil {
 		return err
 	}
 
-	// Add file repository to global composite
 	globalRepoMu.Lock()
 	defer globalRepoMu.Unlock()
 
 	if globalRepo == nil {
 		globalRepo = fileRepo
 	} else {
-		// Wrap in composite if not already
 		if composite, ok := globalRepo.(*CompositeVendorRepository); ok {
 			composite.repositories = append(composite.repositories, fileRepo)
 		} else {
 			globalRepo = NewCompositeVendorRepository(globalRepo, fileRepo)
 		}
 	}
-
 	return nil
 }
 

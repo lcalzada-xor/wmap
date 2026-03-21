@@ -1,4 +1,4 @@
-package fingerprint
+package vendor
 
 import (
 	"context"
@@ -11,21 +11,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// OUIDatabase provides vendor lookup from a comprehensive OUI database
-// It implements VendorRepository, VendorWriter, and VendorStats interfaces
-type OUIDatabase struct {
-	db       *sql.DB
-	cache    *OUICache
-	mu       sync.RWMutex
-	dbPath   string
-	fallback VendorRepository
-	closed   bool
-
-	// Prepared statements for better performance
-	lookupStmt *sql.Stmt
-}
-
-// OUIEntry represents a single OUI registry entry
+// OUIEntry represents a single OUI registry entry.
 type OUIEntry struct {
 	Prefix      string
 	Vendor      string
@@ -35,19 +21,31 @@ type OUIEntry struct {
 	LastUpdated time.Time
 }
 
-// NewOUIDatabase creates a new OUI database instance
+// OUIDatabase provides vendor lookup from a comprehensive SQLite OUI database.
+// It implements VendorRepository, VendorWriter, and VendorStats.
+type OUIDatabase struct {
+	db       *sql.DB
+	cache    *OUICache
+	mu       sync.RWMutex
+	dbPath   string
+	fallback VendorRepository
+	closed   bool
+
+	// Prepared statement for faster repeated lookups
+	lookupStmt *sql.Stmt
+}
+
+// NewOUIDatabase creates a new OUI database instance.
 func NewOUIDatabase(dbPath string, cacheSize int, fallback VendorRepository) (*OUIDatabase, error) {
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return nil, &DatabaseError{Op: "open", Err: err}
 	}
 
-	// Configure connection pool
 	db.SetMaxOpenConns(10)
 	db.SetMaxIdleConns(5)
 	db.SetConnMaxLifetime(time.Hour)
 
-	// Test connection
 	if err := db.Ping(); err != nil {
 		db.Close()
 		return nil, &DatabaseError{Op: "ping", Err: err}
@@ -60,13 +58,11 @@ func NewOUIDatabase(dbPath string, cacheSize int, fallback VendorRepository) (*O
 		fallback: fallback,
 	}
 
-	// Create table if not exists
 	if err := oui.initializeSchema(); err != nil {
 		db.Close()
 		return nil, &DatabaseError{Op: "initialize_schema", Err: err}
 	}
 
-	// Prepare lookup statement
 	stmt, err := db.Prepare("SELECT COALESCE(vendor_short, vendor) FROM oui_registry WHERE prefix = ?")
 	if err != nil {
 		db.Close()
@@ -77,7 +73,6 @@ func NewOUIDatabase(dbPath string, cacheSize int, fallback VendorRepository) (*O
 	return oui, nil
 }
 
-// initializeSchema creates the OUI registry table if it doesn't exist
 func (o *OUIDatabase) initializeSchema() error {
 	schema := `
 	CREATE TABLE IF NOT EXISTS oui_registry (
@@ -100,7 +95,7 @@ func (o *OUIDatabase) initializeSchema() error {
 	return nil
 }
 
-// LookupVendor implements VendorRepository interface
+// LookupVendor implements VendorRepository.
 func (o *OUIDatabase) LookupVendor(ctx context.Context, mac MACAddress) (string, error) {
 	o.mu.RLock()
 	if o.closed {
@@ -115,17 +110,14 @@ func (o *OUIDatabase) LookupVendor(ctx context.Context, mac MACAddress) (string,
 
 	prefix := mac.OUI()
 
-	// Check cache first
 	if vendor, ok := o.cache.Get(prefix); ok {
 		return vendor, nil
 	}
 
-	// Query database with context
 	var vendor string
 	err := o.lookupStmt.QueryRowContext(ctx, prefix).Scan(&vendor)
 
 	if err == sql.ErrNoRows {
-		// Try fallback repository
 		if o.fallback != nil {
 			v, err := o.fallback.LookupVendor(ctx, mac)
 			if err == nil && v != "" && v != "Unknown" {
@@ -137,7 +129,6 @@ func (o *OUIDatabase) LookupVendor(ctx context.Context, mac MACAddress) (string,
 	}
 
 	if err != nil {
-		// On error, try fallback
 		if o.fallback != nil {
 			v, err := o.fallback.LookupVendor(ctx, mac)
 			if err == nil {
@@ -147,12 +138,11 @@ func (o *OUIDatabase) LookupVendor(ctx context.Context, mac MACAddress) (string,
 		return "", &DatabaseError{Op: "lookup", Err: err}
 	}
 
-	// Cache result
 	o.cache.Set(prefix, vendor)
 	return vendor, nil
 }
 
-// InsertOUI implements VendorWriter interface
+// InsertOUI implements VendorWriter.
 func (o *OUIDatabase) InsertOUI(ctx context.Context, entry OUIEntry) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -178,11 +168,10 @@ func (o *OUIDatabase) InsertOUI(ctx context.Context, entry OUIEntry) error {
 	if err != nil {
 		return &DatabaseError{Op: "insert", Err: err}
 	}
-
 	return nil
 }
 
-// BulkInsertOUIs implements VendorWriter interface
+// BulkInsertOUIs implements VendorWriter.
 func (o *OUIDatabase) BulkInsertOUIs(ctx context.Context, entries []OUIEntry) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -208,12 +197,8 @@ func (o *OUIDatabase) BulkInsertOUIs(ctx context.Context, entries []OUIEntry) er
 
 	for _, entry := range entries {
 		_, err := stmt.ExecContext(ctx,
-			entry.Prefix,
-			entry.Vendor,
-			entry.VendorShort,
-			entry.Address,
-			entry.Country,
-			entry.LastUpdated.Unix(),
+			entry.Prefix, entry.Vendor, entry.VendorShort,
+			entry.Address, entry.Country, entry.LastUpdated.Unix(),
 		)
 		if err != nil {
 			return &DatabaseError{Op: "bulk_insert_entry", Err: err}
@@ -223,11 +208,10 @@ func (o *OUIDatabase) BulkInsertOUIs(ctx context.Context, entries []OUIEntry) er
 	if err := tx.Commit(); err != nil {
 		return &DatabaseError{Op: "commit_transaction", Err: err}
 	}
-
 	return nil
 }
 
-// GetStats implements VendorStats interface
+// GetStats implements VendorStats.
 func (o *OUIDatabase) GetStats(ctx context.Context) (RepositoryStats, error) {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
@@ -258,7 +242,7 @@ func (o *OUIDatabase) GetStats(ctx context.Context) (RepositoryStats, error) {
 	}, nil
 }
 
-// Close implements VendorRepository interface
+// Close implements VendorRepository.
 func (o *OUIDatabase) Close() error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -269,42 +253,29 @@ func (o *OUIDatabase) Close() error {
 
 	o.closed = true
 
-	// Close prepared statement
 	if o.lookupStmt != nil {
 		o.lookupStmt.Close()
 	}
-
-	// Close cache
 	if o.cache != nil {
 		o.cache.Close()
 	}
-
-	// Close database
 	if o.db != nil {
 		return o.db.Close()
 	}
-
 	return nil
 }
 
-// normalizeMAC converts a MAC prefix to standard format (XX:XX:XX)
+// normalizeMAC converts a MAC prefix to standard format (XX:XX:XX).
 func normalizeMAC(mac string) string {
-	// Remove common separators
 	mac = strings.ReplaceAll(mac, "-", ":")
 	mac = strings.ReplaceAll(mac, ".", ":")
-
-	// Convert to uppercase
 	mac = strings.ToUpper(mac)
 
-	// Ensure format is XX:XX:XX
 	if len(mac) >= 8 && mac[2] == ':' && mac[5] == ':' {
 		return mac[:8]
 	}
-
-	// If no separators, add them
 	if len(mac) >= 6 {
 		return fmt.Sprintf("%s:%s:%s", mac[0:2], mac[2:4], mac[4:6])
 	}
-
 	return mac
 }

@@ -1,4 +1,4 @@
-package fingerprint
+package vendor
 
 import (
 	"context"

@@ -5,13 +5,19 @@ import (
 	"errors"
 )
 
-// Common IE Tags
-const (
-	TagSSID           = 0
-	TagDSParameterSet = 3
-	TagRSN            = 48
-	TagVendorSpecific = 221 // 0xDD
-)
+
+// CommonIEs holds information from the most frequently used IEs
+type CommonIEs struct {
+	SSID        SSID
+	Channel     int
+	HasRSN      bool
+	RSNData     []byte
+	HasWPS      bool
+	WPSData     []byte
+	HasMDIE     bool
+	MDIEData    []byte
+	VendorIEs   [][]byte
+}
 
 // IE represents a generic Information Element
 type IE struct {
@@ -42,27 +48,48 @@ func (s SSID) String() string {
 // IterateIEs calls the provided callback for each valid IE found in the data.
 // It stops if it encounters a malformed IE (length exceeds remaining data).
 func IterateIEs(data []byte, callback func(id int, data []byte)) {
-	offset := 0
-	limit := len(data)
-
-	for offset < limit {
-		// Needs at least 2 bytes (ID and Length)
-		if offset+2 > limit {
-			break
-		}
-
+	for offset := 0; offset+2 <= len(data); {
 		id := int(data[offset])
 		length := int(data[offset+1])
 		offset += 2
 
-		// Check bounds
-		if offset+length > limit {
+		if offset+length > len(data) {
 			break
 		}
 
 		callback(id, data[offset:offset+length])
 		offset += length
 	}
+}
+
+// ParseCommonIEs performs a single pass over the IE data to extract common fields.
+// This is much more efficient than calling individual Parse* functions multiple times.
+func ParseCommonIEs(data []byte) CommonIEs {
+	res := CommonIEs{}
+	IterateIEs(data, func(id int, val []byte) {
+		switch id {
+		case TagSSID:
+			res.SSID = parseSSIDData(val)
+		case TagDSParameterSet:
+			if len(val) >= 1 {
+				res.Channel = int(val[0])
+			}
+		case TagRSN:
+			res.HasRSN = true
+			res.RSNData = val
+		case TagMobilityDomain:
+			res.HasMDIE = true
+			res.MDIEData = val
+		case TagVendorSpecific:
+			res.VendorIEs = append(res.VendorIEs, val)
+			// Check for WPS OUI (00:50:f2:04)
+			if len(val) >= 4 && bytes.Equal(val[0:4], OUIWiFiAllianceWPS) {
+				res.HasWPS = true
+				res.WPSData = val[4:] // Strip OUI/Type header for WPS parser
+			}
+		}
+	})
+	return res
 }
 
 // FindIE returns the data of the first IE with the given ID.
@@ -81,21 +108,28 @@ func FindIE(data []byte, targetID int) []byte {
 func ParseSSID(data []byte) SSID {
 	val := FindIE(data, TagSSID)
 	if val == nil {
-		return SSID{Hidden: true} // Absence usually means not in this packet, but for safety
+		return SSID{Hidden: true}
 	}
-	if len(val) == 0 || (len(val) > 0 && val[0] == 0x00) {
-		// Check if all bytes are zero for hidden SSIDs (some devices do this)
-		allZero := true
-		for _, b := range val {
-			if b != 0x00 {
-				allZero = false
-				break
-			}
-		}
-		if allZero {
-			return SSID{Hidden: true}
+	return parseSSIDData(val)
+}
+
+func parseSSIDData(val []byte) SSID {
+	if len(val) == 0 {
+		return SSID{Hidden: true}
+	}
+
+	// Check if all bytes are zero for hidden SSIDs
+	allZero := true
+	for _, b := range val {
+		if b != 0x00 {
+			allZero = false
+			break
 		}
 	}
+	if allZero {
+		return SSID{Hidden: true}
+	}
+
 	return SSID{Value: safeString(val), Hidden: false}
 }
 

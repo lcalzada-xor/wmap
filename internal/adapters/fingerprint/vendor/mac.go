@@ -1,4 +1,4 @@
-package fingerprint
+package vendor
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// MACAddress is a value object representing a validated MAC address
+// MACAddress is a value object representing a validated MAC address.
 type MACAddress struct {
 	address net.HardwareAddr
 }
@@ -24,7 +24,6 @@ func ParseMAC(s string) (MACAddress, error) {
 
 	// If no separators, add them (assumes 12 hex chars)
 	if !strings.Contains(normalized, ":") && len(normalized) == 12 {
-		// Insert colons every 2 characters
 		var parts []string
 		for i := 0; i < len(normalized); i += 2 {
 			if i+2 <= len(normalized) {
@@ -34,7 +33,6 @@ func ParseMAC(s string) (MACAddress, error) {
 		normalized = strings.Join(parts, ":")
 	}
 
-	// Parse using net.ParseMAC
 	hw, err := net.ParseMAC(normalized)
 	if err != nil {
 		return MACAddress{}, &ValidationError{
@@ -57,12 +55,12 @@ func MustParseMAC(s string) MACAddress {
 	return mac
 }
 
-// NewMACAddress creates a MACAddress from net.HardwareAddr
+// NewMACAddress creates a MACAddress from net.HardwareAddr.
 func NewMACAddress(hw net.HardwareAddr) MACAddress {
 	return MACAddress{address: hw}
 }
 
-// OUI returns the Organizationally Unique Identifier (first 3 bytes) as "XX:XX:XX"
+// OUI returns the Organizationally Unique Identifier (first 3 bytes) as "XX:XX:XX".
 func (m MACAddress) OUI() string {
 	if len(m.address) < 3 {
 		return ""
@@ -80,46 +78,43 @@ func (m MACAddress) IsRandomized() bool {
 	if len(m.address) == 0 {
 		return false
 	}
-	// Check bit 1 of the first byte (0x02)
 	return (m.address[0] & 0x02) != 0
 }
 
 // IsMulticast checks if the MAC address is a multicast address.
-// This is the least significant bit of the first octet.
 func (m MACAddress) IsMulticast() bool {
 	if len(m.address) == 0 {
 		return false
 	}
-	// Check bit 0 of the first byte (0x01)
 	return (m.address[0] & 0x01) != 0
 }
 
-// IsUnicast returns true if the address is a unicast address
+// IsUnicast returns true if the address is a unicast address.
 func (m MACAddress) IsUnicast() bool {
 	return !m.IsMulticast()
 }
 
-// IsUniversal returns true if the address is universally administered (not locally administered)
+// IsUniversal returns true if the address is universally administered.
 func (m MACAddress) IsUniversal() bool {
 	return !m.IsRandomized()
 }
 
-// String returns the MAC address in standard format "XX:XX:XX:XX:XX:XX"
+// String returns the MAC address in standard format "XX:XX:XX:XX:XX:XX".
 func (m MACAddress) String() string {
 	return strings.ToUpper(m.address.String())
 }
 
-// HardwareAddr returns the underlying net.HardwareAddr
+// HardwareAddr returns the underlying net.HardwareAddr.
 func (m MACAddress) HardwareAddr() net.HardwareAddr {
 	return m.address
 }
 
-// Equal compares two MAC addresses for equality
+// Equal compares two MAC addresses for equality.
 func (m MACAddress) Equal(other MACAddress) bool {
 	return m.address.String() == other.address.String()
 }
 
-// IsValid returns true if the MAC address is valid (non-empty)
+// IsValid returns true if the MAC address is valid (non-empty).
 func (m MACAddress) IsValid() bool {
 	return len(m.address) > 0
 }
