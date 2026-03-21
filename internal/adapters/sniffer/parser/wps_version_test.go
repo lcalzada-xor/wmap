@@ -2,8 +2,6 @@ package parser_test
 
 import (
 	"testing"
-
-
 )
 
 func TestParseWPSAttributes_Version(t *testing.T) {

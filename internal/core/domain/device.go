@@ -90,7 +90,7 @@ type Device struct {
 	VendorConfidence float32 `json:"vendor_confidence,omitempty"`
 
 	// --- Domain Relations ---
-	Behavioral      *BehavioralProfile `json:"behavioral,omitempty"`
+	Behavioral *BehavioralProfile `json:"behavioral,omitempty"`
 }
 
 // RSNInfo contains parsed RSN IE details
@@ -159,5 +159,3 @@ func (d *Device) UpdateTraffic(tx, rx int64, packets int) {
 	d.DataReceived += rx
 	d.PacketsCount += packets
 }
-
-

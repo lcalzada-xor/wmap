@@ -13,6 +13,7 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcapgo"
+	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/handshake/utils"
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/ie"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,7 +33,7 @@ func TestPMKIDCapture(t *testing.T) {
 	hm.SavePMKID(createPMKIDPacket(bssid, "aa:bb:cc:dd:ee:ff"), bssid, ssid)
 
 	// Filename: BSSID_ESSID_PMKID.pcap
-	expectedFilename := fmt.Sprintf("%s_%s_PMKID.pcap", sanitizeFilename(bssid), sanitizeFilename(ssid))
+	expectedFilename := fmt.Sprintf("%s_%s_PMKID.pcap", utils.SanitizeFilename(bssid), utils.SanitizeFilename(ssid))
 	path := filepath.Join(tmpDir, expectedFilename)
 
 	// Verify file existence
@@ -53,9 +54,8 @@ func TestPCAPGeneration_Exhaustive(t *testing.T) {
 	hm.ProcessFrame(beacon)
 
 	// Verify internal state (Beacon cached)
-	hm.mu.RLock()
-	cachedBeacon, ok := hm.bssidToBeacon[bssid]
-	hm.mu.RUnlock()
+	cachedBeacon := hm.cache.GetBeacon(bssid)
+	ok := cachedBeacon != nil
 	require.True(t, ok, "Beacon should be cached")
 	require.NotNil(t, cachedBeacon)
 
@@ -80,7 +80,7 @@ func TestPCAPGeneration_Exhaustive(t *testing.T) {
 
 	// 3. Verify File Content
 	// Expected filename: BSSID_ESSID_STA.pcap
-	expectedFilename := fmt.Sprintf("%s_%s_%s.pcap", sanitizeFilename(bssid), sanitizeFilename(ssid), sanitizeFilename(sta))
+	expectedFilename := fmt.Sprintf("%s_%s_%s.pcap", utils.SanitizeFilename(bssid), utils.SanitizeFilename(ssid), utils.SanitizeFilename(sta))
 	fullPath := filepath.Join(tmpDir, expectedFilename)
 
 	// Check file exists
@@ -182,7 +182,7 @@ func TestPCAPGeneration_TimestampSorting(t *testing.T) {
 
 	time.Sleep(500 * time.Millisecond)
 
-	expectedFilename := fmt.Sprintf("%s_%s_%s.pcap", sanitizeFilename(bssid), sanitizeFilename(ssid), sanitizeFilename(sta))
+	expectedFilename := fmt.Sprintf("%s_%s_%s.pcap", utils.SanitizeFilename(bssid), utils.SanitizeFilename(ssid), utils.SanitizeFilename(sta))
 	fullPath := filepath.Join(tmpDir, expectedFilename)
 
 	f, _ := os.Open(fullPath)

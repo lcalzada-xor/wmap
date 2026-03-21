@@ -3,6 +3,8 @@ package handshake
 import (
 	"testing"
 	"time"
+
+	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/handshake/session"
 )
 
 func TestHandshakeManager_CleanupSessions(t *testing.T) {
@@ -18,24 +20,24 @@ func TestHandshakeManager_CleanupSessions(t *testing.T) {
 	inactiveIncomplete := now.Add(-1 * time.Minute) // > 30s (Expire if incomplete)
 	activeIncomplete := now.Add(-10 * time.Second)  // < 30s (Keep)
 
-	hm.sessions["expired_session"] = &HandshakeSession{
+	hm.sessions["expired_session"] = &session.HandshakeSession{
 		BSSID:      "00:00:00:00:00:01",
 		LastUpdate: expiredTime,
 	}
 
-	hm.sessions["inactive_incomplete"] = &HandshakeSession{
+	hm.sessions["inactive_incomplete"] = &session.HandshakeSession{
 		BSSID:      "00:00:00:00:00:02",
 		LastUpdate: inactiveIncomplete,
 		Captured:   map[uint8]bool{1: true},
 	}
 
-	hm.sessions["active_incomplete"] = &HandshakeSession{
+	hm.sessions["active_incomplete"] = &session.HandshakeSession{
 		BSSID:      "00:00:00:00:00:03",
 		LastUpdate: activeIncomplete,
 		Captured:   map[uint8]bool{1: true},
 	}
 
-	hm.sessions["active_complete"] = &HandshakeSession{
+	hm.sessions["active_complete"] = &session.HandshakeSession{
 		BSSID:      "00:00:00:00:00:04",
 		LastUpdate: inactiveIncomplete, // 1 min old (Should keep because complete)
 		Captured:   map[uint8]bool{1: true, 2: true, 3: true, 4: true},
@@ -86,18 +88,18 @@ func TestHandshakeManager_MaxFramesLimit(t *testing.T) {
 	// HandshakeManager uses lowercase MACs
 	key := "00:11:22:33:44:55_aa:bb:cc:dd:ee:ff"
 	hm.mu.RLock()
-	session, exists := hm.sessions[key]
+	sess, exists := hm.sessions[key]
 	hm.mu.RUnlock()
 
 	if !exists {
 		t.Fatal("Session not created")
 	}
 
-	if len(session.Frames) > maxFramesPerSession {
-		t.Errorf("Session frames exceeded limit: got %d, max %d", len(session.Frames), maxFramesPerSession)
+	if len(sess.Frames) > maxFramesPerSession {
+		t.Errorf("Session frames exceeded limit: got %d, max %d", len(sess.Frames), maxFramesPerSession)
 	}
 
-	if len(session.Frames) != maxFramesPerSession {
-		t.Errorf("Session frames should stop at limit: got %d, expected %d", len(session.Frames), maxFramesPerSession)
+	if len(sess.Frames) != maxFramesPerSession {
+		t.Errorf("Session frames should stop at limit: got %d, expected %d", len(sess.Frames), maxFramesPerSession)
 	}
 }

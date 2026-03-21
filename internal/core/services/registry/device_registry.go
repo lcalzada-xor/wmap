@@ -37,13 +37,13 @@ type DeviceRegistry struct {
 // NewDeviceRegistry creates a new sharded registry.
 func NewDeviceRegistry(sigMatcher ports.SignatureMatcher) *DeviceRegistry {
 	r := &DeviceRegistry{
-		shards:          make([]*deviceShard, numShards),
-		ssidManager:     NewSSIDManager(),
-		merger:          NewDeviceMerger(),
-		subject:         NewRegistrySubject(),
-		discoCache:      make(map[string]string),
-		BehaviorEngine:  security.NewBehaviorEngine(),
-		sigMatcher:      sigMatcher,
+		shards:         make([]*deviceShard, numShards),
+		ssidManager:    NewSSIDManager(),
+		merger:         NewDeviceMerger(),
+		subject:        NewRegistrySubject(),
+		discoCache:     make(map[string]string),
+		BehaviorEngine: security.NewBehaviorEngine(),
+		sigMatcher:     sigMatcher,
 	}
 
 	for i := 0; i < numShards; i++ {
@@ -126,8 +126,6 @@ func (r *DeviceRegistry) ProcessDevice(ctx context.Context, newDevice domain.Dev
 
 		r.subject.NotifyAdded(ctx, newDevice) // Notify Observers
 
-
-
 		return newDevice, true
 	}
 
@@ -157,8 +155,6 @@ func (r *DeviceRegistry) ProcessDevice(ctx context.Context, newDevice domain.Dev
 	}
 
 	r.subject.NotifyUpdated(ctx, existing) // Notify Observers
-
-
 
 	return existing, shouldPerformDiscovery
 }

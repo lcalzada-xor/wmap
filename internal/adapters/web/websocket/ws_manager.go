@@ -146,8 +146,6 @@ func (m *WSManager) BroadcastAlert(alert domain.Alert) {
 	m.broadcastMessage(msg)
 }
 
-
-
 func (m *WSManager) broadcastMessage(msg WSMessage) {
 	data, err := json.Marshal(msg)
 	if err != nil {

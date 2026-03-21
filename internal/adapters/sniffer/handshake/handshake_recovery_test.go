@@ -24,12 +24,12 @@ func TestHandshakeManager_Recovery(t *testing.T) {
 
 	// Verify session state
 	hm.mu.RLock()
-	session, exists := hm.sessions[bssid+"_"+client]
+	sess, exists := hm.sessions[bssid+"_"+client]
 	hm.mu.RUnlock()
 
 	assert.True(t, exists, "Session should be created on M2")
-	assert.True(t, session.Captured[2], "M2 should be captured")
-	assert.Nil(t, session.Anonce, "Anonce should be nil (missed M1)")
+	assert.True(t, sess.Captured[2], "M2 should be captured")
+	assert.Nil(t, sess.Anonce, "Anonce should be nil (missed M1)")
 
 	// 2. Simulate M3 (AP->STA).
 	// RC=11.
@@ -46,11 +46,11 @@ func TestHandshakeManager_Recovery(t *testing.T) {
 
 	// Verify recovered state
 	hm.mu.RLock()
-	session = hm.sessions[bssid+"_"+client]
+	sess = hm.sessions[bssid+"_"+client]
 	hm.mu.RUnlock()
 
-	assert.NotNil(t, session.Anonce, "Anonce should be recovered from M3")
-	assert.True(t, session.Captured[3], "M3 should be captured")
+	assert.NotNil(t, sess.Anonce, "Anonce should be recovered from M3")
+	assert.True(t, sess.Captured[3], "M3 should be captured")
 	assert.True(t, hm.HasHandshake(bssid), "Handshake should be valid")
 }
 

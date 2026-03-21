@@ -82,8 +82,6 @@ type ProbeModel struct {
 	LastSeen  time.Time
 }
 
-
-
 // ConnectionEventModel stores history of connection states.
 type ConnectionEventModel struct {
 	ID        uint   `gorm:"primaryKey"`
@@ -114,7 +112,6 @@ func NewSQLiteAdapter(path string) (*SQLiteAdapter, error) {
 	db.Exec("PRAGMA busy_timeout=5000;")
 	// Synchronous NORMAL is faster and safe enough for WAL
 	db.Exec("PRAGMA synchronous=NORMAL;")
-
 
 	// Create Indices for Performance
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_devices_security ON device_models(security)")
@@ -325,8 +322,6 @@ func (a *SQLiteAdapter) SaveProbe(ctx context.Context, mac string, ssid string) 
 		return tx.Save(&existing).Error
 	})
 }
-
-
 
 func (a *SQLiteAdapter) Close() error {
 	sqlDB, err := a.db.DB()

@@ -1,6 +1,7 @@
 package driver_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -13,7 +14,7 @@ type MockExecutor struct {
 	Outputs map[string][]byte
 }
 
-func (m *MockExecutor) Execute(name string, args ...string) ([]byte, error) {
+func (m *MockExecutor) Execute(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmdKey := name
 	for _, arg := range args {
 		cmdKey += " " + arg

@@ -3,6 +3,7 @@ package driver
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"log"
 	"os/exec"
@@ -14,14 +15,14 @@ import (
 
 // CommandExecutor abstracts system command execution
 type CommandExecutor interface {
-	Execute(name string, args ...string) ([]byte, error)
+	Execute(ctx context.Context, name string, args ...string) ([]byte, error)
 }
 
 // SystemCommandExecutor implements CommandExecutor using os/exec
 type SystemCommandExecutor struct{}
 
-func (e *SystemCommandExecutor) Execute(name string, args ...string) ([]byte, error) {
-	cmd := exec.Command(name, args...)
+func (e *SystemCommandExecutor) Execute(ctx context.Context, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
 	return cmd.CombinedOutput()
 }
 
@@ -38,14 +39,13 @@ func SetExecutor(e CommandExecutor) {
 	DefaultDriver.executor = e
 }
 
-// HardwareCapabilities defines what a WiFi card supports.
-type HardwareCapabilities struct {
-	Supported frequencies
-}
+const (
+	FreqBoundary24GHz   = 4000
+	FreqBoundary5GHzMin = 4900
+	FreqBoundary5GHzMax = 5900
+)
 
-type frequencies struct {
-	Bands map[string][]int
-}
+var reFreqChan = regexp.MustCompile(`\*\s+([0-9]+)(\.[0-9]+)?\s+MHz\s+\[([0-9]+)\]`)
 
 // GetInterfaceCapabilities returns the supported channels for a given interface.
 func GetInterfaceCapabilities(iface string) (map[string]bool, []int, error) {
@@ -56,7 +56,7 @@ func (d *WirelessDriver) GetInterfaceCapabilities(iface string) (map[string]bool
 	// 1. Map Interface -> Phy
 	phy, err := d.getPhyForInterface(iface)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("getting phy for interface %s: %w", iface, err)
 	}
 
 	// 2. Get Phy Capabilities
@@ -64,7 +64,10 @@ func (d *WirelessDriver) GetInterfaceCapabilities(iface string) (map[string]bool
 }
 
 func (d *WirelessDriver) getPhyForInterface(iface string) (string, error) {
-	out, err := d.executor.Execute("iw", "dev")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	out, err := d.executor.Execute(ctx, "iw", "dev")
 	if err != nil {
 		return "", err
 	}
@@ -83,9 +86,12 @@ func (d *WirelessDriver) getPhyForInterface(iface string) (string, error) {
 }
 
 func (d *WirelessDriver) getPhyCapabilities(phy string) (map[string]bool, []int, error) {
-	out, err := d.executor.Execute("iw", "phy", phy, "info")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	out, err := d.executor.Execute(ctx, "iw", "phy", phy, "info")
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("getting phy capabilities for %s: %w", phy, err)
 	}
 
 	bands := make(map[string]bool)
@@ -93,10 +99,6 @@ func (d *WirelessDriver) getPhyCapabilities(phy string) (map[string]bool, []int,
 
 	scanner := bufio.NewScanner(bytes.NewReader(out))
 	inFrequencies := false
-
-	// Regex to match line like: "* 2412 MHz [1]" or "* 2412.0 MHz [1]"
-	// Capture groups: 1=Frequency(MHz) (integer part), 2=Decimal part (optional), 3=Channel
-	reFreqChan := regexp.MustCompile(`\*\s+([0-9]+)(\.[0-9]+)?\s+MHz\s+\[([0-9]+)\]`)
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -122,11 +124,11 @@ func (d *WirelessDriver) getPhyCapabilities(phy string) (map[string]bool, []int,
 					supportedChannels = append(supportedChannels, ch)
 
 					// Frequency-based detection is more robust
-					if freq < 4000 {
+					if freq < FreqBoundary24GHz {
 						bands["2.4GHz"] = true // Match domain.Band24GHz
-					} else if freq >= 4900 && freq < 5900 {
+					} else if freq >= FreqBoundary5GHzMin && freq < FreqBoundary5GHzMax {
 						bands["5GHz"] = true // Match domain.Band5GHz
-					} else if freq >= 5900 {
+					} else if freq >= FreqBoundary5GHzMax {
 						bands["6GHz"] = true // Match domain.Band6GHz
 					}
 				}
@@ -148,9 +150,12 @@ func (d *WirelessDriver) SetInterfaceChannel(iface string, channel int) error {
 	if channel <= 0 {
 		return fmt.Errorf("invalid channel: %d", channel)
 	}
-	output, err := d.executor.Execute("iw", iface, "set", "channel", fmt.Sprintf("%d", channel))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	output, err := d.executor.Execute(ctx, "iw", iface, "set", "channel", fmt.Sprintf("%d", channel))
 	if err != nil {
-		return fmt.Errorf("failed to set channel %d on %s: %v (%s)", channel, iface, err, string(output))
+		return fmt.Errorf("failed to set channel %d on %s: %w (%s)", channel, iface, err, string(output))
 	}
 	return nil
 }
@@ -189,7 +194,9 @@ func (d *WirelessDriver) KillConflictingProcesses() error {
 	for _, cmdParts := range commands {
 		cmdName := cmdParts[0]
 		cmdArgs := cmdParts[1:]
-		out, err := d.executor.Execute(cmdName, cmdArgs...)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		out, err := d.executor.Execute(ctx, cmdName, cmdArgs...)
+		cancel()
 		if err != nil {
 			msg := fmt.Sprintf("failed to stop %s: %v (%s)", cmdArgs[1], err, strings.TrimSpace(string(out)))
 			log.Printf("Warning: %s", msg)
@@ -219,7 +226,9 @@ func (d *WirelessDriver) RestoreNetworkServices() error {
 	for _, cmdParts := range commands {
 		cmdName := cmdParts[0]
 		cmdArgs := cmdParts[1:]
-		out, err := d.executor.Execute(cmdName, cmdArgs...)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		out, err := d.executor.Execute(ctx, cmdName, cmdArgs...)
+		cancel()
 		if err != nil {
 			msg := fmt.Sprintf("failed to start %s: %v (%s)", cmdArgs[1], err, strings.TrimSpace(string(out)))
 			log.Printf("Warning: %s", msg)
@@ -288,7 +297,9 @@ func (d *WirelessDriver) restoreInterfaceState(iface string, originalMode string
 	log.Printf("Attempting to restore %s to original mode: %s", iface, originalMode)
 
 	// First bring interface down
-	_ = d.runCmd("ip", "link", "set", iface, "down")
+	if err := d.runCmd("ip", "link", "set", iface, "down"); err != nil {
+		log.Printf("Warning: failed to bring interface down during restore for %s: %v", iface, err)
+	}
 
 	// Try to restore to original mode if we know it
 	if originalMode != "unknown" && originalMode != "" {
@@ -311,16 +322,25 @@ func DisableMonitorMode(iface string) {
 
 func (d *WirelessDriver) DisableMonitorMode(iface string) {
 	log.Printf("Restoring managed mode on %s...", iface)
-	_ = d.runCmd("ip", "link", "set", iface, "down")
-	_ = d.runCmd("iw", iface, "set", "type", "managed")
-	_ = d.runCmd("ip", "link", "set", iface, "up")
+	if err := d.runCmd("ip", "link", "set", iface, "down"); err != nil {
+		log.Printf("Warning: failed to bring interface down for %s: %v", iface, err)
+	}
+	if err := d.runCmd("iw", iface, "set", "type", "managed"); err != nil {
+		log.Printf("Warning: failed to set managed mode for %s: %v", iface, err)
+	}
+	if err := d.runCmd("ip", "link", "set", iface, "up"); err != nil {
+		log.Printf("Warning: failed to bring interface up for %s: %v", iface, err)
+	}
 }
 
 func (d *WirelessDriver) runCmd(name string, args ...string) error {
-	output, err := d.executor.Execute(name, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	output, err := d.executor.Execute(ctx, name, args...)
 	if err != nil {
 		log.Printf("Command failed: %s %v\nOutput: %s", name, args, string(output))
-		return err
+		return fmt.Errorf("executing %s %v: %w", name, args, err)
 	}
 	return nil
 }
@@ -331,11 +351,14 @@ func GetDriverInfo(iface string) (string, error) {
 }
 
 func (d *WirelessDriver) GetDriverInfo(iface string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	// Try ethtool first (standard for driver info)
 	// Output format:
 	// driver: iwlwifi
 	// ...
-	out, err := d.executor.Execute("ethtool", "-i", iface)
+	out, err := d.executor.Execute(ctx, "ethtool", "-i", iface)
 	if err != nil {
 		// Fallback? Maybe /sys/class/net/<iface>/device/driver/module
 		return "", err
@@ -357,7 +380,10 @@ func GetInterfaceCurrentConfig(iface string) (string, int, error) {
 }
 
 func (d *WirelessDriver) GetInterfaceCurrentConfig(iface string) (string, int, error) {
-	out, err := d.executor.Execute("iw", "dev", iface, "info")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	out, err := d.executor.Execute(ctx, "iw", "dev", iface, "info")
 	if err != nil {
 		return "", 0, err
 	}

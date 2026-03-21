@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/handshake/session"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -142,11 +143,11 @@ func TestScenario_Perfect4Way(t *testing.T) {
 	hm.ProcessFrame(makeEAPOL(packetParams{MsgNum: 4, SRC: sta, DST: ap, BSSID: ap, ReplayCounter: 11}))
 
 	// Verify session captured map
-	session := getSession(hm, ap, sta)
-	assert.True(t, session.Captured[1], "M1 Missing")
-	assert.True(t, session.Captured[2], "M2 Missing")
-	assert.True(t, session.Captured[3], "M3 Missing")
-	assert.True(t, session.Captured[4], "M4 Missing")
+	sess := getSession(hm, ap, sta)
+	assert.True(t, sess.Captured[1], "M1 Missing")
+	assert.True(t, sess.Captured[2], "M2 Missing")
+	assert.True(t, sess.Captured[3], "M3 Missing")
+	assert.True(t, sess.Captured[4], "M4 Missing")
 }
 
 func TestScenario_PacketLoss_MidStreamJoin(t *testing.T) {
@@ -168,8 +169,8 @@ func TestScenario_PacketLoss_MidStreamJoin(t *testing.T) {
 
 	assert.True(t, hm.HasHandshake(ap), "M2+M3 should be valid")
 
-	session := getSession(hm, ap, sta)
-	assert.Equal(t, anonce, session.Anonce, "Anonce not recovered")
+	sess := getSession(hm, ap, sta)
+	assert.Equal(t, anonce, sess.Anonce, "Anonce not recovered")
 }
 
 func TestScenario_PacketLoss_MissedM2(t *testing.T) {
@@ -195,9 +196,9 @@ func TestScenario_Retransmissions(t *testing.T) {
 	hm.ProcessFrame(makeEAPOL(packetParams{MsgNum: 1, SRC: ap, DST: sta, BSSID: ap, ReplayCounter: 40}))
 	hm.ProcessFrame(makeEAPOL(packetParams{MsgNum: 1, SRC: ap, DST: sta, BSSID: ap, ReplayCounter: 40}))
 
-	session := getSession(hm, ap, sta)
-	assert.Equal(t, 0, session.SavedCount, "Duplicate M1 shouldn't trigger save or reset")
-	assert.True(t, session.Captured[1])
+	sess := getSession(hm, ap, sta)
+	assert.Equal(t, 0, sess.SavedCount, "Duplicate M1 shouldn't trigger save or reset")
+	assert.True(t, sess.Captured[1])
 
 	// M2 sent twice
 	hm.ProcessFrame(makeEAPOL(packetParams{MsgNum: 2, SRC: sta, DST: ap, BSSID: ap, ReplayCounter: 40}))
@@ -208,12 +209,12 @@ func TestScenario_Retransmissions(t *testing.T) {
 	// Correction: SavedCount is updated in HM structure immediately.
 
 	assert.True(t, hm.HasHandshake(ap))
-	firstSaveCount := session.SavedCount
+	firstSaveCount := sess.SavedCount
 
 	// Duplicate M2
 	hm.ProcessFrame(makeEAPOL(packetParams{MsgNum: 2, SRC: sta, DST: ap, BSSID: ap, ReplayCounter: 40}))
 
-	assert.Equal(t, firstSaveCount, session.SavedCount, "Duplicate M2 shouldn't trigger new save if content count same")
+	assert.Equal(t, firstSaveCount, sess.SavedCount, "Duplicate M2 shouldn't trigger new save if content count same")
 }
 
 func TestScenario_SessionReset(t *testing.T) {
@@ -230,10 +231,10 @@ func TestScenario_SessionReset(t *testing.T) {
 	// New Session (M1 with RC 9000)
 	hm.ProcessFrame(makeEAPOL(packetParams{MsgNum: 1, SRC: ap, DST: sta, BSSID: ap, ReplayCounter: 9000}))
 
-	session := getSession(hm, ap, sta)
-	assert.Equal(t, uint64(9000), session.ReplayCounter)
-	assert.True(t, session.Captured[1])
-	assert.False(t, session.Captured[2], "New session should clear old M2")
+	sess := getSession(hm, ap, sta)
+	assert.Equal(t, uint64(9000), sess.ReplayCounter)
+	assert.True(t, sess.Captured[1])
+	assert.False(t, sess.Captured[2], "New session should clear old M2")
 	assert.False(t, hm.HasHandshake(ap), "New session incomplete")
 }
 
@@ -252,9 +253,9 @@ func TestScenario_GroupKeyHandshake(t *testing.T) {
 
 	hm.ProcessFrame(gk)
 
-	session := getSession(hm, ap, sta)
+	sess := getSession(hm, ap, sta)
 	// Should not have reset the session
-	assert.Equal(t, uint64(60), session.ReplayCounter, "Group Key frame shouldn't reset Pairwise session")
+	assert.Equal(t, uint64(60), sess.ReplayCounter, "Group Key frame shouldn't reset Pairwise session")
 }
 
 func TestScenario_CornerCases(t *testing.T) {
@@ -273,11 +274,11 @@ func TestScenario_CornerCases(t *testing.T) {
 	// M3 with SAME RC (10) instead of 11.
 	hm.ProcessFrame(makeEAPOL(packetParams{MsgNum: 3, SRC: ap, DST: sta, BSSID: ap, ReplayCounter: 10, Nonce: anonce}))
 
-	session := getSession(hm, ap, sta)
-	assert.True(t, session.Captured[3], "Should accept M3 with same RC if Nonce matches (Relaxed compliance)")
+	sess := getSession(hm, ap, sta)
+	assert.True(t, sess.Captured[3], "Should accept M3 with same RC if Nonce matches (Relaxed compliance)")
 }
 
-func getSession(hm *HandshakeManager, bssid, sta string) *HandshakeSession {
+func getSession(hm *HandshakeManager, bssid, sta string) *session.HandshakeSession {
 	hm.mu.RLock()
 	defer hm.mu.RUnlock()
 	return hm.sessions[bssid+"_"+sta]

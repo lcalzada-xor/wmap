@@ -23,15 +23,15 @@ var (
 // DeviceFilter defines criteria for filtering and querying devices.
 // It follows the Specification Pattern by providing a Matches method to encapsulate filtering logic.
 type DeviceFilter struct {
-	Type               string    `json:"type"`                // "ap", "station", "" (empty = any)
-	MinRSSI            int       `json:"min_rssi"`            // -120 to 0
-	Security           string    `json:"security"`            // "WPA2", "OPEN", "" (empty = any)
-	HasWPS             *bool     `json:"has_wps"`             // nil = any, true = only WPS, false = no WPS
-	SeenAfter          time.Time `json:"seen_after"`          // Filter devices seen after this time
-	SeenBefore         time.Time `json:"seen_before"`         // Filter devices seen before this time
-	Vendor             string    `json:"vendor"`              // Partial match (case-insensitive)
-	SSID               string    `json:"ssid"`                // Partial match (case-insensitive)
-	IsRandomized       *bool     `json:"is_randomized"`       // nil = any
+	Type         string    `json:"type"`          // "ap", "station", "" (empty = any)
+	MinRSSI      int       `json:"min_rssi"`      // -120 to 0
+	Security     string    `json:"security"`      // "WPA2", "OPEN", "" (empty = any)
+	HasWPS       *bool     `json:"has_wps"`       // nil = any, true = only WPS, false = no WPS
+	SeenAfter    time.Time `json:"seen_after"`    // Filter devices seen after this time
+	SeenBefore   time.Time `json:"seen_before"`   // Filter devices seen before this time
+	Vendor       string    `json:"vendor"`        // Partial match (case-insensitive)
+	SSID         string    `json:"ssid"`          // Partial match (case-insensitive)
+	IsRandomized *bool     `json:"is_randomized"` // nil = any
 
 	// Pagination
 	Limit  int `json:"limit"`

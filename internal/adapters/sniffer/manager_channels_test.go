@@ -5,7 +5,6 @@ import (
 	"reflect"
 	"testing"
 
-
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/hopping"
 )
 

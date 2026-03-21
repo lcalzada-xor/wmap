@@ -11,14 +11,14 @@ import (
 
 // Config holds all application configuration.
 type Config struct {
-	Interfaces   []string
-	Addr         string
-	MockMode     bool
-	DBPath       string
-	PcapPath     string
-	GRPCPort     int
-	Debug        bool
-	DwellTime    int // in milliseconds
+	Interfaces        []string
+	Addr              string
+	MockMode          bool
+	DBPath            string
+	PcapPath          string
+	GRPCPort          int
+	Debug             bool
+	DwellTime         int // in milliseconds
 	WorkspaceDir      string
 	HandshakeDir      string
 	ChannelConfigPath string

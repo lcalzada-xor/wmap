@@ -67,7 +67,7 @@ func (rm *RadioManager) Lock(ctx context.Context, iface string, channel int) err
 	// and only unlock when the entire Lock operation is done.
 	// Actually, the original code used a defer on the interface-specific mutex.
 	// But it held it during channelSetter. Let's keep that behavior but cleaner.
-	
+
 	succeeded := false
 	defer func() {
 		if !succeeded {
@@ -95,11 +95,11 @@ func (rm *RadioManager) Lock(ctx context.Context, iface string, channel int) err
 	if h, ok := rm.handlers.Load(iface); ok && h != nil {
 		handler := h.(HopperPauser)
 		func() {
-				defer func() {
-					if r := recover(); r != nil {
-						log.Printf("[RadioManager] Recovered from panic in handler: %v", r)
-					}
-				}()
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[RadioManager] Recovered from panic in handler: %v", r)
+				}
+			}()
 			handler.PauseHopper(1 * time.Hour)
 		}()
 	}
@@ -137,7 +137,7 @@ func (rm *RadioManager) Unlock(ctx context.Context, iface string) error {
 
 	state.lockCount--
 	if state.lockCount <= 0 {
-		// Fully release. 
+		// Fully release.
 		// We don't necessarily need to delete from the map to avoid overhead of recreation,
 		// but we reset the state.
 		state.activeChannel = 0
@@ -164,7 +164,7 @@ func (rm *RadioManager) IsLocked(ctx context.Context, iface string) bool {
 		return false
 	}
 	state := actual.(*ifaceState)
-	
+
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	return state.lockCount > 0

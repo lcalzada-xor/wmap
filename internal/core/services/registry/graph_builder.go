@@ -105,8 +105,6 @@ func (b *GraphBuilder) BuildGraph(ctx context.Context) domain.GraphData {
 			label += "\n[5GHz]"
 		}
 
-
-
 		nodes = append(nodes, domain.GraphNode{
 			NodeIdentity: domain.NodeIdentity{
 				ID:        "dev_" + device.MAC,

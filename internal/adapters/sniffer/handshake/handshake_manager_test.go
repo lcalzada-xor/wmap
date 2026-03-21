@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/handshake/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -142,9 +143,7 @@ func TestHandshakeManager_ProcessFrame(t *testing.T) {
 
 	// 1. Inject Beacon to learn ESSID
 	// (Skipping complex beacon inject, can manually map in test or inject beacon packet)
-	hm.mu.Lock()
-	hm.bssidToEssid[bssid] = essid
-	hm.mu.Unlock()
+	hm.RegisterNetwork(bssid, essid)
 
 	// 2. Inject M1 (AP -> STA)
 	p1 := createEAPOLPacket(bssid, client, bssid, 1, 1) // RC=1
@@ -156,13 +155,13 @@ func TestHandshakeManager_ProcessFrame(t *testing.T) {
 	// Verify Session State
 	hm.mu.RLock()
 	key := bssid + "_" + client
-	session, exists := hm.sessions[key]
+	sess, exists := hm.sessions[key]
 	hm.mu.RUnlock()
 
 	if !exists {
 		t.Fatalf("Session not created")
 	}
-	if !session.Captured[1] {
+	if !sess.Captured[1] {
 		t.Errorf("M1 not captured")
 	}
 
@@ -185,10 +184,10 @@ func TestHandshakeManager_ProcessFrame(t *testing.T) {
 
 	// Check session count
 	hm.mu.RLock()
-	session = hm.sessions[key]
+	sess = hm.sessions[key]
 	hm.mu.RUnlock()
-	if session.SavedCount != 3 {
-		t.Errorf("SavedCount mismatch, got %d, want 3", session.SavedCount)
+	if sess.SavedCount != 3 {
+		t.Errorf("SavedCount mismatch, got %d, want 3", sess.SavedCount)
 	}
 
 	// 5. Test HasHandshake
@@ -211,21 +210,21 @@ func TestHandshakeManager_ManagementFrames(t *testing.T) {
 	// Verify session exists and has 1 frame
 	hm.mu.RLock()
 	key := bssid + "_" + client
-	session, exists := hm.sessions[key]
+	sess, exists := hm.sessions[key]
 	hm.mu.RUnlock()
 
 	assert.True(t, exists, "Session should be created even for Auth frames")
-	assert.Equal(t, 1, len(session.Frames), "Auth frame should be stored")
+	assert.Equal(t, 1, len(sess.Frames), "Auth frame should be stored")
 
 	// 2. Create Assoc Req (Station -> AP)
 	assoc := createAssocReqFrame(client, bssid)
 	hm.ProcessFrame(assoc)
 
 	hm.mu.RLock()
-	session = hm.sessions[key]
+	sess = hm.sessions[key]
 	hm.mu.RUnlock()
 
-	assert.Equal(t, 2, len(session.Frames), "Assoc frame should be stored")
+	assert.Equal(t, 2, len(sess.Frames), "Assoc frame should be stored")
 }
 
 func TestHandshakeManager_LinkTypeDetection(t *testing.T) {
@@ -248,11 +247,12 @@ func TestHandshakeManager_LinkTypeDetection(t *testing.T) {
 	hm.ProcessFrame(p1rt)
 
 	hm.mu.RLock()
-	session := hm.sessions[bssid1+"_"+client1]
+	sess, exists := hm.sessions[bssid1+"_"+client1]
 	hm.mu.RUnlock()
 
-	require.NotNil(t, session)
-	assert.Equal(t, layers.LinkTypeIEEE80211Radio, session.LinkType, "Should detect RadioTap LinkType")
+	require.True(t, exists)
+	require.NotNil(t, sess)
+	assert.Equal(t, layers.LinkTypeIEEE80211Radio, sess.LinkType, "Should detect RadioTap LinkType")
 
 	// 2. Packet without RadioTap (pure Dot11)
 	bssid2 := "00:11:22:33:44:66"
@@ -320,7 +320,7 @@ func TestHandshakeManager_HasHandshake(t *testing.T) {
 
 	// Manually inject state
 	hm.mu.Lock()
-	hm.sessions[bssid+"_client"] = &HandshakeSession{
+	hm.sessions[bssid+"_client"] = &session.HandshakeSession{
 		BSSID:    bssid,
 		Captured: map[uint8]bool{1: true, 2: true},
 	}
@@ -380,10 +380,10 @@ func TestHandshakeManager_Frankenstein(t *testing.T) {
 
 	// Verify session
 	hm.mu.RLock()
-	session, exists := hm.sessions[bssid+"_"+client]
+	sess, exists := hm.sessions[bssid+"_"+client]
 	hm.mu.RUnlock()
 	assert.True(t, exists)
-	assert.True(t, session.HasReplayCounter)
+	assert.True(t, sess.HasReplayCounter)
 
 	// 2. M2 (STA->AP) matches RC.
 	p2 := createEAPOLPacket(client, bssid, bssid, 2, 100)

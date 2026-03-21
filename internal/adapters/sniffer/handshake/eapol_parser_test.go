@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/handshake/parser"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -48,14 +49,14 @@ func TestParseEAPOLKey_ValidM1(t *testing.T) {
 	// M1: KeyAck=1, KeyMIC=0, KeyInstall=0, KeyPairwise=1, KeySecure=0
 	// Info: 0000 0000 1000 1001 (0x0089 with Version 1) or 0x008A (Version 2)
 	// Pairwise(bit 3)=1, Ack(bit 7)=1.
-	keyInfo := uint16(KeyInfoKeyType | KeyInfoKeyAck | 2) // Version 2
+	keyInfo := uint16(parser.KeyInfoKeyType | parser.KeyInfoKeyAck | 2) // Version 2
 
 	nonce := make([]byte, 32)
 	nonce[0] = 0xAA // Anonce
 
 	pkt := createTestEAPOLFrame(t, 3, keyInfo, 1, nonce, nil, nil)
 
-	frame, err := ParseEAPOLKey(pkt)
+	frame, err := parser.ParseEAPOLKey(pkt)
 	assert.NoError(t, err)
 	assert.NotNil(t, frame)
 	assert.Equal(t, uint64(1), frame.ReplayCounter)
@@ -70,7 +71,7 @@ func TestParseEAPOLKey_ValidM1(t *testing.T) {
 func TestParseEAPOLKey_ValidM2(t *testing.T) {
 	// M2: KeyMIC=1, KeyAck=0, KeySecure=0.
 	// Info: MIC(bit 8)=1, Pairwise=1.
-	keyInfo := uint16(KeyInfoKeyType | KeyInfoKeyMIC | 2)
+	keyInfo := uint16(parser.KeyInfoKeyType | parser.KeyInfoKeyMIC | 2)
 
 	nonce := make([]byte, 32)
 	nonce[0] = 0xBB // Snonce
@@ -80,7 +81,7 @@ func TestParseEAPOLKey_ValidM2(t *testing.T) {
 
 	pkt := createTestEAPOLFrame(t, 3, keyInfo, 1, nonce, mic, data)
 
-	frame, err := ParseEAPOLKey(pkt)
+	frame, err := parser.ParseEAPOLKey(pkt)
 	assert.NoError(t, err)
 	assert.True(t, frame.HasMIC)
 	assert.False(t, frame.HasAck)
@@ -90,10 +91,10 @@ func TestParseEAPOLKey_ValidM2(t *testing.T) {
 func TestParseEAPOLKey_ValidM3(t *testing.T) {
 	// M3: KeyMIC=1, KeyAck=1, KeySecure=0/1(Install).
 	// Info: MIC=1, Ack=1, Pairwise=1
-	keyInfo := uint16(KeyInfoKeyType | KeyInfoKeyMIC | KeyInfoKeyAck | KeyInfoInstall | 2)
+	keyInfo := uint16(parser.KeyInfoKeyType | parser.KeyInfoKeyMIC | parser.KeyInfoKeyAck | parser.KeyInfoInstall | 2)
 
 	pkt := createTestEAPOLFrame(t, 3, keyInfo, 2, nil, []byte{1}, nil)
-	frame, err := ParseEAPOLKey(pkt)
+	frame, err := parser.ParseEAPOLKey(pkt)
 	assert.NoError(t, err)
 	assert.Equal(t, 3, frame.DetermineMessageNumber())
 }
@@ -105,7 +106,7 @@ func TestParseEAPOLKey_Truncated(t *testing.T) {
 	raw[1] = 3 // Key Type
 	pkt := gopacket.NewPacket(raw, layers.LayerTypeEAPOL, gopacket.Default)
 
-	frame, err := ParseEAPOLKey(pkt)
+	frame, err := parser.ParseEAPOLKey(pkt)
 	assert.Error(t, err)
 	assert.Nil(t, frame)
 	assert.Contains(t, err.Error(), "payload too short")

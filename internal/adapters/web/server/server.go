@@ -14,24 +14,24 @@ import (
 
 // Server handles HTTP and WebSocket connections.
 type Server struct {
-	Addr             string
-	Service          ports.NetworkService
-	WSManager        *web.WSManager
+	Addr      string
+	Service   ports.NetworkService
+	WSManager *web.WSManager
 
-	ScanHandler      *handlers.ScanHandler
-	ConfigHandler    *handlers.ConfigHandler
-	srv              *http.Server
+	ScanHandler   *handlers.ScanHandler
+	ConfigHandler *handlers.ConfigHandler
+	srv           *http.Server
 }
 
 // NewServer creates a new web server.
 func NewServer(addr string, service ports.NetworkService) *Server {
 	return &Server{
-		Addr:             addr,
-		Service:          service,
+		Addr:    addr,
+		Service: service,
 
-		WSManager:        web.NewWSManager(service),
-		ScanHandler:      handlers.NewScanHandler(service),
-		ConfigHandler:    handlers.NewConfigHandler(service),
+		WSManager:     web.NewWSManager(service),
+		ScanHandler:   handlers.NewScanHandler(service),
+		ConfigHandler: handlers.NewConfigHandler(service),
 	}
 }
 

@@ -12,10 +12,10 @@ import (
 )
 
 type NetworkService struct {
-	registry     ports.DeviceRegistry
-	security     ports.SecurityEngine
-	persistence  *persistence.PersistenceManager
-	sniffer      ports.Sniffer
+	registry    ports.DeviceRegistry
+	security    ports.SecurityEngine
+	persistence *persistence.PersistenceManager
+	sniffer     ports.Sniffer
 
 	statsService *StatsService
 	mu           sync.RWMutex

@@ -22,8 +22,8 @@ type GraphNode struct {
 	ConnectionDetails
 
 	// State and Metadata
-	Title           string             `json:"title,omitempty"` // Tooltip/Popup content
-	IsStale         bool               `json:"is_stale,omitempty"`
+	Title   string `json:"title,omitempty"` // Tooltip/Popup content
+	IsStale bool   `json:"is_stale,omitempty"`
 }
 
 // NodeIdentity encapsulates basic identification and classification.

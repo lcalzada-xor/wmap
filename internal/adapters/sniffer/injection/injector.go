@@ -260,5 +260,3 @@ func (i *Injector) OptimizeInterfaceForInjection() {
 		log.Printf("Interface %s optimized for robust injection (Legacy 2.4/5GHz)", i.Interface)
 	}
 }
-
-
