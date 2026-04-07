@@ -50,24 +50,33 @@ func toDomain(m DeviceModel) *domain.Device {
 		ConnectionError:  m.ConnectionError,
 	}
 
-	// Behavioral Reconstruction
-	var activeHours []int
-	if m.ActiveHours != "" {
-		_ = json.Unmarshal([]byte(m.ActiveHours), &activeHours)
-	}
-	dev.Behavioral = &domain.BehavioralProfile{
-		MAC:            m.MAC,
-		ProbeFrequency: time.Duration(m.ProbeFrequency),
-		UniqueSSIDs:    m.UniqueSSIDs,
-		AnomalyScore:   m.AnomalyScore,
-		ActiveHours:    activeHours,
-		LastUpdated:    m.LastSeen,
-	}
-
 	// Map Security & Cracking fields (Restoration)
 	dev.HasHandshake = m.HasHandshake
 	dev.HandshakeFile = m.HandshakeFile
 	dev.IEFingerprint = m.IEFingerprint
+
+	// --- Restore Missing Fields ---
+	dev.LastANonce = m.LastANonce
+	dev.ProbeHash = m.ProbeHash
+	dev.ManufacturerRaw = m.ManufacturerRaw
+	dev.VendorConfidence = m.VendorConfidence
+
+	if m.Capabilities != "" {
+		_ = json.Unmarshal([]byte(m.Capabilities), &dev.Capabilities)
+	}
+	if m.MobilityDomain != "" {
+		_ = json.Unmarshal([]byte(m.MobilityDomain), &dev.MobilityDomain)
+	}
+	if m.BSSLoad != "" {
+		_ = json.Unmarshal([]byte(m.BSSLoad), &dev.BSSLoad)
+	}
+	if m.ObservedSSIDs != "" {
+		_ = json.Unmarshal([]byte(m.ObservedSSIDs), &dev.ObservedSSIDs)
+	}
+	if m.IETags != "" {
+		_ = json.Unmarshal([]byte(m.IETags), &dev.IETags)
+	}
+	// ------------------------------
 
 	if m.EncryptionDetails != "" {
 		_ = json.Unmarshal([]byte(m.EncryptionDetails), &dev.RSNInfo)
@@ -117,20 +126,38 @@ func toModel(d domain.Device) DeviceModel {
 		ConnectionError:  d.ConnectionError,
 	}
 
-	if d.Behavioral != nil {
-		model.ProbeFrequency = int64(d.Behavioral.ProbeFrequency)
-		model.UniqueSSIDs = d.Behavioral.UniqueSSIDs
-		model.AnomalyScore = d.Behavioral.AnomalyScore
-		if d.Behavioral.ActiveHours != nil {
-			hBytes, _ := json.Marshal(d.Behavioral.ActiveHours)
-			model.ActiveHours = string(hBytes)
-		}
-	}
-
 	// Map Security & Cracking fields
 	model.HasHandshake = d.HasHandshake
 	model.HandshakeFile = d.HandshakeFile
 	model.IEFingerprint = d.IEFingerprint
+
+	// --- Map Missing Fields ---
+	model.LastANonce = d.LastANonce
+	model.ProbeHash = d.ProbeHash
+	model.ManufacturerRaw = d.ManufacturerRaw
+	model.VendorConfidence = d.VendorConfidence
+
+	if len(d.Capabilities) > 0 {
+		b, _ := json.Marshal(d.Capabilities)
+		model.Capabilities = string(b)
+	}
+	if d.MobilityDomain != nil {
+		b, _ := json.Marshal(d.MobilityDomain)
+		model.MobilityDomain = string(b)
+	}
+	if d.BSSLoad != nil {
+		b, _ := json.Marshal(d.BSSLoad)
+		model.BSSLoad = string(b)
+	}
+	if len(d.ObservedSSIDs) > 0 {
+		b, _ := json.Marshal(d.ObservedSSIDs)
+		model.ObservedSSIDs = string(b)
+	}
+	if len(d.IETags) > 0 {
+		b, _ := json.Marshal(d.IETags)
+		model.IETags = string(b)
+	}
+	// --------------------------
 
 	if d.RSNInfo != nil {
 		rsnBytes, _ := json.Marshal(d.RSNInfo)

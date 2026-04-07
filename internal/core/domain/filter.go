@@ -36,6 +36,11 @@ type DeviceFilter struct {
 	// Pagination
 	Limit  int `json:"limit"`
 	Offset int `json:"offset"`
+
+	// Internal pre-calculated fields for performance
+	vendorLower string
+	ssidLower   string
+	isCompiled  bool
 }
 
 // NewDeviceFilter initializes a filter with sensible defaults.
@@ -67,6 +72,11 @@ func (f *DeviceFilter) WithSSID(ssid string) *DeviceFilter {
 	return f
 }
 
+func (f *DeviceFilter) WithVendor(v string) *DeviceFilter {
+	f.Vendor = v
+	return f
+}
+
 func (f *DeviceFilter) WithLimit(limit int) *DeviceFilter {
 	f.Limit = limit
 	return f
@@ -78,6 +88,7 @@ func (f *DeviceFilter) WithOffset(offset int) *DeviceFilter {
 }
 
 // Validate ensures the filter criteria are architecturally and logically valid.
+// It also triggers internal compilation of search terms for performance.
 func (f *DeviceFilter) Validate() error {
 	if f.MinRSSI < -120 || f.MinRSSI > 0 {
 		return ErrInvalidRSSI
@@ -85,7 +96,47 @@ func (f *DeviceFilter) Validate() error {
 	if !f.SeenAfter.IsZero() && !f.SeenBefore.IsZero() && f.SeenAfter.After(f.SeenBefore) {
 		return ErrInvalidTimeRange
 	}
+
+	f.compile()
 	return nil
+}
+
+func (f *DeviceFilter) compile() {
+	if f.Vendor != "" {
+		f.vendorLower = strings.ToLower(f.Vendor)
+	}
+	if f.SSID != "" {
+		f.ssidLower = strings.ToLower(f.SSID)
+	}
+	f.isCompiled = true
+}
+
+// Apply filters a slice of devices in-memory, including pagination.
+func (f *DeviceFilter) Apply(devices []Device) []Device {
+	// Ensure filter is compiled
+	if !f.isCompiled {
+		f.compile()
+	}
+
+	var filtered []Device
+	for _, d := range devices {
+		if f.Matches(&d) {
+			filtered = append(filtered, d)
+		}
+	}
+
+	// Apply Offset
+	if f.Offset >= len(filtered) {
+		return []Device{}
+	}
+	filtered = filtered[f.Offset:]
+
+	// Apply Limit
+	if f.Limit > 0 && f.Limit < len(filtered) {
+		filtered = filtered[:f.Limit]
+	}
+
+	return filtered
 }
 
 // Matches implements the Specification Pattern.
@@ -93,6 +144,11 @@ func (f *DeviceFilter) Validate() error {
 func (f *DeviceFilter) Matches(d *Device) bool {
 	if d == nil {
 		return false
+	}
+
+	// Ensure compilation (usually called via Validate, but safe here too)
+	if !f.isCompiled {
+		f.compile()
 	}
 
 	// 1. Type Match (d.Type is DeviceType)
@@ -112,8 +168,9 @@ func (f *DeviceFilter) Matches(d *Device) bool {
 
 	// 4. WPS Match
 	if f.HasWPS != nil {
-		// Logic inferred from Device struct (WPSInfo and WPSDetails pointer)
-		hasWPS := strings.Contains(strings.ToUpper(d.WPSInfo), "WPS") || d.WPSDetails != nil
+		// Detect WPS presence consistently with the storage layer: 
+		// Field is not empty OR detail pointer exists.
+		hasWPS := d.WPSInfo != "" || d.WPSDetails != nil
 		if *f.HasWPS != hasWPS {
 			return false
 		}
@@ -127,13 +184,13 @@ func (f *DeviceFilter) Matches(d *Device) bool {
 		return false
 	}
 
-	// 6. Vendor Match (Case-insensitive partial, from Identity embedded struct)
-	if f.Vendor != "" && !strings.Contains(strings.ToLower(d.Vendor), strings.ToLower(f.Vendor)) {
+	// 6. Vendor Match (Case-insensitive partial, optimized)
+	if f.vendorLower != "" && !strings.Contains(strings.ToLower(d.Vendor), f.vendorLower) {
 		return false
 	}
 
-	// 7. SSID Match (Case-insensitive partial)
-	if f.SSID != "" && !strings.Contains(strings.ToLower(d.SSID), strings.ToLower(f.SSID)) {
+	// 7. SSID Match (Case-insensitive partial, optimized)
+	if f.ssidLower != "" && !strings.Contains(strings.ToLower(d.SSID), f.ssidLower) {
 		return false
 	}
 

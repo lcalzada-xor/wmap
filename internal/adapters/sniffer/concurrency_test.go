@@ -25,7 +25,7 @@ func TestSnifferManager_Locking_Concurrency(t *testing.T) {
 
 	// 2. Initialize SnifferManager with RadioManager
 	// We pass nil for dependencies we don't need for this test
-	manager := NewManager([]string{"wlan0"}, 100, false, nil, radioMgr, "/tmp/handshakes", "/tmp/channels.json")
+	manager := NewManager([]string{"wlan0"}, 100, false, nil, radioMgr, "/tmp/handshakes", "/tmp/channels.json", nil)
 
 	ctx := context.Background()
 

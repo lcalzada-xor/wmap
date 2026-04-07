@@ -14,12 +14,10 @@ const (
 )
 
 var (
-	// reMAC matches standard MAC address formats (XX:XX:XX:XX:XX:XX or XX-XX-XX-XX-XX-XX).
-	reMAC = regexp.MustCompile(`^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$`)
-
 	// reInterface validates network interface names to prevent shell injection
 	// and ensure compatibility with Linux naming conventions.
-	reInterface = regexp.MustCompile(`^[a-zA-Z0-9\-_]+$`)
+	// Includes dots for VLANs/subinterfaces (e.g. eth0.100).
+	reInterface = regexp.MustCompile(`^[a-zA-Z0-9\-_.]+$`)
 )
 
 // Validator defines the bridge for domain-level validation logic.
@@ -34,14 +32,15 @@ type Validator interface {
 type DefaultValidator struct{}
 
 // MAC validates a hardware address for both syntactic format and semantic correctness.
+// It relies on the standard library net.ParseMAC for robust validation.
 func (v DefaultValidator) MAC(mac string) error {
-	if !reMAC.MatchString(mac) {
-		return fmt.Errorf("%w: invalid format '%s' (expected XX:XX:XX:XX:XX:XX)", ErrInvalidMAC, mac)
+	if mac == "" {
+		return fmt.Errorf("%w: cannot be empty", ErrInvalidMAC)
 	}
 
-	// Ensure it's a valid hardware address according to the standard library
+	// Reliance on standard library for robust parsing (handles :, -, . and no-separator formats)
 	if _, err := net.ParseMAC(mac); err != nil {
-		return fmt.Errorf("%w: semantic error: %v", ErrInvalidMAC, err)
+		return fmt.Errorf("%w: %v", ErrInvalidMAC, err)
 	}
 
 	return nil
@@ -67,7 +66,7 @@ func (v DefaultValidator) Interface(name string) error {
 // SSID validates an IEEE 802.11 SSID (Service Set Identifier).
 func (v DefaultValidator) SSID(ssid string) error {
 	if len(ssid) == 0 || len(ssid) > MaxSSIDLength {
-		return fmt.Errorf("invalid SSID length: %d (must be 1-32 bytes)", len(ssid))
+		return fmt.Errorf("%w: length %d (must be 1-32 bytes)", ErrInvalidSSID, len(ssid))
 	}
 	return nil
 }
@@ -79,10 +78,19 @@ var domainValidator Validator = DefaultValidator{}
 
 // IsValidMAC checks if the string is a valid MAC address.
 func IsValidMAC(mac string) bool {
-	return domainValidator.MAC(mac) == nil
+	_, err := net.ParseMAC(mac)
+	return err == nil
 }
 
 // IsValidInterface checks if the string is a safe interface name.
 func IsValidInterface(iface string) bool {
-	return domainValidator.Interface(iface) == nil
+	if len(iface) == 0 || len(iface) > MaxInterfaceNameLength {
+		return false
+	}
+	return reInterface.MatchString(iface)
+}
+
+// IsValidSSID checks if the string is a valid SSID.
+func IsValidSSID(ssid string) bool {
+	return len(ssid) > 0 && len(ssid) <= MaxSSIDLength
 }

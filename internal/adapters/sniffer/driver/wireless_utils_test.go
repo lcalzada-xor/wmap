@@ -23,7 +23,7 @@ func TestParseRSN(t *testing.T) {
 	assert.NoError(t, err)
 
 	assert.Equal(t, uint16(1), rsn.Version)
-	assert.Equal(t, "CCMP", rsn.GroupCipher)
+	assert.Equal(t, "CCMP-128", rsn.GroupCipher)
 	assert.Contains(t, rsn.AKMSuites, "PSK")
 }
 

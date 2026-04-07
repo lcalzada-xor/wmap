@@ -7,142 +7,108 @@ import (
 
 func TestConnectionStateManager_UpdateState(t *testing.T) {
 	sm := NewConnectionStateManager()
-	deviceMAC := "00:11:22:33:44:55"
-	targetBSSID := "AA:BB:CC:DD:EE:FF"
+	mac := "00:11:22:33:44:55"
+	target := "AA:BB:CC:DD:EE:FF"
 
-	// 1. Initial State -> Auth
-	state, target := sm.UpdateState(deviceMAC, ConnectionEvent{
+	// Initial state
+	state := sm.GetState(mac)
+	if state != StateDisconnected {
+		t.Errorf("Expected initial state Disconnected, got %s", state)
+	}
+
+	// Auth Request
+	now := time.Now()
+	s, bssid := sm.UpdateState(mac, ConnectionEvent{
 		Type:      EventAuthReq,
-		SourceMAC: deviceMAC,
-		TargetMAC: targetBSSID,
-		Timestamp: time.Now(),
+		TargetMAC: target,
+		Timestamp: now,
 	})
 
-	if state != StateAuthenticating {
-		t.Errorf("Expected StateAuthenticating, got %v", state)
-	}
-	if target != targetBSSID {
-		t.Errorf("Expected target %s, got %s", targetBSSID, target)
+	if s != StateAuthenticating || bssid != target {
+		t.Errorf("Expected Authenticating/target, got %s/%s", s, bssid)
 	}
 
-	// 2. Auth -> Assoc
-	state, target = sm.UpdateState(deviceMAC, ConnectionEvent{
-		Type:      EventAssocReq,
-		SourceMAC: deviceMAC,
-		TargetMAC: targetBSSID,
-		Timestamp: time.Now(),
-	})
-
-	if state != StateAssociating {
-		t.Errorf("Expected StateAssociating, got %v", state)
-	}
-
-	// 3. Assoc -> EAPOL (Handshake)
-	state, target = sm.UpdateState(deviceMAC, ConnectionEvent{
-		Type:      EventEAPOL,
-		SourceMAC: deviceMAC,
-		TargetMAC: targetBSSID,
-		Timestamp: time.Now(),
-	})
-
-	if state != StateHandshake {
-		t.Errorf("Expected StateHandshake, got %v", state)
-	}
-
-	// 4. EAPOL -> Data (Connected)
-	state, target = sm.UpdateState(deviceMAC, ConnectionEvent{
+	// Data Transfer (Connected)
+	s, bssid = sm.UpdateState(mac, ConnectionEvent{
 		Type:      EventDataTransfer,
-		SourceMAC: deviceMAC,
-		TargetMAC: targetBSSID,
-		Timestamp: time.Now(),
+		TargetMAC: target,
+		Timestamp: now.Add(100 * time.Millisecond),
 	})
 
-	if state != StateConnected {
-		t.Errorf("Expected StateConnected, got %v", state)
+	if s != StateConnected {
+		t.Errorf("Expected Connected, got %s", s)
 	}
 
-	// 5. Deauth -> Disconnected
-	state, target = sm.UpdateState(deviceMAC, ConnectionEvent{
+	// Deauth
+	s, bssid = sm.UpdateState(mac, ConnectionEvent{
 		Type:      EventDeauth,
-		SourceMAC: deviceMAC,
-		TargetMAC: targetBSSID,
-		Timestamp: time.Now(),
+		Timestamp: now.Add(200 * time.Millisecond),
 	})
 
-	if state != StateDisconnected {
-		t.Errorf("Expected StateDisconnected, got %v", state)
+	if s != StateDisconnected || bssid != "" {
+		t.Errorf("Expected Disconnected/empty, got %s/%s", s, bssid)
 	}
-	if target != "" {
-		t.Errorf("Expected empty target on deauth, got %s", target)
+
+	// Debounce check: Data transfer immediately after Deauth should be ignored
+	s, bssid = sm.UpdateState(mac, ConnectionEvent{
+		Type:      EventDataTransfer,
+		TargetMAC: target,
+		Timestamp: now.Add(250 * time.Millisecond), // Only 50ms after Deauth
+	})
+
+	if s != StateDisconnected {
+		t.Errorf("Expected state to remain Disconnected due to debounce, got %s", s)
+	}
+
+	// After debounce period
+	s, bssid = sm.UpdateState(mac, ConnectionEvent{
+		Type:      EventDataTransfer,
+		TargetMAC: target,
+		Timestamp: now.Add(800 * time.Millisecond), // 600ms after Deauth (> 500ms debounce)
+	})
+
+	if s != StateConnected {
+		t.Errorf("Expected Connected after debounce period, got %s", s)
 	}
 }
 
-func TestConnectionStateManager_DataConfirm(t *testing.T) {
+func TestConnectionStateManager_Cleanup(t *testing.T) {
 	sm := NewConnectionStateManager()
-	deviceMAC := "00:11:22:33:44:55"
-	targetBSSID := "AA:BB:CC:DD:EE:FF"
+	mac1 := "00:00:00:00:00:01"
+	mac2 := "00:00:00:00:00:02"
 
-	// Direct Data from Disconnected -> Connected
-	state, target := sm.UpdateState(deviceMAC, ConnectionEvent{
-		Type:      EventDataTransfer,
-		SourceMAC: deviceMAC,
-		TargetMAC: targetBSSID,
-		Timestamp: time.Now(),
-	})
+	now := time.Now()
+	sm.UpdateState(mac1, ConnectionEvent{Type: EventAuthReq, Timestamp: now.Add(-10 * time.Minute)})
+	sm.UpdateState(mac2, ConnectionEvent{Type: EventAuthReq, Timestamp: now.Add(-1 * time.Minute)})
 
-	if state != StateConnected {
-		t.Errorf("Expected StateConnected from direct data, got %v", state)
+	// Cleanup with 5m TTL should remove mac1 but keep mac2
+	evicted := sm.Cleanup(5 * time.Minute)
+	if evicted != 1 {
+		t.Errorf("Expected 1 evicted entry, got %d", evicted)
 	}
-	if target != targetBSSID {
-		t.Errorf("Expected target %s, got %s", targetBSSID, target)
+
+	if sm.GetState(mac1) != StateDisconnected {
+		t.Error("mac1 should have been evicted")
+	}
+	if sm.GetState(mac2) != StateAuthenticating {
+		t.Error("mac2 should still be present")
 	}
 }
 
-func TestConnectionStateManager_Debounce(t *testing.T) {
+func TestConnectionStateManager_Sharding(t *testing.T) {
 	sm := NewConnectionStateManager()
-	deviceMAC := "00:11:22:33:44:55"
-	targetBSSID := "AA:BB:CC:DD:EE:FF"
-
-	// 1. Set to Connected
-	sm.UpdateState(deviceMAC, ConnectionEvent{
-		Type:      EventDataTransfer,
-		SourceMAC: deviceMAC,
-		TargetMAC: targetBSSID,
-		Timestamp: time.Now(),
-	})
-
-	// 2. Deauth (sets LastStateChange to Now)
-	sm.UpdateState(deviceMAC, ConnectionEvent{
-		Type:      EventDeauth,
-		SourceMAC: deviceMAC,
-		TargetMAC: targetBSSID,
-		Timestamp: time.Now(),
-	})
-
-	// 3. Fast Reconnect attempt via Data (Ghost packet)
-	// Should be ignored due to < 500ms debounce
-	state, _ := sm.UpdateState(deviceMAC, ConnectionEvent{
-		Type:      EventDataTransfer,
-		SourceMAC: deviceMAC,
-		TargetMAC: targetBSSID,
-		Timestamp: time.Now(),
-	})
-
-	if state != StateDisconnected {
-		t.Errorf("Expected StateDisconnected (Debounced), got %v", state)
+	
+	// Ensure different MACs land in different shards (statistically likely for 16 shards and many MACs)
+	// We just want to make sure it doesn't crash and returns correct data.
+	for i := 0; i < 100; i++ {
+		mac := string([]byte{byte(i)}) // dummy mac
+		sm.UpdateState(mac, ConnectionEvent{Type: EventAuthReq, Timestamp: time.Now()})
 	}
-
-	// 4. Valid Reconnect after delay
-	// We simulate a packet from the future
-	futureTime := time.Now().Add(1 * time.Second)
-	state, _ = sm.UpdateState(deviceMAC, ConnectionEvent{
-		Type:      EventDataTransfer,
-		SourceMAC: deviceMAC,
-		TargetMAC: targetBSSID,
-		Timestamp: futureTime,
-	})
-
-	if state != StateConnected {
-		t.Errorf("Expected StateConnected after delay, got %v", state)
+	
+	for i := 0; i < 100; i++ {
+		mac := string([]byte{byte(i)})
+		if sm.GetState(mac) != StateAuthenticating {
+			t.Errorf("MAC %d lost its state", i)
+		}
 	}
 }

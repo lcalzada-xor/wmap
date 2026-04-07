@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/lcalzada-xor/wmap/internal/adapters/fingerprint"
@@ -16,7 +17,7 @@ import (
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/driver"
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/mock"
 	"github.com/lcalzada-xor/wmap/internal/adapters/storage"
-	webserver "github.com/lcalzada-xor/wmap/internal/adapters/web/server"
+	webserver "github.com/lcalzada-xor/wmap/internal/adapters/web"
 	"github.com/lcalzada-xor/wmap/internal/config"
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
 	"github.com/lcalzada-xor/wmap/internal/core/ports"
@@ -32,7 +33,7 @@ type Application struct {
 	NetworkService     *network.NetworkService
 	WebServer          *webserver.Server
 	SnifferRunner      ports.Sniffer
-	PersistenceManager *persistence.PersistenceManager
+	PersistenceManager ports.PersistenceService
 	VendorRepo         fingerprint.VendorRepository
 	MockIntegration    interface{}
 
@@ -69,19 +70,19 @@ func (app *Application) bootstrap() error {
 	}
 
 	sigMatcher := app.loadSignatures()
-	devRegistry := registry.NewDeviceRegistry(interface{}(sigMatcher).(ports.SignatureMatcher))
-	securityEngine := security.NewSecurityEngine(interface{}(devRegistry).(ports.DeviceRegistry))
-	app.PersistenceManager = persistence.NewPersistenceManager(interface{}(systemStore).(ports.Storage), 10000)
+	devRegistry := registry.NewDeviceRegistry(sigMatcher)
+	securityEngine := security.NewSecurityEngine(devRegistry)
+	app.PersistenceManager = persistence.NewPersistenceManager(systemStore, 10000)
 
 	if err := app.initNetworking(devRegistry, securityEngine); err != nil {
 		return err
 	}
 
-	app.initServers(systemStore, devRegistry)
+	app.initServers(devRegistry)
 
 	if app.Config.MockMode {
 		app.MockIntegration = "mock_enabled"
-		log.Println("Mock Mode Active: Virtualizing network environment")
+		slog.Info("Mock Mode Active: Virtualizing network environment")
 	}
 
 	return nil
@@ -122,7 +123,7 @@ func (app *Application) initNetworkDriver() error {
 	for _, iface := range app.Config.Interfaces {
 		if err := driver.EnableMonitorMode(iface); err != nil {
 			// If we fail, restore any interfaces we already configured
-			log.Printf("Failed to enable monitor mode on %s, restoring previously configured interfaces...", iface)
+			slog.Warn("Failed to enable monitor mode, restoring previously configured interfaces...", "interface", iface)
 			for _, successIface := range successfulInterfaces {
 				driver.DisableMonitorMode(successIface)
 			}
@@ -145,52 +146,68 @@ func (app *Application) loadSignatures() *fingerprint.SignatureStore {
 
 func (app *Application) initNetworking(reg *registry.DeviceRegistry, sec *security.SecurityEngine) error {
 	if app.Config.MockMode {
-		deviceChan := make(chan domain.Device, 100)
+		deviceChan := make(chan domain.Device, 1000) // Increased buffer size
 		alertChan := make(chan domain.Alert, 100)
 		mockSniffer := mock.NewMock(deviceChan)
-		app.SnifferRunner = interface{}(mockSniffer).(ports.Sniffer)
+		app.SnifferRunner = mockSniffer
 		app.sourceDeviceChan = deviceChan
 		app.sourceAlertChan = alertChan
 		app.sourceEventChan = make(chan domain.ConnectionEvent)
 	} else {
 		radioMgr := radio.NewRadioManager()
-		manager := sniffer.NewManager(app.Config.Interfaces, app.Config.DwellTime, app.Config.Debug, app.VendorRepo, radioMgr, app.Config.HandshakeDir, app.Config.ChannelConfigPath)
-		app.SnifferRunner = interface{}(manager).(ports.Sniffer)
+		manager := sniffer.NewManager(app.Config.Interfaces, app.Config.DwellTime, app.Config.Debug, app.VendorRepo, radioMgr, app.Config.HandshakeDir, app.Config.ChannelConfigPath, nil)
+		app.SnifferRunner = manager
 		app.sourceDeviceChan = manager.Output
 		app.sourceAlertChan = manager.Alerts
 		app.sourceEventChan = manager.Events
 	}
-	app.NetworkService = network.NewNetworkService(interface{}(reg).(ports.DeviceRegistry), interface{}(sec).(ports.SecurityEngine), app.PersistenceManager, interface{}(app.SnifferRunner).(ports.Sniffer))
+	app.NetworkService = network.NewNetworkService(reg, sec, app.PersistenceManager, app.SnifferRunner)
 	return nil
 }
 
-func (app *Application) initServers(systemStore *storage.SQLiteAdapter, devRegistry *registry.DeviceRegistry) {
+func (app *Application) initServers(devRegistry *registry.DeviceRegistry) {
 	app.WebServer = webserver.NewServer(
 		app.Config.Addr,
-		interface{}(app.NetworkService).(ports.NetworkService),
+		app.NetworkService,
 	)
 }
 
 func (app *Application) Run(ctx context.Context) error {
 	slog.Info("Starting WMAP components...")
 
-	app.NetworkService.StartCleanupLoop(ctx, 10*time.Minute, 1*time.Minute)
+	var wg sync.WaitGroup
+
+	app.NetworkService.StartCleanupLoop(ctx, 10*time.Minute, 1*time.Minute, 2*time.Minute)
 	app.PersistenceManager.Start(ctx)
 
-	go app.runAlertPump(ctx)
-	go app.runEventWorker(ctx)
-	app.runDeviceWorkers(ctx)
+	wg.Add(1)
+	go app.runAlertPump(ctx, &wg)
+
+	wg.Add(1)
+	go app.runEventWorker(ctx, &wg)
+
+	app.runDeviceWorkers(ctx, &wg)
 
 	errChan := make(chan error, 3)
 
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		if err := app.WebServer.Run(ctx); err != nil {
 			errChan <- fmt.Errorf("web server error: %w", err)
 		}
 	}()
 
+	wg.Add(1)
 	go func() {
-		time.Sleep(1 * time.Second)
+		defer wg.Done()
+		// Wait a bit to ensure server is ready before starting capture
+		select {
+		case <-time.After(500 * time.Millisecond):
+		case <-ctx.Done():
+			return
+		}
+
 		if err := app.SnifferRunner.Start(ctx); err != nil {
 			errChan <- fmt.Errorf("sniffer error: %w", err)
 		}
@@ -198,39 +215,66 @@ func (app *Application) Run(ctx context.Context) error {
 
 	slog.Info("WMAP Ready. Press Ctrl+C to terminate.")
 
+	var err error
 	select {
 	case <-ctx.Done():
-		slog.Info("Termination signal received")
+		slog.Info("Termination signal received, shutting down gracefully...")
 		if app.NetworkService != nil {
 			app.NetworkService.Close()
 		}
-		time.Sleep(1 * time.Second)
-	case err := <-errChan:
+		if app.PersistenceManager != nil {
+			app.PersistenceManager.Close()
+		}
+	case err = <-errChan:
+		slog.Error("Critical component failure", "error", err)
+	}
+
+	// Graceful shutdown with timeout
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		slog.Info("All components stopped gracefully")
+	case <-time.After(5 * time.Second):
+		slog.Warn("Timed out waiting for components to stop, proceeding with cleanup")
+	}
+
+	if err != nil {
 		return err
 	}
 
 	return app.cleanup()
 }
 
-func (app *Application) runAlertPump(ctx context.Context) {
+func (app *Application) runAlertPump(ctx context.Context, wg *sync.WaitGroup) {
+	defer wg.Done()
+	slog.Debug("Alert pump started")
 	for {
 		select {
 		case <-ctx.Done():
+			slog.Debug("Alert pump stopping")
 			return
 		case a := <-app.sourceAlertChan:
-			slog.Info("Alert", "type", a.Type, "msg", a.Message)
+			slog.Info("Alert received", "type", a.Type, "msg", a.Message)
 			app.WebServer.BroadcastAlert(a)
 		}
 	}
 }
 
-func (app *Application) runEventWorker(ctx context.Context) {
+func (app *Application) runEventWorker(ctx context.Context, wg *sync.WaitGroup) {
+	defer wg.Done()
 	if app.sourceEventChan == nil {
 		return
 	}
+	slog.Debug("Event worker started")
 	for {
 		select {
 		case <-ctx.Done():
+			slog.Debug("Event worker stopping")
 			return
 		case e := <-app.sourceEventChan:
 			if app.PersistenceManager != nil {
@@ -240,19 +284,25 @@ func (app *Application) runEventWorker(ctx context.Context) {
 	}
 }
 
-func (app *Application) runDeviceWorkers(ctx context.Context) {
+func (app *Application) runDeviceWorkers(ctx context.Context, wg *sync.WaitGroup) {
 	numWorkers := runtime.NumCPU()
+	slog.Debug("Starting device workers", "count", numWorkers)
 	for i := 0; i < numWorkers; i++ {
-		go func() {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
 			for {
 				select {
 				case <-ctx.Done():
+					slog.Debug("Device worker stopping", "id", workerID)
 					return
 				case d := <-app.sourceDeviceChan:
-					app.NetworkService.ProcessDevice(context.Background(), d)
+					if err := app.NetworkService.ProcessDevice(ctx, d); err != nil {
+						slog.Error("Failed to process device", "error", err, "mac", d.MAC)
+					}
 				}
 			}
-		}()
+		}(i)
 	}
 }
 

@@ -5,17 +5,11 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/channelstore"
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/hopping"
 )
 
 func TestManagerChannels(t *testing.T) {
-	// Setup Manager with manual sniffers
-	m := &SnifferManager{
-		Interfaces: []string{"wlan0", "wlan1"},
-	}
-
-	// Create dummy sniffers with hoppers
-	// Note: We don't start them, so no exec.Command calls happen
 	s0 := &Sniffer{
 		Config: SnifferConfig{Interface: "wlan0"},
 		Hopper: &hopping.ChannelHopper{Channels: []int{1, 6}},
@@ -24,9 +18,14 @@ func TestManagerChannels(t *testing.T) {
 		Config: SnifferConfig{Interface: "wlan1"},
 		Hopper: &hopping.ChannelHopper{Channels: []int{36, 40}},
 	}
-	m.Sniffers = []*Sniffer{s0, s1}
 
-	// Test GetInterfaces
+	// Manager backed by real sniffers in its map but without starting them.
+	m := &SnifferManager{
+		Interfaces:   []string{"wlan0", "wlan1"},
+		sniffers:     map[string]*Sniffer{"wlan0": s0, "wlan1": s1},
+		channelStore: channelstore.New(t.TempDir() + "/channels.json"),
+	}
+
 	t.Run("GetInterfaces", func(t *testing.T) {
 		got, err := m.GetInterfaces(context.Background())
 		if err != nil {
@@ -38,53 +37,45 @@ func TestManagerChannels(t *testing.T) {
 		}
 	})
 
-	// Test GetInterfaceChannels
 	t.Run("GetInterfaceChannels", func(t *testing.T) {
 		got, err := m.GetInterfaceChannels(context.Background(), "wlan0")
 		if err != nil {
-			t.Fatalf("GetInterfaceChannels failed: %v", err)
+			t.Fatalf("unexpected error: %v", err)
 		}
-		want := []int{1, 6}
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("GetInterfaceChannels(wlan0) = %v, want %v", got, want)
+		if !reflect.DeepEqual(got, []int{1, 6}) {
+			t.Errorf("GetInterfaceChannels(wlan0) = %v, want [1 6]", got)
 		}
 
 		got, err = m.GetInterfaceChannels(context.Background(), "wlan1")
 		if err != nil {
-			t.Fatalf("GetInterfaceChannels failed: %v", err)
+			t.Fatalf("unexpected error: %v", err)
 		}
-		want = []int{36, 40}
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("GetInterfaceChannels(wlan1) = %v, want %v", got, want)
+		if !reflect.DeepEqual(got, []int{36, 40}) {
+			t.Errorf("GetInterfaceChannels(wlan1) = %v, want [36 40]", got)
 		}
 
-		got, _ = m.GetInterfaceChannels(context.Background(), "wlan99") // Missing
+		got, _ = m.GetInterfaceChannels(context.Background(), "wlan99")
 		if len(got) != 0 {
 			t.Errorf("GetInterfaceChannels(wlan99) = %v, want []", got)
 		}
 	})
 
-	// Test SetInterfaceChannels
 	t.Run("SetInterfaceChannels", func(t *testing.T) {
 		newChans := []int{11}
 		m.SetInterfaceChannels(context.Background(), "wlan0", newChans)
 
 		got, err := m.GetInterfaceChannels(context.Background(), "wlan0")
 		if err != nil {
-			t.Fatalf("GetInterfaceChannels failed: %v", err)
+			t.Fatalf("unexpected error: %v", err)
 		}
 		if !reflect.DeepEqual(got, newChans) {
-			t.Errorf("SetInterfaceChannels failed. Got %v, want %v", got, newChans)
+			t.Errorf("SetInterfaceChannels: got %v, want %v", got, newChans)
 		}
 
-		// Ensure wlan1 is untouched
-		got1, err := m.GetInterfaceChannels(context.Background(), "wlan1")
-		if err != nil {
-			t.Fatalf("GetInterfaceChannels failed: %v", err)
-		}
-		want1 := []int{36, 40}
-		if !reflect.DeepEqual(got1, want1) {
-			t.Errorf("Side effect on wlan1. Got %v, want %v", got1, want1)
+		// wlan1 must be untouched.
+		got1, _ := m.GetInterfaceChannels(context.Background(), "wlan1")
+		if !reflect.DeepEqual(got1, []int{36, 40}) {
+			t.Errorf("side-effect on wlan1: got %v, want [36 40]", got1)
 		}
 	})
 }

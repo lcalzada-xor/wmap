@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
+	"github.com/lcalzada-xor/wmap/internal/core/ports"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -41,6 +42,8 @@ func (m *MockRegistryGraph) UpdateSSID(ctx context.Context, ssid, security strin
 func (m *MockRegistryGraph) CleanupStaleConnections(ctx context.Context, timeout time.Duration) int {
 	return 0
 }
+func (m *MockRegistryGraph) AddObserver(observer ports.DeviceObserver) {}
+
 
 // Helpers for test stubs
 func (m *MockRegistryGraph) Close() error { return nil }

@@ -18,12 +18,10 @@ type GraphNode struct {
 	NodeIdentity
 	RadioDetails
 	TrafficStats
-	NodeBehavioralData
 	ConnectionDetails
 
 	// State and Metadata
-	Title   string `json:"title,omitempty"` // Tooltip/Popup content
-	IsStale bool   `json:"is_stale,omitempty"`
+	IsStale bool `json:"is_stale,omitempty"`
 }
 
 // NodeIdentity encapsulates basic identification and classification.
@@ -33,33 +31,41 @@ type NodeIdentity struct {
 	Group     GraphGroup `json:"group"` // "ap", "station", "network"
 	MAC       string     `json:"mac,omitempty"`
 	Vendor    string     `json:"vendor,omitempty"`
+	Signature string     `json:"signature,omitempty"`
+	Model     string     `json:"model,omitempty"`
+	OS        string     `json:"os,omitempty"`
 	FirstSeen time.Time  `json:"first_seen,omitempty"`
 	LastSeen  time.Time  `json:"last_seen,omitempty"`
 }
 
 // RadioDetails encapsulates WiFi physical and link layer attributes.
 type RadioDetails struct {
+	// Strings and Slices (16-24 bytes)
 	SSID          string   `json:"ssid,omitempty"`
-	Channel       int      `json:"channel,omitempty"`
-	ChannelWidth  int      `json:"bw"`
-	Frequency     int      `json:"frequency,omitempty"`
-	RSSI          int      `json:"rssi,omitempty"`
 	Security      string   `json:"security,omitempty"`
 	Standard      string   `json:"standard,omitempty"`
-	Capabilities  []string `json:"capabilities,omitempty"`
-	IsWiFi6       bool     `json:"is_wifi6,omitempty"`
-	IsWiFi7       bool     `json:"is_wifi7,omitempty"`
-	IsRandomized  bool     `json:"is_randomized,omitempty"`
-	HasHandshake  bool     `json:"has_handshake,omitempty"`
-	ProbedSSIDs   []string `json:"probedSSIDs,omitempty"`
-	IETags        []int    `json:"ieTags,omitempty"`
 	WPSInfo       string   `json:"wps_info,omitempty"` // "Configured", "Unconfigured" or empty
 	HandshakeFile string   `json:"handshake_file,omitempty"`
+	Capabilities  []string `json:"capabilities,omitempty"`
+	ProbedSSIDs   []string `json:"probedSSIDs,omitempty"`
+	IETags        []int    `json:"ieTags,omitempty"`
 
-	// Richer Details (Added for Node Details Panel)
+	// Pointers (8 bytes)
 	RSNInfo        *RSNInfo        `json:"rsn_info,omitempty"`
 	WPSDetails     *WPSDetails     `json:"wps_details,omitempty"`
 	MobilityDomain *MobilityDomain `json:"mobility_domain,omitempty"`
+
+	// Numerics (8 bytes)
+	Channel      int `json:"channel,omitempty"`
+	ChannelWidth int `json:"bw"`
+	Frequency    int `json:"frequency,omitempty"`
+	RSSI         int `json:"rssi,omitempty"`
+
+	// Booleans (1 byte)
+	IsWiFi6      bool `json:"is_wifi6,omitempty"`
+	IsWiFi7      bool `json:"is_wifi7,omitempty"`
+	IsRandomized bool `json:"is_randomized,omitempty"`
+	HasHandshake bool `json:"has_handshake,omitempty"`
 }
 
 // TrafficStats captures data transmission metrics.
@@ -70,15 +76,6 @@ type TrafficStats struct {
 	RetryCount      int   `json:"retries"`
 }
 
-// NodeBehavioralData encapsulates higher-level analysis results.
-type NodeBehavioralData struct {
-	ProbeFrequency string  `json:"probeFreq,omitempty"`
-	AnomalyScore   float64 `json:"anomalyScore,omitempty"`
-	ActiveHours    []int   `json:"activeHours,omitempty"`
-	Signature      string  `json:"signature,omitempty"`
-	Model          string  `json:"model,omitempty"`
-	OS             string  `json:"os,omitempty"`
-}
 
 // ConnectionDetails captures current association state.
 type ConnectionDetails struct {

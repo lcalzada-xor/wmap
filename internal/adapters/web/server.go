@@ -1,4 +1,4 @@
-package server
+package web
 
 import (
 	"context"
@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/lcalzada-xor/wmap/internal/adapters/web"
 	"github.com/lcalzada-xor/wmap/internal/adapters/web/handlers"
+	"github.com/lcalzada-xor/wmap/internal/adapters/web/ws"
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
 	"github.com/lcalzada-xor/wmap/internal/core/ports"
 )
@@ -16,11 +16,10 @@ import (
 type Server struct {
 	Addr      string
 	Service   ports.NetworkService
-	WSManager *web.WSManager
+	WSManager *ws.Manager
 
-	ScanHandler   *handlers.ScanHandler
-	ConfigHandler *handlers.ConfigHandler
-	srv           *http.Server
+	API *handlers.API
+	srv *http.Server
 }
 
 // NewServer creates a new web server.
@@ -29,9 +28,8 @@ func NewServer(addr string, service ports.NetworkService) *Server {
 		Addr:    addr,
 		Service: service,
 
-		WSManager:     web.NewWSManager(service),
-		ScanHandler:   handlers.NewScanHandler(service),
-		ConfigHandler: handlers.NewConfigHandler(service),
+		WSManager: ws.NewManager(service),
+		API:       handlers.NewAPI(service, service),
 	}
 }
 

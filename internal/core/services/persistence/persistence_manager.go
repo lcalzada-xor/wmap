@@ -2,13 +2,15 @@ package persistence
 
 import (
 	"context"
-	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
 	"github.com/lcalzada-xor/wmap/internal/core/ports"
 )
+
+var _ ports.PersistenceService = (*PersistenceManager)(nil)
 
 // PersistenceManager handles background batch writing of devices to storage.
 type PersistenceManager struct {
@@ -19,6 +21,9 @@ type PersistenceManager struct {
 	interval    time.Duration
 	enabled     bool
 	mu          sync.RWMutex
+	wg          sync.WaitGroup
+	ctx         context.Context
+	cancel      context.CancelFunc
 }
 
 // NewPersistenceManager creates a new manager.
@@ -86,17 +91,29 @@ func (p *PersistenceManager) SetStorage(storage ports.Storage) {
 
 // Start begins the persistence loop.
 func (p *PersistenceManager) Start(ctx context.Context) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Ensure we don't start multiple loops
+	if p.ctx != nil {
+		return
+	}
+
+	p.ctx, p.cancel = context.WithCancel(ctx)
 	ticker := time.NewTicker(p.interval)
-	buffer := make(map[string]domain.Device)
-	eventBuffer := make([]domain.ConnectionEvent, 0, p.batchSize)
+	p.wg.Add(1)
 
 	go func() {
+		defer p.wg.Done()
 		defer ticker.Stop()
+
+		buffer := make(map[string]domain.Device)
+		eventBuffer := make([]domain.ConnectionEvent, 0, p.batchSize)
+
 		for {
 			select {
-			case <-ctx.Done():
-				p.flushBuffer(buffer)
-				p.flushEvents(eventBuffer)
+			case <-p.ctx.Done():
+				p.flushAll(buffer, eventBuffer)
 				return
 			case dev := <-p.persistChan:
 				buffer[dev.MAC] = dev
@@ -124,36 +141,86 @@ func (p *PersistenceManager) Start(ctx context.Context) {
 	}()
 }
 
+// Close performs a final flush and stops the background loop.
+func (p *PersistenceManager) Close() error {
+	p.mu.Lock()
+	if p.cancel != nil {
+		p.cancel()
+	}
+	p.mu.Unlock()
+
+	// Wait for the loop to finish flushing
+	p.wg.Wait()
+	return nil
+}
+
+func (p *PersistenceManager) flushAll(buffer map[string]domain.Device, eventBuffer []domain.ConnectionEvent) {
+	// Final flush on shutdown
+	if len(buffer) > 0 {
+		p.flushBuffer(buffer)
+	}
+	if len(eventBuffer) > 0 {
+		p.flushEvents(eventBuffer)
+	}
+}
+
 func (p *PersistenceManager) flushBuffer(buffer map[string]domain.Device) {
-	if len(buffer) == 0 || p.storage == nil {
+	if len(buffer) == 0 {
 		return
 	}
+
+	p.mu.RLock()
+	store := p.storage
+	p.mu.RUnlock()
+
+	if store == nil {
+		return
+	}
+
 	var devices []domain.Device
 	for _, d := range buffer {
 		devices = append(devices, d)
 	}
-	if err := p.storage.SaveDevicesBatch(context.Background(), devices); err != nil {
-		fmt.Printf("[DB-ERR] Failed to batch save devices: %v\n", err)
+
+	// Use background context or a dedicated shutdown context to ensure this completes
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := store.SaveDevicesBatch(ctx, devices); err != nil {
+		slog.Error("Failed to batch save devices", "error", err, "count", len(devices))
 	}
 }
 
 func (p *PersistenceManager) flushEvents(events []domain.ConnectionEvent) {
-	if len(events) == 0 || p.storage == nil {
+	if len(events) == 0 {
 		return
 	}
-	// TODO: Add Batch Save to interface for performance
-	for _, e := range events {
-		if err := p.storage.SaveConnectionEvent(context.Background(), e); err != nil {
-			fmt.Printf("[DB-ERR] Failed to save event: %v\n", err)
-		}
+
+	p.mu.RLock()
+	store := p.storage
+	p.mu.RUnlock()
+
+	if store == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := store.SaveConnectionEventsBatch(ctx, events); err != nil {
+		slog.Error("Failed to batch save connection events", "error", err, "count", len(events))
 	}
 }
 
 // GetConnectionHistory retrieves stored connection events for a device.
 func (p *PersistenceManager) GetConnectionHistory(ctx context.Context, mac string) ([]domain.ConnectionEvent, error) {
-	if p.storage == nil {
+	p.mu.RLock()
+	store := p.storage
+	p.mu.RUnlock()
+
+	if store == nil {
 		return nil, nil
 	}
 	// Default limit 100 for now, could be parameterized
-	return p.storage.GetConnectionHistory(ctx, mac, 100)
+	return store.GetConnectionHistory(ctx, mac, 100)
 }

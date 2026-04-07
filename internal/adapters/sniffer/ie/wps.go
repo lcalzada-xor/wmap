@@ -1,14 +1,17 @@
 package ie
 
+import "strings"
+
 // WPSInfo contains details extracted from WPS IEs
 type WPSInfo struct {
-	Manufacturer  string
-	Model         string
-	DeviceName    string
-	State         string // "Unconfigured" | "Configured"
-	Version       string // "1.0" | "2.0"
-	Locked        bool
-	ConfigMethods []string
+	Manufacturer     string
+	Model            string
+	DeviceName       string
+	State            string // "Unconfigured" | "Configured"
+	Version          string // "1.0" | "2.0"
+	Locked           bool
+	ConfigMethods    []string
+	DevicePasswordID string // "PIN", "PBC", etc.
 }
 
 // ParseWPSAttributes parses the attributes within a WPS Data Element (after OUI/Type headers).
@@ -66,9 +69,40 @@ func ParseWPSAttributes(data []byte) *WPSInfo {
 				pwdID := (int(valBytes[0]) << 8) | int(valBytes[1])
 				switch pwdID {
 				case 0x0000:
-					info.ConfigMethods = append(info.ConfigMethods, "PIN")
+					info.DevicePasswordID = "PIN"
 				case 0x0004:
+					info.DevicePasswordID = "PBC"
+				}
+			}
+		case 0x1008: // Config Methods
+			if len(valBytes) >= 2 {
+				methods := (int(valBytes[0]) << 8) | int(valBytes[1])
+				if methods&0x0001 != 0 {
+					info.ConfigMethods = append(info.ConfigMethods, "USBA")
+				}
+				if methods&0x0002 != 0 {
+					info.ConfigMethods = append(info.ConfigMethods, "Ethernet")
+				}
+				if methods&0x0004 != 0 {
+					info.ConfigMethods = append(info.ConfigMethods, "Label")
+				}
+				if methods&0x0008 != 0 {
+					info.ConfigMethods = append(info.ConfigMethods, "Display")
+				}
+				if methods&0x0010 != 0 {
+					info.ConfigMethods = append(info.ConfigMethods, "ExtNFC")
+				}
+				if methods&0x0020 != 0 {
+					info.ConfigMethods = append(info.ConfigMethods, "IntNFC")
+				}
+				if methods&0x0040 != 0 {
+					info.ConfigMethods = append(info.ConfigMethods, "NFC-IF")
+				}
+				if methods&0x0080 != 0 {
 					info.ConfigMethods = append(info.ConfigMethods, "PBC")
+				}
+				if methods&0x0100 != 0 {
+					info.ConfigMethods = append(info.ConfigMethods, "Keypad")
 				}
 			}
 		}
@@ -79,45 +113,7 @@ func ParseWPSAttributes(data []byte) *WPSInfo {
 	return info
 }
 
-// safeString converts bytes to string, validating UTF-8 first
+// safeString converts bytes to string, keeping only valid UTF-8 characters
 func safeString(data []byte) string {
-	// Check for valid UTF-8
-	for i := 0; i < len(data); {
-		r, size := decodeRune(data[i:])
-		if r == '\ufffd' && size == 1 {
-			// Invalid UTF-8, return empty or sanitized version
-			return ""
-		}
-		i += size
-	}
-	return string(data)
-}
-
-// decodeRune is a simplified UTF-8 decoder
-func decodeRune(data []byte) (rune, int) {
-	if len(data) == 0 {
-		return '\ufffd', 0
-	}
-
-	// ASCII fast path
-	if data[0] < 0x80 {
-		return rune(data[0]), 1
-	}
-
-	// For simplicity, accept all multi-byte sequences
-	// A full implementation would validate continuation bytes
-	if data[0] < 0xC0 {
-		return '\ufffd', 1
-	}
-	if data[0] < 0xE0 && len(data) >= 2 {
-		return rune(data[0]), 2
-	}
-	if data[0] < 0xF0 && len(data) >= 3 {
-		return rune(data[0]), 3
-	}
-	if len(data) >= 4 {
-		return rune(data[0]), 4
-	}
-
-	return '\ufffd', 1
+	return strings.ToValidUTF8(string(data), "")
 }

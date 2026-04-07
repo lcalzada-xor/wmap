@@ -89,9 +89,13 @@ type SignatureStore struct {
 	Signatures []domain.DeviceSignature
 }
 
-// NewSignatureStore creates a new store.
+// NewSignatureStore creates a new store and pre-compiles all signatures.
 func NewSignatureStore(sigs []domain.DeviceSignature) *SignatureStore {
-	return &SignatureStore{Signatures: sigs}
+	store := &SignatureStore{Signatures: sigs}
+	for i := range store.Signatures {
+		store.Signatures[i].Compile()
+	}
+	return store
 }
 
 // MatchSignature finds the highest-confidence match for a device.
@@ -99,8 +103,8 @@ func NewSignatureStore(sigs []domain.DeviceSignature) *SignatureStore {
 func (s *SignatureStore) MatchSignature(ctx context.Context, device domain.Device) *domain.SignatureMatch {
 	var best *domain.SignatureMatch
 
-	for _, sig := range s.Signatures {
-		m := sig.CalculateMatch(&device)
+	for i := range s.Signatures {
+		m := s.Signatures[i].CalculateMatch(&device)
 		if m == nil {
 			continue
 		}

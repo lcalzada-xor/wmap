@@ -7,6 +7,12 @@ import (
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
 )
 
+// DeviceObserver defines the interface for components interested in device updates.
+type DeviceObserver interface {
+	OnDeviceUpdated(ctx context.Context, device domain.Device)
+	OnDeviceAdded(ctx context.Context, device domain.Device)
+}
+
 // DeviceRegistry manages the volatile, in-memory state of discovered devices.
 // Optimized for fast retrieval and real-time updates during capture.
 type DeviceRegistry interface {
@@ -35,4 +41,8 @@ type DeviceRegistry interface {
 
 	// Clear resets the registry state.
 	Clear(ctx context.Context)
+
+	// Observer management
+	AddObserver(observer DeviceObserver)
 }
+

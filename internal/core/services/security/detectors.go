@@ -31,9 +31,6 @@ func (d *RetryRateDetector) Analyze(device *domain.Device, _ ports.DeviceRegistr
 		return nil
 	}
 
-	d.ensureBehavioral(device)
-	device.Behavioral.AnomalyDetails["HIGH_RETRY_RATE"] = rate
-
 	return []domain.Alert{{
 		Type:      domain.AlertAnomaly,
 		Subtype:   "HIGH_RETRY_RATE",
@@ -44,14 +41,6 @@ func (d *RetryRateDetector) Analyze(device *domain.Device, _ ports.DeviceRegistr
 	}}
 }
 
-func (d *RetryRateDetector) ensureBehavioral(device *domain.Device) {
-	if device.Behavioral == nil {
-		device.Behavioral = &domain.BehavioralProfile{}
-	}
-	if device.Behavioral.AnomalyDetails == nil {
-		device.Behavioral.AnomalyDetails = make(map[string]float64)
-	}
-}
 
 // ClientKarmaDetector identifies potential Karma or Honeypot attacks.
 type ClientKarmaDetector struct{}
@@ -62,14 +51,6 @@ func (d *ClientKarmaDetector) Analyze(device *domain.Device, _ ports.DeviceRegis
 	if len(device.ProbedSSIDs) <= 5 {
 		return nil
 	}
-
-	if device.Behavioral == nil {
-		device.Behavioral = &domain.BehavioralProfile{}
-	}
-	if device.Behavioral.AnomalyDetails == nil {
-		device.Behavioral.AnomalyDetails = make(map[string]float64)
-	}
-	device.Behavioral.AnomalyDetails["KARMA"] = 0.8
 
 	return []domain.Alert{{
 		Type:      domain.AlertAnomaly,
@@ -95,14 +76,6 @@ func (d *EvilTwinDetector) Analyze(device *domain.Device, registry ports.DeviceR
 	if !known || expectedSecurity == "" || device.Security == expectedSecurity {
 		return nil
 	}
-
-	if device.Behavioral == nil {
-		device.Behavioral = &domain.BehavioralProfile{}
-	}
-	if device.Behavioral.AnomalyDetails == nil {
-		device.Behavioral.AnomalyDetails = make(map[string]float64)
-	}
-	device.Behavioral.AnomalyDetails["EVIL_TWIN"] = 0.9
 
 	return []domain.Alert{{
 		Type:      domain.AlertAnomaly,
@@ -146,13 +119,10 @@ func (d *APKarmaDetector) Analyze(device *domain.Device, _ ports.DeviceRegistry)
 
 	// Filter out false positives (Mesh networks often use same BSSID? No, usually different VAP BSSIDs).
 	// But let's check for multiple *distinct* SSIDs.
-	// ObservedSSIDs list is already unique-filtered by DeviceMerger.
+	// ObservedSSIDs list is already unique-filtered by domain level UpdateFrom.
 
 	if len(device.ObservedSSIDs) >= 2 {
 		details := fmt.Sprintf("AP broadcasting %d distinct SSIDs: %v", len(device.ObservedSSIDs), device.ObservedSSIDs)
-
-		d.ensureBehavioral(device)
-		device.Behavioral.AnomalyDetails["KARMA_AP"] = 0.95
 
 		return []domain.Alert{{
 			Type:      domain.AlertAnomaly,
@@ -167,14 +137,6 @@ func (d *APKarmaDetector) Analyze(device *domain.Device, _ ports.DeviceRegistry)
 	return nil
 }
 
-func (d *APKarmaDetector) ensureBehavioral(device *domain.Device) {
-	if device.Behavioral == nil {
-		device.Behavioral = &domain.BehavioralProfile{}
-	}
-	if device.Behavioral.AnomalyDetails == nil {
-		device.Behavioral.AnomalyDetails = make(map[string]float64)
-	}
-}
 
 // RuleDetector evaluates user-defined alert rules.
 type RuleDetector struct {

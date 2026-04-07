@@ -18,6 +18,25 @@ func (a *SQLiteAdapter) SaveConnectionEvent(ctx context.Context, event domain.Co
 	return a.db.WithContext(ctx).Create(&model).Error
 }
 
+// SaveConnectionEventsBatch persists multiple connection events in a single transaction.
+func (a *SQLiteAdapter) SaveConnectionEventsBatch(ctx context.Context, events []domain.ConnectionEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+	models := make([]ConnectionEventModel, len(events))
+	for i, event := range events {
+		models[i] = ConnectionEventModel{
+			DeviceMAC: event.SourceMAC,
+			EventType: string(event.Type),
+			TargetMAC: event.TargetMAC,
+			Timestamp: event.Timestamp,
+			Reason:    event.Reason,
+		}
+	}
+	// GORM handles batch insertion automatically
+	return a.db.WithContext(ctx).Create(&models).Error
+}
+
 // GetConnectionHistory retrieves history for a device.
 func (a *SQLiteAdapter) GetConnectionHistory(ctx context.Context, mac string, limit int) ([]domain.ConnectionEvent, error) {
 	if limit <= 0 {

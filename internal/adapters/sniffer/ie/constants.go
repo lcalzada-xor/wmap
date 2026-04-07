@@ -9,11 +9,13 @@ const (
 	TagSupportedRates       = 1
 	TagDSParameterSet       = 3   // Channel
 	TagTrafficIndicationMap = 5
+	TagBSSLoad              = 11
 	TagERP                  = 42
 	TagHTCapabilities       = 45  // 802.11n / WiFi 4
 	TagRSN                  = 48  // WPA2 / WPA3 security info
 	TagExtendedRates        = 50
 	TagMobilityDomain       = 54  // 802.11r Fast BSS Transition
+	TagFastBssTransition    = 55  // 802.11r FTE
 	TagHTOperation          = 61
 	TagRadioMeasurement     = 70  // 802.11k Neighbor Reports
 	TagExtendedCapabilities = 127 // 802.11v BSS Transition Management

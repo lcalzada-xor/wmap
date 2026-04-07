@@ -3,28 +3,31 @@ package network
 import (
 	"context"
 	"log"
-	"sync"
 	"time"
 
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
 	"github.com/lcalzada-xor/wmap/internal/core/ports"
-	"github.com/lcalzada-xor/wmap/internal/core/services/persistence"
 )
 
+// NetworkService orchestrates the core logic of the application by coordinating
+// registry, security, persistence, and sniffing components.
 type NetworkService struct {
 	registry    ports.DeviceRegistry
 	security    ports.SecurityEngine
-	persistence *persistence.PersistenceManager
+	persistence ports.PersistenceService
 	sniffer     ports.Sniffer
 
 	statsService *StatsService
-	mu           sync.RWMutex
+	
+	// Lifecycle
+	cancelCleanup context.CancelFunc
 }
 
+// NewNetworkService creates a new instance of the orchestrator.
 func NewNetworkService(
 	registry ports.DeviceRegistry,
 	security ports.SecurityEngine,
-	persistence *persistence.PersistenceManager,
+	persistence ports.PersistenceService,
 	sniffer ports.Sniffer,
 ) *NetworkService {
 	return &NetworkService{
@@ -36,24 +39,38 @@ func NewNetworkService(
 	}
 }
 
+// ProcessDevice handles a new device observation, merging it into the registry,
+// performing security analysis, and queuing it for persistence.
 func (s *NetworkService) ProcessDevice(ctx context.Context, newDevice domain.Device) error {
+	// 1. Update Registry
 	merged, _ := s.registry.ProcessDevice(ctx, newDevice)
+
+	// 2. Analyze Security
 	s.security.Analyze(ctx, merged)
+
+	// 3. Persist if enabled
 	if s.persistence != nil {
 		s.persistence.Persist(merged)
 	}
+
+	// 4. Placeholder AP Logic
+	// If the device is associated with a target (BSSID) not yet in our registry,
+	// we create a placeholder AP entry to represent the network structure.
+	// Note: ConnectedSSID is currently used as BSSID by the parser handlers.
 	if merged.ConnectedSSID != "" {
 		if _, ok := s.registry.GetDevice(ctx, merged.ConnectedSSID); !ok {
+			now := time.Now()
 			placeholder := domain.Device{
 				MAC:            merged.ConnectedSSID,
-				Type:           "ap",
-				FirstSeen:      time.Now(),
-				LastSeen:       time.Now(),
-				LastPacketTime: time.Now(),
+				Type:           domain.DeviceTypeAP,
+				FirstSeen:      now,
+				LastSeen:       now,
+				LastPacketTime: now,
 			}
 			s.registry.ProcessDevice(ctx, placeholder)
 		}
 	}
+
 	return nil
 }
 
@@ -84,7 +101,15 @@ func (s *NetworkService) TriggerScan(ctx context.Context) error {
 	return s.sniffer.Scan(ctx, "")
 }
 
-func (s *NetworkService) StartCleanupLoop(ctx context.Context, ttl time.Duration, interval time.Duration) {
+func (s *NetworkService) StartCleanupLoop(ctx context.Context, ttl time.Duration, interval time.Duration, staleTimeout time.Duration) {
+	// Ensure we only have one loop or at least can cancel the previous one
+	if s.cancelCleanup != nil {
+		s.cancelCleanup()
+	}
+
+	loopCtx, cancel := context.WithCancel(ctx)
+	s.cancelCleanup = cancel
+
 	ticker := time.NewTicker(interval)
 	go func() {
 		defer ticker.Stop()
@@ -95,11 +120,11 @@ func (s *NetworkService) StartCleanupLoop(ctx context.Context, ttl time.Duration
 		}()
 		for {
 			select {
-			case <-ctx.Done():
+			case <-loopCtx.Done():
 				return
 			case <-ticker.C:
-				s.registry.PruneOldDevices(ctx, ttl)
-				s.registry.CleanupStaleConnections(ctx, 2*time.Minute)
+				s.registry.PruneOldDevices(loopCtx, ttl)
+				s.registry.CleanupStaleConnections(loopCtx, staleTimeout)
 			}
 		}
 	}()
@@ -169,6 +194,10 @@ func (s *NetworkService) GetSystemStats(ctx context.Context) (domain.SystemStats
 	return s.statsService.GetSystemStats(ctx)
 }
 
+// Close performs a graceful shutdown of background loops.
 func (s *NetworkService) Close() error {
+	if s.cancelCleanup != nil {
+		s.cancelCleanup()
+	}
 	return nil
 }

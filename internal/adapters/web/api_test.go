@@ -14,7 +14,7 @@ import (
 
 func TestScanHandler_HandleScan(t *testing.T) {
 	mockSvc := &mockNetworkService{}
-	handler := NewScanHandler(mockSvc)
+	handler := NewAPI(mockSvc, mockSvc)
 
 	t.Run("Valid Request", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/scan", nil)
@@ -31,7 +31,7 @@ func TestScanHandler_HandleScan(t *testing.T) {
 
 func TestScanHandler_HandleChannels(t *testing.T) {
 	mockSvc := &mockNetworkService{}
-	handler := NewScanHandler(mockSvc)
+	handler := NewAPI(mockSvc, mockSvc)
 
 	t.Run("GET Channels - Global", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/channels", nil)
@@ -39,7 +39,7 @@ func TestScanHandler_HandleChannels(t *testing.T) {
 
 		mockSvc.On("GetChannels", mock.Anything).Return([]int{1, 6, 11}, nil).Once()
 
-		handler.HandleChannels(w, req)
+		handler.HandleGetChannels(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		var resp map[string]interface{}
@@ -58,7 +58,7 @@ func TestScanHandler_HandleChannels(t *testing.T) {
 
 		mockSvc.On("SetInterfaceChannels", mock.Anything, "wlan0", []int{1, 3, 5}).Return(nil).Once()
 
-		handler.HandleChannels(w, req)
+		handler.HandleUpdateChannels(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 	})
@@ -66,7 +66,7 @@ func TestScanHandler_HandleChannels(t *testing.T) {
 
 func TestScanHandler_HandleListInterfaces(t *testing.T) {
 	mockSvc := &mockNetworkService{}
-	handler := NewScanHandler(mockSvc)
+	handler := NewAPI(mockSvc, mockSvc)
 
 	t.Run("Valid Request", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/interfaces", nil)

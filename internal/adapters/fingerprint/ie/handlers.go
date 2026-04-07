@@ -42,6 +42,12 @@ func (r *HandlerRegistry) registerDefaults() {
 	r.Register(&ExtensionHandler{})
 	r.Register(&ExtendedCapabilitiesHandler{})
 	r.Register(&VendorSpecificHandler{})
+	r.Register(&SupportedRatesHandler{})
+	r.Register(&ExtendedRatesHandler{})
+	r.Register(&TIMHandler{})
+	r.Register(&BSSLoadHandler{})
+	r.Register(&ERPHandler{})
+	r.Register(&FTEHandler{})
 }
 
 // Register adds a handler to the registry.
@@ -90,15 +96,24 @@ func (h *RSNHandler) Handle(val []byte, device *domain.Device) error {
 		return nil
 	}
 
-	switch {
-	case containsString(rsn.AKMSuites, "SAE"):
-		device.Security = "WPA3"
-	case containsString(rsn.AKMSuites, "PSK"):
-		device.Security = "WPA2-PSK"
-	case containsString(rsn.AKMSuites, "802.1X"):
-		device.Security = "WPA2-Enterprise"
-	default:
-		device.Security = "WPA2"
+	device.Security = "WPA2" // Default
+
+	// Determine Security based on AKM Suites
+	for _, akm := range rsn.AKMSuites {
+		if akm == "SAE" || akm == "FT-SAE" || akm == "AKM-SUITE-B-SHA256" || akm == "AKM-SUITE-B-SHA384" {
+			device.Security = "WPA3"
+			break // WPA3 takes precedence
+		} else if akm == "OWE" {
+			device.Security = "OWE"
+			break
+		} else if akm == "802.1X" || akm == "FT-802.1X" || akm == "802.1X-SHA256" {
+			device.Security = "WPA2-Enterprise"
+		} else if akm == "PSK" || akm == "FT-PSK" || akm == "PSK-SHA256" || akm == "PSK-SHA384" || akm == "FT-PSK-SHA384" {
+			// Don't overwrite if we already found Enterprise
+			if device.Security == "WPA2" {
+				device.Security = "WPA2-PSK"
+			}
+		}
 	}
 
 	device.RSNInfo = &domain.RSNInfo{
@@ -114,7 +129,11 @@ func (h *RSNHandler) Handle(val []byte, device *domain.Device) error {
 			MFPRequired:      rsn.Capabilities.MFPRequired,
 			MFPCapable:       rsn.Capabilities.MFPCapable,
 			PeerKeyEnabled:   rsn.Capabilities.PeerKeyEnabled,
+			JointMultiBand:   rsn.Capabilities.JointMultiBand,
+			OCVC:             rsn.Capabilities.OCVC,
 		},
+		PMKIDs:          rsn.PMKIDs,
+		GroupMgmtCipher: rsn.GroupMgmtCipher,
 	}
 	return nil
 }
@@ -264,10 +283,10 @@ func (h *ExtensionHandler) Handle(val []byte, device *domain.Device) error {
 		return nil
 	}
 	switch int(val[0]) {
-	case snifferIE.ExtTagHECapabilities:
+	case snifferIE.ExtTagHECapabilities, snifferIE.ExtTagHEOperation:
 		device.Standard = "802.11ax (WiFi 6)"
 		device.IsWiFi6 = true
-	case snifferIE.ExtTagEHTCapabilities:
+	case snifferIE.ExtTagEHTCapabilities, snifferIE.ExtTagEHTOperation:
 		device.Standard = "802.11be (WiFi 7)"
 		device.IsWiFi7 = true
 		device.IsWiFi6 = true
@@ -314,13 +333,14 @@ func (h *VendorSpecificHandler) Handle(val []byte, device *domain.Device) error 
 		wpsInfo := snifferIE.ParseWPSAttributes(val[4:])
 
 		device.WPSDetails = &domain.WPSDetails{
-			Manufacturer:  wpsInfo.Manufacturer,
-			Model:         wpsInfo.Model,
-			DeviceName:    wpsInfo.DeviceName,
-			State:         wpsInfo.State,
-			Version:       wpsInfo.Version,
-			Locked:        wpsInfo.Locked,
-			ConfigMethods: wpsInfo.ConfigMethods,
+			Manufacturer:     wpsInfo.Manufacturer,
+			Model:            wpsInfo.Model,
+			DeviceName:       wpsInfo.DeviceName,
+			State:            wpsInfo.State,
+			Version:          wpsInfo.Version,
+			Locked:           wpsInfo.Locked,
+			ConfigMethods:    wpsInfo.ConfigMethods,
+			DevicePasswordID: wpsInfo.DevicePasswordID,
 		}
 
 		if wpsInfo.State != "" {
@@ -361,3 +381,71 @@ func containsString(slice []string, val string) bool {
 	}
 	return false
 }
+
+// --- newly added handlers ---
+
+type SupportedRatesHandler struct{}
+
+func (h *SupportedRatesHandler) Tag() int { return snifferIE.TagSupportedRates }
+func (h *SupportedRatesHandler) Handle(val []byte, device *domain.Device) error {
+	if device.Standard == "" {
+		device.Standard = "802.11b/a"
+	}
+	return nil
+}
+
+type ExtendedRatesHandler struct{}
+
+func (h *ExtendedRatesHandler) Tag() int { return snifferIE.TagExtendedRates }
+func (h *ExtendedRatesHandler) Handle(val []byte, device *domain.Device) error {
+	if device.Standard == "802.11b/a" || device.Standard == "" {
+		device.Standard = "802.11g"
+	}
+	return nil
+}
+
+type TIMHandler struct{}
+
+func (h *TIMHandler) Tag() int { return snifferIE.TagTrafficIndicationMap }
+func (h *TIMHandler) Handle(val []byte, device *domain.Device) error {
+	// Acknowledge presence
+	return nil
+}
+
+type BSSLoadHandler struct{}
+
+func (h *BSSLoadHandler) Tag() int { return snifferIE.TagBSSLoad }
+func (h *BSSLoadHandler) Handle(val []byte, device *domain.Device) error {
+	if len(val) >= 5 {
+		stationCount := uint16(val[0]) | (uint16(val[1]) << 8)
+		channelUtilization := val[2]
+		admissionCapacity := uint16(val[3]) | (uint16(val[4]) << 8)
+
+		device.BSSLoad = &domain.BSSLoad{
+			StationCount:       stationCount,
+			ChannelUtilization: channelUtilization,
+			AvailableAdmission: admissionCapacity,
+		}
+	}
+	return nil
+}
+
+type ERPHandler struct{}
+
+func (h *ERPHandler) Tag() int { return snifferIE.TagERP }
+func (h *ERPHandler) Handle(val []byte, device *domain.Device) error {
+	if device.Standard == "" || device.Standard == "802.11b/a" {
+		device.Standard = "802.11g (ERP)"
+	}
+	return nil
+}
+
+type FTEHandler struct{}
+
+func (h *FTEHandler) Tag() int { return snifferIE.TagFastBssTransition }
+func (h *FTEHandler) Handle(val []byte, device *domain.Device) error {
+	device.Has11r = true
+	addCapabilityIfAbsent(device, "11r")
+	return nil
+}
+

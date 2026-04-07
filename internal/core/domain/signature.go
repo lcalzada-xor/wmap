@@ -4,6 +4,7 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -48,13 +49,19 @@ type DeviceSignature struct {
 	Sources       []MatchSource  `json:"sources"`         // Techniques supported by this signature
 	CreatedAt     time.Time      `json:"created_at"`
 	UpdatedAt     time.Time      `json:"updated_at"`
+
+	// Unexported fields for performance optimization
+	mu         sync.RWMutex
+	rx         *regexp.Regexp
+	normVendor string
+	compiled   bool
 }
 
 // SignatureMatch represents the result of a signature comparison.
 type SignatureMatch struct {
-	Signature  DeviceSignature `json:"signature"`
-	Confidence float64         `json:"confidence"` // Computed score based on match quality
-	MatchedBy  []MatchSource   `json:"matched_by"` // Actual techniques that triggered the match
+	Signature  *DeviceSignature `json:"signature"`
+	Confidence float64          `json:"confidence"` // Computed score based on match quality
+	MatchedBy  []MatchSource    `json:"matched_by"` // Actual techniques that triggered the match
 }
 
 // --- Domain Logic ---
@@ -73,6 +80,7 @@ func (s *DeviceSignature) Validate() error {
 		return ErrInvalidConfidence
 	}
 	if s.WPSModelRegex != "" {
+		// Just validate syntax
 		if _, err := regexp.Compile(s.WPSModelRegex); err != nil {
 			return err
 		}
@@ -80,18 +88,44 @@ func (s *DeviceSignature) Validate() error {
 	return nil
 }
 
+// Compile pre-processes the signature for faster matching.
+// It should be called after loading signatures and before starting the match engine.
+func (s *DeviceSignature) Compile() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.WPSModelRegex != "" {
+		s.rx, _ = regexp.Compile("(?i)" + s.WPSModelRegex)
+	}
+	if s.Vendor != "" {
+		s.normVendor = strings.ToLower(s.Vendor)
+	}
+	s.compiled = true
+}
+
 // CalculateMatch evaluates how well a Device matches this signature.
 // It returns a SignatureMatch if there's any correlation, otherwise nil.
 func (s *DeviceSignature) CalculateMatch(device *Device) *SignatureMatch {
-	match := &SignatureMatch{
-		Signature: *s,
-		MatchedBy: make([]MatchSource, 0),
+	// 1. Fast Path: Check if we have any data to match at all
+	if len(s.IEPattern) == 0 && s.WPSModelRegex == "" && s.Vendor == "" {
+		return nil
 	}
 
-	var score float64
+	// Ensure we are compiled (optional fallback if not explicitly called)
+	s.mu.RLock()
+	if !s.compiled {
+		s.mu.RUnlock()
+		s.Compile()
+		s.mu.RLock()
+	}
+	rx := s.rx
+	normVendor := s.normVendor
+	s.mu.RUnlock()
 
-	// 1. IE Pattern Matching (Heuristic weight: 0.6)
-	// We check if the signature's IE pattern is a prefix of the device's IE tags.
+	var score float64
+	var matchedBy []MatchSource
+
+	// 2. IE Pattern Matching (Heuristic weight: 0.6)
 	if len(s.IEPattern) > 0 && len(device.IETags) >= len(s.IEPattern) {
 		matchCount := 0
 		for i := 0; i < len(s.IEPattern); i++ {
@@ -101,35 +135,36 @@ func (s *DeviceSignature) CalculateMatch(device *Device) *SignatureMatch {
 		}
 		if matchCount == len(s.IEPattern) {
 			score += 0.6
-			match.MatchedBy = append(match.MatchedBy, SourceIEPattern)
+			matchedBy = append(matchedBy, SourceIEPattern)
 		}
 	}
 
-	// 2. WPS Model Matching (Heuristic weight: 0.3)
-	if s.WPSModelRegex != "" && device.Model != "" {
-		re, err := regexp.Compile("(?i)" + s.WPSModelRegex)
-		if err == nil && re.MatchString(device.Model) {
+	// 3. WPS Model Matching (Heuristic weight: 0.3)
+	if rx != nil && device.Model != "" {
+		if rx.MatchString(device.Model) {
 			score += 0.3
-			match.MatchedBy = append(match.MatchedBy, SourceWPS)
+			matchedBy = append(matchedBy, SourceWPS)
 		}
 	}
 
-	// 3. Vendor/OUI Matching (Heuristic weight: 0.1)
-	if s.Vendor != "" && device.Vendor != "" {
-		if strings.Contains(strings.ToLower(device.Vendor), strings.ToLower(s.Vendor)) {
+	// 4. Vendor/OUI Matching (Heuristic weight: 0.1)
+	if normVendor != "" && device.Vendor != "" {
+		if strings.Contains(strings.ToLower(device.Vendor), normVendor) {
 			score += 0.1
-			match.MatchedBy = append(match.MatchedBy, SourceOUI)
+			matchedBy = append(matchedBy, SourceOUI)
 		}
 	}
 
-	// Optimization: Normalize and apply base signature confidence
-	match.Confidence = score * s.Confidence
-
-	if len(match.MatchedBy) == 0 {
+	if len(matchedBy) == 0 {
 		return nil
 	}
 
-	return match
+	// Optimization: Normalize and apply base signature confidence
+	return &SignatureMatch{
+		Signature:  s,
+		Confidence: score * s.Confidence,
+		MatchedBy:  matchedBy,
+	}
 }
 
 // IsStrongMatch returns true if the match confidence exceeds a given threshold.

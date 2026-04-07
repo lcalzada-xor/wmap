@@ -117,16 +117,14 @@ func TestSecurityEngine_evaluateRules(t *testing.T) {
 
 	// 1. Trigger SSID Rule
 	svc.Analyze(context.Background(), domain.Device{
-		MAC:        "aa:bb:cc:dd:ee:ff",
-		SSID:       "TargetCorp_Guest",
-		Behavioral: &domain.BehavioralProfile{AnomalyDetails: make(map[string]float64)},
+		MAC:  "aa:bb:cc:dd:ee:ff",
+		SSID: "TargetCorp_Guest",
 	})
 
 	// 2. Trigger MAC Rule
 	svc.Analyze(context.Background(), domain.Device{
-		MAC:        "11:22:33:44:55:66",
-		SSID:       "HomeWifi",
-		Behavioral: &domain.BehavioralProfile{AnomalyDetails: make(map[string]float64)},
+		MAC:  "11:22:33:44:55:66",
+		SSID: "HomeWifi",
 	})
 
 	alerts := svc.GetAlerts(context.Background())

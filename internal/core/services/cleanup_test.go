@@ -11,7 +11,7 @@ import (
 )
 
 func TestDeviceRegistry_CleanupStaleConnections(t *testing.T) {
-	registry := registry.NewDeviceRegistry(nil, nil)
+	registry := registry.NewDeviceRegistry(nil)
 
 	// Setup: 3 Devices
 	// 1. Active Connected (Just seen)

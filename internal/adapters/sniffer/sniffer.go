@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net"
-	"os"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -13,13 +11,14 @@ import (
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/pcap"
-	"github.com/google/gopacket/pcapgo"
 	"github.com/lcalzada-xor/wmap/internal/adapters/fingerprint"
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/driver"
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/handshake"
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/hopping"
-	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/injection"
+	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/metrics"
+	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/monitor"
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/parser"
+	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/pcapcapture"
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
 )
 
@@ -49,44 +48,27 @@ type Sniffer struct {
 	Alerts     chan<- domain.Alert
 	Events     chan<- domain.ConnectionEvent
 	handler    *parser.PacketHandler
-	Injector   *injection.Injector
 	Hopper     *hopping.ChannelHopper
 	VendorRepo fingerprint.VendorRepository
-	pcapWriter *pcapgo.Writer
-	pcapFile   *os.File
 	handle     *pcap.Handle // Expose handle to get stats
 
-	// Capability caching
-	capabilitiesCache *domain.InterfaceCapabilities
-	capsCacheMu       sync.RWMutex
+	monitor    *monitor.DeviceMonitor
+	Metrics    *metrics.Collector
 
-	// Metrics state
-	metrics           domain.InterfaceMetrics
-	metricsMu         sync.RWMutex
 	appPacketsDropped atomic.Int64 // Lock-free metrics counter
-
-	// Locking state
-	hopperPaused bool
-	lockMu       sync.Mutex
-	lockCount    int // Reference counting for channel locking
-	lockChannel  int // The channel currently locked
 }
 
 // New creates a new Sniffer instance.
 func New(config SnifferConfig, out chan<- domain.Device, alerts chan<- domain.Alert, events chan<- domain.ConnectionEvent, hm *handshake.HandshakeManager, repo fingerprint.VendorRepository) *Sniffer {
-	inj, err := injection.NewInjector(config.Interface)
-	if err != nil {
-		log.Printf("Warning: Failed to initialize injector: %v", err)
-	}
-
 	s := &Sniffer{
 		Config:     config,
 		Output:     out,
 		Alerts:     alerts,
 		Events:     events,
-		Injector:   inj,
 		VendorRepo: repo,
+		monitor:    monitor.NewDeviceMonitor(config.Interface),
 	}
+	s.Metrics = metrics.NewCollector(&s.appPacketsDropped)
 
 	// Create handler with pause callback
 	s.handler = parser.NewPacketHandler(config.Debug, hm, repo, s.PauseHopper)
@@ -110,24 +92,9 @@ func (s *Sniffer) Close() {
 		s.Hopper.Stop()
 	}
 
-	// Close Injector
-	if s.Injector != nil {
-		s.Injector.Close()
-	}
-
 	// Internal PCAP handle is closed by Start's defer if it returns,
 	// but if Start is running, we need to cancel the context passed to Start.
-	// Ideally, Sniffer logic relies on Context cancellation for stopping the loop,
-	// but resources like Injector handle need explicit cleanup if they persist.
-}
-
-// Scan performs an active scan by broadcasting probe requests.
-func (s *Sniffer) Scan(ctx context.Context, target string) error {
-	if s.Injector == nil {
-		return fmt.Errorf("active injection not available (check permissions/interface)")
-	}
-	log.Printf("Broadcasting Probe Request for target: '%s'", target)
-	return s.Injector.BroadcastProbe(target)
+	// Ideally, Sniffer logic relies on Context cancellation for stopping the loop.
 }
 
 // Start begins capturing packets using a worker pool.
@@ -138,111 +105,39 @@ func (s *Sniffer) Start(ctx context.Context) (err error) {
 			log.Printf("Recovered from panic in Sniffer.Start: %v", r)
 		}
 	}()
-	// Open device
-	// Use 1s timeout to allow context cancellation checks loop
-	handle, err := pcap.OpenLive(s.Config.Interface, 2500, true, 1*time.Second)
+
+	engine := pcapcapture.NewEngine(s.Config.Interface, "type mgt or type data", s.Config.PcapPath)
+	packetChan, handle, err := engine.Start(ctx)
 	if err != nil {
 		return err
 	}
-	defer handle.Close()
 
 	// Store handle for metrics collection
 	s.handle = handle
+	s.Metrics.SetHandle(handle)
 
-	// Set filter
-	// Optimization: Exclude Control Frames (ACK/RTS/CTS) but allow ALL Mgmt (Deauth/Assoc) and Data
-	if err := handle.SetBPFFilter("type mgt or type data"); err != nil {
-		return err
-	}
-
-	// Initialize PCAP Writer if path is set
-	if s.Config.PcapPath != "" {
-		f, err := os.Create(s.Config.PcapPath)
-		if err != nil {
-			log.Printf("Failed to create PCAP file: %v", err)
-		} else {
-			s.pcapFile = f
-			s.pcapWriter = pcapgo.NewWriter(f)
-			// Write file header with correct LinkType
-			if err := s.pcapWriter.WriteFileHeader(65536, handle.LinkType()); err != nil {
-				log.Printf("Failed to write PCAP header: %v", err)
-			}
-			log.Printf("Packet capture enabled. Saving to %s", s.Config.PcapPath)
-		}
-	}
-
-	defer func() {
-		if s.pcapFile != nil {
-			s.pcapFile.Close()
-		}
-	}()
-
-	log.Printf("Starting Enterprise Sniffer on %s...", s.Config.Interface)
-
-	// Optimization: Direct loop without intermediate channel
-	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
+	// Start metrics collection ticker
+	go s.Metrics.Start(ctx)
 
 	// Worker Pool setup
 	numWorkers := runtime.NumCPU()
 	if numWorkers < 2 {
 		numWorkers = 2
 	}
-	// Optimization: Queue Size 1000 -> 5000 to absorb bursts
-	packetChan := make(chan gopacket.Packet, 5000)
 	var wg sync.WaitGroup
 
-	log.Printf("Starting %d packet processing workers", numWorkers)
+	log.Printf("Starting %d packet processing workers on %s", numWorkers, s.Config.Interface)
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
 		go s.worker(ctx, &wg, packetChan)
 	}
 
-	// Start metrics collection ticker
-	go s.collectMetrics(ctx)
-
-	// Packet dispatcher loop
-	// Optimization 2: Non-blocking dispatch
-	var packet gopacket.Packet
-	for {
-		// Check context cancellation
-		select {
-		case <-ctx.Done():
-			log.Println("Sniffer stopping...")
-			close(packetChan)
-			wg.Wait()
-			return nil
-		default:
-			// Continue
-		}
-
-		// Read packet directly (blocking read from handle)
-		// This uses the underlying handle which blocks until a packet arrives
-		// or timeout (we used BlockForever/large timeout).
-		packet, err = packetSource.NextPacket()
-		if err != nil {
-			// This usually happens when handle is closed or EOF
-			if err == pcap.NextErrorTimeoutExpired {
-				continue
-			}
-			log.Printf("Sniffer stopped reading: %v", err)
-			close(packetChan)
-			wg.Wait()
-			return nil
-		}
-
-		// Save to PCAP synchronously to preserve order
-		if s.pcapWriter != nil {
-			_ = s.pcapWriter.WritePacket(packet.Metadata().CaptureInfo, packet.Data())
-		}
-
-		// Non-blocking send
-		select {
-		case packetChan <- packet:
-			// Dispatched successfully
-		default:
-			// Channel buffer full - drop packet to avoid blocking the kernel read
-			s.appPacketsDropped.Add(1)
-		}
+	// Packet dispatcher loop (now handled internally by the engine, Sniffer just waits)
+	select {
+	case <-ctx.Done():
+		log.Printf("Sniffer on %s stopping (waiting for workers)...", s.Config.Interface)
+		wg.Wait()
+		return nil
 	}
 }
 
@@ -250,8 +145,15 @@ func (s *Sniffer) Start(ctx context.Context) (err error) {
 func (s *Sniffer) worker(ctx context.Context, wg *sync.WaitGroup, packets <-chan gopacket.Packet) {
 	defer wg.Done()
 	for p := range packets {
+		// Quick check before processing heavy layers
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
 		// Recover inside worker to prevent one bad packet from crashing the whole sniffer
-		func() {
+		shouldExit := func() bool {
 			defer func() {
 				if r := recover(); r != nil {
 					log.Printf("Recovered from panic in packet worker: %v", r)
@@ -263,24 +165,29 @@ func (s *Sniffer) worker(ctx context.Context, wg *sync.WaitGroup, packets <-chan
 				select {
 				case s.Output <- *device:
 				case <-ctx.Done():
-					return
+					return true
 				}
 			}
 			if alert != nil {
 				select {
 				case s.Alerts <- *alert:
 				case <-ctx.Done():
-					return
+					return true
 				}
 			}
 			if event != nil && s.Events != nil {
 				select {
 				case s.Events <- *event:
 				case <-ctx.Done():
-					return
+					return true
 				}
 			}
+			return false
 		}()
+
+		if shouldExit {
+			return
+		}
 	}
 }
 
@@ -372,168 +279,47 @@ func (s *Sniffer) SetInterfaceChannels(iface string, channels []int) {
 
 // GetInterfaceDetails returns detailed info for this sniffer's interface.
 func (s *Sniffer) GetInterfaceDetails() []domain.InterfaceInfo {
-	// Helper to get MAC
-	getMAC := func(ifaceName string) string {
-		if iface, err := net.InterfaceByName(ifaceName); err == nil {
-			return iface.HardwareAddr.String()
+	var caps domain.InterfaceCapabilities
+	var mac string = "Unknown"
+	if s.monitor != nil {
+		if hwCaps := s.monitor.GetCapabilities(); hwCaps != nil {
+			caps = *hwCaps
 		}
-		return "Unknown"
+		mac = s.monitor.GetMAC()
 	}
 
-	// Get current metrics
-	s.metricsMu.RLock()
-	currentMetrics := s.metrics
-	s.metricsMu.RUnlock()
-	currentMetrics.AppPacketsDropped = s.appPacketsDropped.Load()
-
-	// Check cache first
-	s.capsCacheMu.RLock()
-	if s.capabilitiesCache != nil {
-		caps := *s.capabilitiesCache
-		s.capsCacheMu.RUnlock()
-		return []domain.InterfaceInfo{{
-			Name:            s.Config.Interface,
-			MAC:             getMAC(s.Config.Interface),
-			Capabilities:    caps,
-			CurrentChannels: s.GetChannels(),
-			Metrics:         currentMetrics,
-		}}
+	var m domain.InterfaceMetrics
+	if s.Metrics != nil {
+		m = s.Metrics.GetMetrics()
 	}
-	s.capsCacheMu.RUnlock()
-
-	// Fetch capabilities from hardware
-	bandsMap, supportedChans, err := driver.GetInterfaceCapabilities(s.Config.Interface)
-	if err != nil {
-		log.Printf("Error getting capabilities for %s: %v", s.Config.Interface, err)
-		// Return basic info without capabilities
-		return []domain.InterfaceInfo{{
-			Name:            s.Config.Interface,
-			MAC:             getMAC(s.Config.Interface),
-			CurrentChannels: s.GetChannels(),
-			Metrics:         currentMetrics,
-		}}
-	}
-
-	// Fetch Extended Info
-	driverName, _ := driver.GetDriverInfo(s.Config.Interface)
-	mode, txPower, _ := driver.GetInterfaceCurrentConfig(s.Config.Interface)
-
-	var bands []domain.WiFiBand
-	for b := range bandsMap {
-		bands = append(bands, domain.WiFiBand(b))
-	}
-
-	caps := domain.InterfaceCapabilities{
-		SupportedBands:    bands,
-		SupportedChannels: supportedChans,
-		DriverName:        driverName,
-		OperationMode:     mode,
-		TxPower:           txPower,
-	}
-
-	// Cache the result (Note: Mode and TxPower are technically dynamic, but often static enough to cache for a while.
-	// If we want real-time mode updates, we shouldn't cache them in capabilitiesCache which might be long-lived.
-	// However, GetInterfaceDetails doesn't have a high frequency poll for capabilities usually.
-	// The caching logic here clears when? It's never cleared in current code.
-	// So DriverName is fine. Mode/TxPower might change.
-	// Ideally we should update Mode/TxPower on every call or cache for short time.
-	// For now, let's just cache it all as per existing design, but be aware Mode might be stale if changed externally.)
-	s.capsCacheMu.Lock()
-	s.capabilitiesCache = &caps
-	s.capsCacheMu.Unlock()
 
 	return []domain.InterfaceInfo{{
 		Name:            s.Config.Interface,
-		MAC:             getMAC(s.Config.Interface),
+		MAC:             mac,
 		Capabilities:    caps,
 		CurrentChannels: s.GetChannels(),
-		Metrics:         currentMetrics,
+		Metrics:         m,
 	}}
 }
 
 // Lock stops channel hopping and sets a specific channel for the interface.
 func (s *Sniffer) Lock(ctx context.Context, iface string, channel int) error {
-	s.lockMu.Lock()
-	defer s.lockMu.Unlock()
-
 	if s.Config.Interface != iface {
 		return channelSetter(iface, channel)
 	}
 
-	// Reference Counting Logic
-	if s.hopperPaused {
-		// Already locked.
-		if s.lockChannel == channel {
-			// Same channel, increment ref count
-			s.lockCount++
-			log.Printf("[SNIFFER] Lock ref count incremented (count=%d) for channel %d", s.lockCount, channel)
-			return nil
-		}
-		// Different channel! Busy.
-		return fmt.Errorf("interface busy: locked on channel %d (ref count: %d)", s.lockChannel, s.lockCount)
-	}
-
-	// Not locked yet. Lock it.
 	if s.Hopper != nil {
-		log.Printf("[SNIFFER] Pausing hopper on %s to lock channel %d", iface, channel)
-		s.Hopper.Stop()
+		return s.Hopper.Lock(channel)
 	}
 
-	if err := channelSetter(iface, channel); err != nil {
-		// Failed to set channel, rollback (resume hopper if needed) could go here
-		// But usually we want to retry or just fail.
-		// If we resume hopper here, we must be careful.
-		if s.Hopper != nil {
-			// Hopper was stopped, need to recreate it to restart
-			dwell := time.Duration(s.Config.DwellTime) * time.Millisecond
-			if dwell == 0 {
-				dwell = 300 * time.Millisecond
-			}
-			s.Hopper = hopping.NewHopper(s.Config.Interface, s.Config.Channels, dwell, nil)
-			go s.Hopper.Start()
-		}
-		return err
-	}
-
-	s.hopperPaused = true
-	s.lockChannel = channel
-	s.lockCount = 1
-
-	return nil
+	return channelSetter(iface, channel)
 }
 
 // Unlock resumes channel hopping if it was paused.
 func (s *Sniffer) Unlock(ctx context.Context, iface string) error {
-	s.lockMu.Lock()
-	defer s.lockMu.Unlock()
-
-	if s.Config.Interface != iface {
-		return nil
+	if s.Config.Interface == iface && s.Hopper != nil {
+		s.Hopper.Unlock()
 	}
-
-	if !s.hopperPaused {
-		return nil
-	}
-
-	s.lockCount--
-	if s.lockCount > 0 {
-		log.Printf("[SNIFFER] Unlock called (remaining ref count: %d)", s.lockCount)
-		return nil
-	}
-
-	// Count reached 0, fully unlock
-	log.Printf("[SNIFFER] Unlock releasing interface %s (resuming hopper)", iface)
-	if len(s.Config.Channels) > 0 {
-		dwell := time.Duration(s.Config.DwellTime) * time.Millisecond
-		if dwell == 0 {
-			dwell = 300 * time.Millisecond
-		}
-		s.Hopper = hopping.NewHopper(s.Config.Interface, s.Config.Channels, dwell, nil)
-		go s.Hopper.Start()
-	}
-
-	s.hopperPaused = false
-	s.lockChannel = 0
 	return nil
 }
 
@@ -554,46 +340,11 @@ func (s *Sniffer) ExecuteWithLock(ctx context.Context, iface string, channel int
 	return action()
 }
 
+
+
 // PauseHopper pauses the channel hopper for a duration.
 func (s *Sniffer) PauseHopper(duration time.Duration) {
 	if s.Hopper != nil {
 		s.Hopper.Pause(duration)
-	}
-}
-
-// collectMetrics periodically collects packet capture statistics.
-func (s *Sniffer) collectMetrics(ctx context.Context) {
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if s.handle != nil {
-				stats, err := s.handle.Stats()
-				if err != nil {
-					log.Printf("Failed to get pcap stats: %v", err)
-					continue
-				}
-
-				s.metricsMu.Lock()
-				s.metrics.PacketsReceived = int64(stats.PacketsReceived)
-				s.metrics.PacketsDropped = int64(stats.PacketsDropped)
-				s.metrics.PacketsIfDropped = int64(stats.PacketsIfDropped)
-				s.metrics.AppPacketsDropped = s.appPacketsDropped.Load()
-				s.metricsMu.Unlock()
-
-				// Update Prometheus Gauges/Counters for Driver Drops?
-				// Since these are cumulative stats from pcap, we might want to use a Gauge or just log/observe.
-				// For now, let's rely on the internal counters if we wanted to export them precisely,
-				// but Prometheus typical pattern for "drops" is a Counter.
-				// Since pcap stats are cumulative, we can't easily validly .Inc() without tracking previous delta.
-				// Let's explicitly just export App Drops for now (buffer_full) which we track manually above.
-				// Or, we could use a Gauge for these:
-				// telemetry.DriverPacketsDropped.WithLabelValues(s.Config.Interface).Set(float64(stats.PacketsDropped))
-			}
-		}
 	}
 }

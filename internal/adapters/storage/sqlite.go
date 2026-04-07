@@ -9,6 +9,7 @@ import (
 	"github.com/lcalzada-xor/wmap/internal/core/ports"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
 )
 
@@ -51,12 +52,6 @@ type DeviceModel struct {
 	PacketsCount    int
 	RetryCount      int
 
-	// Behavioral Data (Phase A)
-	ProbeFrequency int64
-	UniqueSSIDs    int
-	AnomalyScore   float64
-	ActiveHours    string // JSON encoded []int
-
 	// Connection State (Logic 2.0)
 	ConnectionState  string
 	ConnectionTarget string
@@ -69,6 +64,17 @@ type DeviceModel struct {
 	WPSData           string // JSON encoded WPSDetails
 	IEFingerprint     string
 
+	// --- Missing Persistent Capabilities & Fingerprinting Fields ---
+	Capabilities     string  // JSON encoded []string
+	MobilityDomain   string  // JSON encoded MobilityDomain
+	BSSLoad          string  // JSON encoded BSSLoad
+	ObservedSSIDs    string  // JSON encoded []string
+	LastANonce       string
+	IETags           string  // JSON encoded []int
+	ProbeHash        string
+	ManufacturerRaw  string
+	VendorConfidence float32
+
 	// ProbedSSIDs is a many-to-many or one-to-many relationship,
 	// but for simplicity in SQLite we can store it in a separate table.
 	ProbedSSIDs []ProbeModel `gorm:"foreignKey:DeviceMAC"`
@@ -77,8 +83,8 @@ type DeviceModel struct {
 // ProbeModel stores SSIDs probed by a device.
 type ProbeModel struct {
 	ID        uint   `gorm:"primaryKey"`
-	DeviceMAC string `gorm:"index"`
-	SSID      string `gorm:"column:ssid"`
+	DeviceMAC string `gorm:"uniqueIndex:idx_mac_ssid"`
+	SSID      string `gorm:"column:ssid;uniqueIndex:idx_mac_ssid"`
 	LastSeen  time.Time
 }
 
@@ -133,29 +139,21 @@ func (a *SQLiteAdapter) SaveDevice(ctx context.Context, d domain.Device) error {
 		}
 
 		// Save Probed SSIDs
-		for ssid, ts := range d.ProbedSSIDs {
-			// Check if exists using the transaction 'tx'
-			var probe ProbeModel
-			if err := tx.Where(&ProbeModel{DeviceMAC: d.MAC, SSID: ssid}).First(&probe).Error; err != nil {
-				if err == gorm.ErrRecordNotFound {
-					// Create new
-					probe = ProbeModel{
-						DeviceMAC: d.MAC,
-						SSID:      ssid,
-						LastSeen:  ts,
-					}
-					if err := tx.Create(&probe).Error; err != nil {
-						return err
-					}
-				} else {
-					return err
-				}
-			} else {
-				// Update existing timestamp
-				probe.LastSeen = ts
-				if err := tx.Save(&probe).Error; err != nil {
-					return err
-				}
+		if len(d.ProbedSSIDs) > 0 {
+			var probes []ProbeModel
+			for ssid, ts := range d.ProbedSSIDs {
+				probes = append(probes, ProbeModel{
+					DeviceMAC: d.MAC,
+					SSID:      ssid,
+					LastSeen:  ts,
+				})
+			}
+			err := tx.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "device_mac"}, {Name: "ssid"}},
+				DoUpdates: clause.AssignmentColumns([]string{"last_seen"}),
+			}).Create(&probes).Error
+			if err != nil {
+				return err
 			}
 		}
 		return nil
@@ -169,6 +167,8 @@ func (a *SQLiteAdapter) SaveDevicesBatch(ctx context.Context, devices []domain.D
 	}
 
 	return a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var allProbes []ProbeModel
+
 		for _, d := range devices {
 			model := toModel(d)
 
@@ -177,29 +177,24 @@ func (a *SQLiteAdapter) SaveDevicesBatch(ctx context.Context, devices []domain.D
 				return err
 			}
 
-			// Persist ProbedSSIDs (same logic as SaveDevice)
+			// Track ProbedSSIDs for batch inserts
 			for ssid, ts := range d.ProbedSSIDs {
-				var probe ProbeModel
-				err := tx.Where("device_mac = ? AND ssid = ?", d.MAC, ssid).First(&probe).Error
-				if err != nil {
-					if err == gorm.ErrRecordNotFound {
-						probe = ProbeModel{
-							DeviceMAC: d.MAC,
-							SSID:      ssid,
-							LastSeen:  ts,
-						}
-						if err := tx.Create(&probe).Error; err != nil {
-							return err
-						}
-					} else {
-						return err
-					}
-				} else {
-					probe.LastSeen = ts
-					if err := tx.Save(&probe).Error; err != nil {
-						return err
-					}
-				}
+				allProbes = append(allProbes, ProbeModel{
+					DeviceMAC: d.MAC,
+					SSID:      ssid,
+					LastSeen:  ts,
+				})
+			}
+		}
+
+		// Persist all ProbedSSIDs in one go
+		if len(allProbes) > 0 {
+			err := tx.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "device_mac"}, {Name: "ssid"}},
+				DoUpdates: clause.AssignmentColumns([]string{"last_seen"}),
+			}).Create(&allProbes).Error
+			if err != nil {
+				return err
 			}
 		}
 		return nil
@@ -296,31 +291,17 @@ func (a *SQLiteAdapter) GetDevicesByFilter(ctx context.Context, filter domain.De
 
 func (a *SQLiteAdapter) SaveProbe(ctx context.Context, mac string, ssid string) error {
 	log.Printf("DEBUG SaveProbe: Called with MAC=%s SSID=%s", mac, ssid)
-	return a.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var existing ProbeModel
-		// Use manual check to handle upsert without unique index constraint on (device_mac, ssid)
-		err := tx.Where("device_mac = ? AND ssid = ?", mac, ssid).First(&existing).Error
-		log.Printf("DEBUG SaveProbe: Query result - err=%v", err)
-
-		if err != nil {
-			if err == gorm.ErrRecordNotFound {
-				probe := ProbeModel{
-					DeviceMAC: mac,
-					SSID:      ssid,
-					LastSeen:  time.Now(),
-				}
-				log.Printf("DEBUG SaveProbe: Creating new probe for MAC=%s SSID=%s", mac, ssid)
-				createErr := tx.Create(&probe).Error
-				log.Printf("DEBUG SaveProbe: Create result - err=%v, probe.ID=%d", createErr, probe.ID)
-				return createErr
-			}
-			log.Printf("DEBUG SaveProbe: Unexpected error: %v", err)
-			return err
-		}
-		log.Printf("DEBUG SaveProbe: Updating existing probe ID=%d for MAC=%s SSID=%s", existing.ID, mac, ssid)
-		existing.LastSeen = time.Now()
-		return tx.Save(&existing).Error
-	})
+	probe := ProbeModel{
+		DeviceMAC: mac,
+		SSID:      ssid,
+		LastSeen:  time.Now(),
+	}
+	err := a.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "device_mac"}, {Name: "ssid"}},
+		DoUpdates: clause.AssignmentColumns([]string{"last_seen"}),
+	}).Create(&probe).Error
+	log.Printf("DEBUG SaveProbe: Upsert result - err=%v", err)
+	return err
 }
 
 func (a *SQLiteAdapter) Close() error {

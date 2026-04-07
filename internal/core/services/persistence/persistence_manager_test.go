@@ -37,30 +37,19 @@ func (m *MockStorage) GetDeviceCount() (int, error)                             
 func (m *MockStorage) GetAlertCount() (int, error)                                  { return 0, nil }
 func (m *MockStorage) GetVendorStats() (map[string]int, error)                      { return nil, nil }
 func (m *MockStorage) GetSecurityStats() (map[string]int, error)                    { return nil, nil }
-func (m *MockStorage) SaveUser(user domain.User) error                              { return nil }
-func (m *MockStorage) GetUser(id string) (domain.User, error)                       { return domain.User{}, nil }
-func (m *MockStorage) GetByUsername(username string) (domain.User, error)           { return domain.User{}, nil }
 
 func (m *MockStorage) SaveConnectionEvent(ctx context.Context, event domain.ConnectionEvent) error {
 	return nil
 }
+
+func (m *MockStorage) SaveConnectionEventsBatch(ctx context.Context, events []domain.ConnectionEvent) error {
+	return nil
+}
+
 func (m *MockStorage) GetConnectionHistory(ctx context.Context, mac string, limit int) ([]domain.ConnectionEvent, error) {
 	return nil, nil
 }
 
-// Vulnerability Persistence mocks
-func (m *MockStorage) SaveVulnerability(ctx context.Context, record domain.VulnerabilityRecord) error {
-	return nil
-}
-func (m *MockStorage) GetVulnerabilities(ctx context.Context, filter domain.VulnerabilityFilter) ([]domain.VulnerabilityRecord, error) {
-	return nil, nil
-}
-func (m *MockStorage) GetVulnerability(ctx context.Context, id string) (*domain.VulnerabilityRecord, error) {
-	return nil, nil
-}
-func (m *MockStorage) UpdateVulnerabilityStatus(ctx context.Context, id string, status domain.VulnerabilityStatus, notes string) error {
-	return nil
-}
 
 func TestPersistenceManager_Persist_Batching(t *testing.T) {
 	mockStore := &MockStorage{}

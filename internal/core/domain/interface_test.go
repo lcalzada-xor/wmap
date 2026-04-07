@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -20,6 +21,12 @@ func TestNewInterfaceInfo(t *testing.T) {
 			name:    "valid interface",
 			iface:   "wlan0",
 			mac:     "00:11:22:33:44:55",
+			wantErr: nil,
+		},
+		{
+			name:    "valid interface uppercase mac",
+			iface:   "wlan0",
+			mac:     "00:AA:BB:CC:DD:EE",
 			wantErr: nil,
 		},
 		{
@@ -47,8 +54,8 @@ func TestNewInterfaceInfo(t *testing.T) {
 				if info.Name != tt.iface {
 					t.Errorf("info.Name = %v, want %v", info.Name, tt.iface)
 				}
-				if info.MAC != tt.mac {
-					t.Errorf("info.MAC = %v, want %v", info.MAC, tt.mac)
+				if info.MAC != strings.ToLower(tt.mac) {
+					t.Errorf("info.MAC = %v, want %v", info.MAC, strings.ToLower(tt.mac))
 				}
 			}
 		})

@@ -5,33 +5,29 @@ import (
 	"sync"
 
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
+	"github.com/lcalzada-xor/wmap/internal/core/ports"
 )
-
-// DeviceObserver defines the interface for components interested in device updates.
-type DeviceObserver interface {
-	OnDeviceUpdated(ctx context.Context, device domain.Device)
-	OnDeviceAdded(ctx context.Context, device domain.Device)
-}
 
 // RegistrySubject manages observers and notifies them of events.
 type RegistrySubject struct {
-	observers []DeviceObserver
+	observers []ports.DeviceObserver
 	mu        sync.RWMutex
 }
 
 // NewRegistrySubject creates a new subject.
 func NewRegistrySubject() *RegistrySubject {
 	return &RegistrySubject{
-		observers: make([]DeviceObserver, 0),
+		observers: make([]ports.DeviceObserver, 0),
 	}
 }
 
 // AddObserver registers a new observer.
-func (s *RegistrySubject) AddObserver(observer DeviceObserver) {
+func (s *RegistrySubject) AddObserver(observer ports.DeviceObserver) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.observers = append(s.observers, observer)
 }
+
 
 // NotifyUpdated notifies all observers of a device update.
 func (s *RegistrySubject) NotifyUpdated(ctx context.Context, device domain.Device) {

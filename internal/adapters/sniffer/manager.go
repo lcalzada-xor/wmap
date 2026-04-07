@@ -2,110 +2,145 @@ package sniffer
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
 	"sync"
 
 	"github.com/lcalzada-xor/wmap/internal/adapters/fingerprint"
 	"github.com/lcalzada-xor/wmap/internal/adapters/radio"
-
+	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/channelplan"
+	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/channelstore"
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/driver"
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/handshake"
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/injection"
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
 )
 
+// CapabilityProvider abstracts hardware capability queries so the manager
+// does not depend directly on the driver package (improves testability).
+type CapabilityProvider interface {
+	GetCapabilities(iface string) ([]int, error)
+}
+
+// driverCapabilityProvider is the production adapter that delegates to the
+// driver package.
+type driverCapabilityProvider struct{}
+
+func (driverCapabilityProvider) GetCapabilities(iface string) ([]int, error) {
+	_, chans, err := driver.GetInterfaceCapabilities(iface)
+	return chans, err
+}
+
+// DefaultCapabilityProvider is the production CapabilityProvider backed by
+// the driver package. Pass it to NewManager unless testing with a mock.
+var DefaultCapabilityProvider CapabilityProvider = driverCapabilityProvider{}
+
 // SnifferStatus tracks the operational status of a sniffer instance.
 type SnifferStatus struct {
 	Interface string
-	Status    string // "starting", "running", "failed", "stopped"
+	Status    string // "starting" | "running" | "failed" | "stopped"
 	Error     error
 }
 
-// SnifferManager manages multiple Sniffer instances across different interfaces.
+// SnifferManager orchestrates multiple Sniffer instances across network interfaces.
+// Each interface gets its own Sniffer and a disjoint channel set computed at
+// Start time, respecting the hardware capabilities reported by CapabilityProvider.
 type SnifferManager struct {
-	Interfaces []string
-	Sniffers   []*Sniffer
-	Output     chan domain.Device
-	Alerts     chan domain.Alert
-	Events     chan domain.ConnectionEvent
-	// Config
-	DwellTime int
-	Debug     bool
-	// Status tracking
-	statuses map[string]*SnifferStatus
-	mu       sync.RWMutex
+	// Shared output channels – consumed by app.go.
+	Output chan domain.Device
+	Alerts chan domain.Alert
+	Events chan domain.ConnectionEvent
 
-	HandshakeManager  *handshake.HandshakeManager
-	VendorRepo        fingerprint.VendorRepository
-	RadioManager      *radio.RadioManager
-	channelConfigPath string
+	// Config
+	Interfaces []string
+	DwellTime  int
+	Debug      bool
+
+	// Sub-systems
+	HandshakeManager   *handshake.HandshakeManager
+	VendorRepo         fingerprint.VendorRepository
+	RadioManager       *radio.RadioManager
+	capabilityProvider CapabilityProvider
+	channelStore       *channelstore.Store
+
+	// Internal state
+	sniffers  map[string]*Sniffer              // keyed by interface name – O(1) lookups
+	injectors map[string]*injection.Injector   // keyed by interface name
+	statuses  map[string]*SnifferStatus
+	mu        sync.RWMutex
+	wg        sync.WaitGroup // tracks running sniffer goroutines
 }
 
-// NewManager creates a manager for the given interfaces.
-func NewManager(interfaces []string, dwell int, debug bool, repo fingerprint.VendorRepository, radioMgr *radio.RadioManager, handshakeDir string, channelConfigPath string) *SnifferManager {
+// NewManager creates a SnifferManager for the given interfaces.
+// Pass channelConfigPath for persistent channel assignment across restarts.
+// capProvider may be nil – DefaultCapabilityProvider is used in that case.
+func NewManager(
+	interfaces []string,
+	dwell int,
+	debug bool,
+	repo fingerprint.VendorRepository,
+	radioMgr *radio.RadioManager,
+	handshakeDir string,
+	channelConfigPath string,
+	capProvider CapabilityProvider,
+) *SnifferManager {
+	if capProvider == nil {
+		capProvider = DefaultCapabilityProvider
+	}
 	return &SnifferManager{
-		Interfaces:        interfaces,
-		DwellTime:         dwell,
-		Debug:             debug,
-		VendorRepo:        repo,
-		Output:            make(chan domain.Device, 1000), // Aggregated output
-		Alerts:            make(chan domain.Alert, 100),   // Aggregated alerts
-		Events:            make(chan domain.ConnectionEvent, 1000),
-		statuses:          make(map[string]*SnifferStatus),
-		HandshakeManager:  handshake.NewHandshakeManager(handshakeDir),
-		RadioManager:      radioMgr,
-		channelConfigPath: channelConfigPath,
+		Interfaces:         interfaces,
+		DwellTime:          dwell,
+		Debug:              debug,
+		VendorRepo:         repo,
+		Output:             make(chan domain.Device, 1000),
+		Alerts:             make(chan domain.Alert, 100),
+		Events:             make(chan domain.ConnectionEvent, 1000),
+		HandshakeManager:   handshake.NewHandshakeManager(handshakeDir),
+		RadioManager:       radioMgr,
+		capabilityProvider: capProvider,
+		channelStore:       channelstore.New(channelConfigPath),
+		sniffers:           make(map[string]*Sniffer),
+		injectors:          make(map[string]*injection.Injector),
+		statuses:           make(map[string]*SnifferStatus),
 	}
 }
 
-// Start initializes internal sniffers, partitions channels, and starts them.
+// Start initialises per-interface sniffers, partitions channels respecting
+// hardware capabilities, and runs each sniffer in its own goroutine.
+// It blocks until ctx is cancelled (all sniffers have stopped).
 func (m *SnifferManager) Start(ctx context.Context) error {
 	if len(m.Interfaces) == 0 {
 		return nil
 	}
 
-	// 1. Define Channel Pool (2.4GHz + limited 5GHz for now)
-	allChannels := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 36, 40, 44, 48, 149, 153, 157, 161}
-
-	// 2. Load Config from Disk (Phase 3 Persistence)
-	savedConfig, err := m.loadChannelConfig()
-	if err != nil && !os.IsNotExist(err) {
-		log.Printf("Warning: Failed to load channel config: %v", err)
+	// Load persisted channel assignments (Phase 3 persistence).
+	saved, err := m.channelStore.Load()
+	if err != nil {
+		log.Printf("sniffer: warning: failed to load channel config: %v", err)
+		saved = channelstore.ChannelConfig{}
 	}
 
-	// 2b. Query Capabilities
-	capabilities := make(map[string][]int)
+	// Query hardware capabilities for every interface.
+	capabilities := make(map[string][]int, len(m.Interfaces))
 	for _, iface := range m.Interfaces {
-		// We use the driver package directly.
-		// Ideally this should be abstracted (e.g. s.Driver.Get... but sniffer not created yet)
-		// Or injected into Manager. For now, direct call is safe as per app design.
-		_, chans, err := driver.GetInterfaceCapabilities(iface)
+		chans, err := m.capabilityProvider.GetCapabilities(iface)
 		if err != nil {
-			log.Printf("Warning: Failed to get capabilities for %s: %v. Assuming full support.", iface, err)
+			log.Printf("sniffer: warning: failed to get capabilities for %s: %v – assuming full support", iface, err)
 		} else {
 			capabilities[iface] = chans
 		}
 	}
 
-	// 2c. Partition Channels
-	partitioned := partitionChannelsWithCapabilities(allChannels, m.Interfaces, capabilities)
+	// Partition the default channel pool respecting capabilities.
+	partitioned := channelplan.Partition(channelplan.DefaultChannels, m.Interfaces, capabilities)
 
-	var wg sync.WaitGroup
-
-	// 3. Create and Start Sniffers
 	for i, iface := range m.Interfaces {
-		// Determine channels: Saved Config -> Partitioned Default
-		var channels []int
-		if saved, ok := savedConfig[iface]; ok {
-			channels = saved
-			log.Printf("Loaded saved configuration for %s: %v", iface, channels)
+		channels, ok := saved[iface]
+		if ok {
+			log.Printf("sniffer: loaded saved channel config for %s: %v", iface, channels)
 		} else {
 			channels = partitioned[i]
-			log.Printf("Assigning capability-aware channels to %s: %v", iface, channels)
+			log.Printf("sniffer: assigning capability-aware channels to %s: %v", iface, channels)
 		}
 
 		cfg := SnifferConfig{
@@ -115,189 +150,82 @@ func (m *SnifferManager) Start(ctx context.Context) error {
 			DwellTime: m.DwellTime,
 		}
 
-		// Create Sniffer
-		// Yes, we can pass m.Output directly.
 		sniff := New(cfg, m.Output, m.Alerts, m.Events, m.HandshakeManager, m.VendorRepo)
-		m.Sniffers = append(m.Sniffers, sniff)
+		m.sniffers[iface] = sniff
 
-		// Register with RadioManager for pausing
 		if m.RadioManager != nil {
 			m.RadioManager.RegisterHandler(iface, sniff)
 		}
 
-		wg.Add(1)
-		go func(s *Sniffer, ifaceName string) {
-			defer wg.Done()
-			defer func() {
-				if r := recover(); r != nil {
-					log.Printf("Recovered from panic in SnifferManager goroutine for %s: %v", ifaceName, r)
-					m.mu.Lock()
-					if m.statuses[ifaceName] != nil {
-						m.statuses[ifaceName].Status = "failed"
-						m.statuses[ifaceName].Error = fmt.Errorf("panic: %v", r)
-					}
-					m.mu.Unlock()
-				}
-			}()
+		inj, err := injection.NewInjector(iface)
+		if err != nil {
+			log.Printf("sniffer: warning: failed to initialize injector for %s: %v", iface, err)
+		} else {
+			m.injectors[iface] = inj
+		}
 
-			// Initialize status tracking
-			status := &SnifferStatus{
-				Interface: ifaceName,
-				Status:    "starting",
-			}
-			m.mu.Lock()
-			m.statuses[ifaceName] = status
-			m.mu.Unlock()
-
-			// Start Hopper if exists
-			if s.Hopper != nil {
-				go s.Hopper.Start()
-			}
-
-			if err := s.Start(ctx); err != nil {
-				// Update status
-				m.mu.Lock()
-				status.Status = "failed"
-				status.Error = err
-				m.mu.Unlock()
-
-				log.Printf("CRITICAL: Sniffer %s failed: %v", ifaceName, err)
-
-				// Send alert to frontend
-				select {
-				case m.Alerts <- domain.Alert{
-					Type:    "system",
-					Message: fmt.Sprintf("Interface %s failed to start: %v", ifaceName, err),
-				}:
-				default:
-					// Alert channel full, log only
-					log.Printf("Failed to send alert for interface %s failure", ifaceName)
-				}
-			} else {
-				// Sniffer stopped gracefully
-				m.mu.Lock()
-				status.Status = "stopped"
-				m.mu.Unlock()
-				log.Printf("Sniffer %s stopped gracefully", ifaceName)
-			}
-		}(sniff, iface)
+		m.wg.Add(1)
+		go m.runSniffer(ctx, sniff, iface)
 	}
 
-	// Wait for all to finish (when ctx is cancelled)
-	wg.Wait()
+	m.wg.Wait()
 	return nil
 }
 
-// partitionChannels divides channels by frequency band for optimal hardware utilization.
-// This reduces channel hopping latency by avoiding unnecessary frequency band switches.
-// partitionChannels divides channels by frequency band, respecting hardware capabilities.
-func partitionChannelsWithCapabilities(targetChannels []int, interfaces []string, capabilities map[string][]int) [][]int {
-	n := len(interfaces)
-	if n <= 0 {
-		return nil
-	}
-
-	result := make([][]int, n)
-
-	// Create a map of channel -> supported interfaces count (heuristic for contention)
-	// And a map of interface -> assigned channel count (load balancing)
-	assignedCount := make([]int, n)
-
-	// Strategy:
-	// 1. Identify "Special" channels (5GHz) that might only be supported by some cards.
-	// 2. Assign channels to the best candidate.
-
-	// Separate 2.4 and 5GHz for logical grouping preference
-	band24 := []int{}
-	band5 := []int{}
-	for _, ch := range targetChannels {
-		if ch <= 14 {
-			band24 = append(band24, ch)
-		} else {
-			band5 = append(band5, ch)
-		}
-	}
-
-	// Helper to find best interface for a channel
-	assignChannel := func(ch int) {
-		bestIdx := -1
-		minLoad := 999999
-
-		// Candidates: Interfaces that support this channel
-		candidates := []int{}
-		for i, iface := range interfaces {
-			supported, ok := capabilities[iface]
-			// If no capabilities info (e.g. mock or error), assume supported
-			if !ok || len(supported) == 0 {
-				candidates = append(candidates, i)
-				continue
+// runSniffer is the per-interface goroutine managed by Start.
+func (m *SnifferManager) runSniffer(ctx context.Context, s *Sniffer, iface string) {
+	defer m.wg.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("sniffer: recovered from panic on %s: %v", iface, r)
+			m.mu.Lock()
+			if st := m.statuses[iface]; st != nil {
+				st.Status = "failed"
+				st.Error = fmt.Errorf("panic: %v", r)
 			}
-
-			// Check support
-			isSupported := false
-			for _, capCh := range supported {
-				if capCh == ch {
-					isSupported = true
-					break
-				}
-			}
-			if isSupported {
-				candidates = append(candidates, i)
-			}
+			m.mu.Unlock()
 		}
+	}()
 
-		if len(candidates) == 0 {
-			log.Printf("Warning: Channel %d is not supported by any active interface. Skipping.", ch)
-			return
-		}
+	m.mu.Lock()
+	m.statuses[iface] = &SnifferStatus{Interface: iface, Status: "starting"}
+	m.mu.Unlock()
 
-		// Selection Logic:
-		// 1. Prefer Band Separation (if n=2, try to keep 2.4 on one and 5 on another)
-		// 2. Load Balancing (Interface with fewest channels)
-
-		// Simple Load Balancing implementation:
-		for _, idx := range candidates {
-			load := assignedCount[idx]
-			if load < minLoad {
-				minLoad = load
-				bestIdx = idx
-			}
-		}
-
-		if bestIdx != -1 {
-			result[bestIdx] = append(result[bestIdx], ch)
-			assignedCount[bestIdx]++
-		}
+	if s.Hopper != nil {
+		go s.Hopper.Start()
 	}
 
-	// Assign 5GHz first (constrained resource)
-	for _, ch := range band5 {
-		assignChannel(ch)
+	if err := s.Start(ctx); err != nil {
+		m.mu.Lock()
+		m.statuses[iface].Status = "failed"
+		m.statuses[iface].Error = err
+		m.mu.Unlock()
+
+		log.Printf("sniffer: CRITICAL: %s failed: %v", iface, err)
+
+		select {
+		case m.Alerts <- domain.Alert{
+			Type:    "system",
+			Message: fmt.Sprintf("interface %s failed to start: %v", iface, err),
+		}:
+		default:
+			log.Printf("sniffer: alert channel full for %s", iface)
+		}
+		return
 	}
 
-	// Assign 2.4GHz next
-	for _, ch := range band24 {
-		assignChannel(ch)
-	}
-
-	return result
+	m.mu.Lock()
+	m.statuses[iface].Status = "stopped"
+	m.mu.Unlock()
+	log.Printf("sniffer: %s stopped gracefully", iface)
 }
 
-// partitionChannels Legacy wrapper for backward compatibility or default behavior
-func partitionChannels(channels []int, n int) [][]int {
-	// Dummy implementation that calls the new one with empty caps (assumes all supported)
-	dummyCaps := make(map[string][]int)
-	dummyIfaces := make([]string, n)
-	for i := 0; i < n; i++ {
-		dummyIfaces[i] = fmt.Sprintf("iface%d", i)
-	}
-	return partitionChannelsWithCapabilities(channels, dummyIfaces, dummyCaps)
-}
+// ───────────────────────── Channel management ─────────────────────────
 
-// GetChannels returns the list of all channels being scanned across all sniffers.
-func (m *SnifferManager) GetChannels(ctx context.Context) []int {
+// GetChannels returns all channels being scanned across all interfaces.
+func (m *SnifferManager) GetChannels(_ context.Context) []int {
 	var all []int
-	for _, s := range m.Sniffers {
+	for _, s := range m.sniffers {
 		if s.Hopper != nil {
 			all = append(all, s.Hopper.GetChannels()...)
 		}
@@ -305,120 +233,80 @@ func (m *SnifferManager) GetChannels(ctx context.Context) []int {
 	return all
 }
 
-// SetChannels updates the channels... effectively redistributing them?
-// For now, this is complex to implement dynamically for all sniffers.
-// Let's implement a dummy one or a simple one to satisfy interface if needed.
-// The port probably requires it.
-func (m *SnifferManager) SetChannels(ctx context.Context, channels []int) {
-	// Re-partitioning at runtime is tricky because sniffers are running.
-	// For now, let's just log a warning or partial implementation.
-	log.Printf("Warning: SetChannels not fully implemented for SnifferManager yet")
+// SetChannels is reserved for future dynamic re-partitioning at runtime.
+// It is a no-op today because re-distributing channels while sniffers are
+// running without downtime is non-trivial. Use SetInterfaceChannels for
+// per-interface updates.
+func (m *SnifferManager) SetChannels(_ context.Context, _ []int) {
+	log.Printf("sniffer: SetChannels – per-interface redistribution not yet implemented; use SetInterfaceChannels")
 }
 
-// Scan performs an active scan by broadcasting probe requests.
-func (m *SnifferManager) Scan(ctx context.Context, target string) error {
-	// Broadcast scan on all interfaces? Or just one?
-	// Probably all to maximize chance of hitting the AP.
-	for _, s := range m.Sniffers {
-		if err := s.Scan(ctx, target); err != nil {
-			log.Printf("Active scan failed on %s: %v", s.Config.Interface, err)
-		}
+// GetInterfaceChannels returns the active channel list for a specific interface.
+func (m *SnifferManager) GetInterfaceChannels(_ context.Context, iface string) ([]int, error) {
+	s, ok := m.sniffers[iface]
+	if !ok || s.Hopper == nil {
+		return []int{}, nil
 	}
-	return nil
+	return s.Hopper.GetChannels(), nil
 }
 
-// GetInterfaces returns the list of managed interfaces.
-func (m *SnifferManager) GetInterfaces(ctx context.Context) ([]string, error) {
+// SetInterfaceChannels updates the channels for a single interface and persists
+// the change to disk so it survives restarts.
+func (m *SnifferManager) SetInterfaceChannels(_ context.Context, iface string, channels []int) {
+	s, ok := m.sniffers[iface]
+	if !ok {
+		return
+	}
+	s.SetInterfaceChannels(iface, channels)
+
+	if err := m.channelStore.Save(iface, channels); err != nil {
+		log.Printf("sniffer: failed to persist channel config for %s: %v", iface, err)
+	}
+}
+
+// ───────────────────────── Interface info ─────────────────────────
+
+// GetInterfaces returns the list of managed interface names.
+func (m *SnifferManager) GetInterfaces(_ context.Context) ([]string, error) {
 	return m.Interfaces, nil
 }
 
-// GetInterfaceChannels returns the channel list for a specific interface.
-func (m *SnifferManager) GetInterfaceChannels(ctx context.Context, iface string) ([]int, error) {
-	for _, s := range m.Sniffers {
-		if s.Config.Interface == iface && s.Hopper != nil {
-			return s.Hopper.GetChannels(), nil
-		}
-	}
-	return []int{}, nil
-}
-
-// SetInterfaceChannels updates the channels for a specific interface.
-func (m *SnifferManager) SetInterfaceChannels(ctx context.Context, iface string, channels []int) {
-	for _, s := range m.Sniffers {
-		if s.Config.Interface == iface {
-			// Update runtime
-			s.SetInterfaceChannels(iface, channels)
-
-			// Update persistence
-			if err := m.saveChannelConfig(iface, channels); err != nil {
-				log.Printf("Failed to save channel config for %s: %v", iface, err)
-			}
-			return
-		}
-	}
-}
-
-// Config Persistence
-type ChannelConfig map[string][]int
-
-func (m *SnifferManager) saveChannelConfig(iface string, channels []int) error {
-	cfg, err := m.loadChannelConfig()
-	if err != nil {
-		cfg = make(ChannelConfig) // Start fresh if load fails (or file missing)
-	}
-	cfg[iface] = channels
-
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return err
-	}
-	path := m.getChannelConfigPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0644)
-}
-
-func (m *SnifferManager) loadChannelConfig() (ChannelConfig, error) {
-	path := m.getChannelConfigPath()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var cfg ChannelConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, err
-	}
-	return cfg, nil
-}
-
-// getChannelConfigPath returns the path to the channel configuration file.
-func (m *SnifferManager) getChannelConfigPath() string {
-	return m.channelConfigPath
-}
-
-// GetInterfaceDetails returns detailed capabilities for all managed interfaces.
-func (m *SnifferManager) GetInterfaceDetails(ctx context.Context) ([]domain.InterfaceInfo, error) {
-	infos := []domain.InterfaceInfo{}
-	for _, s := range m.Sniffers {
-		// Use the Sniffer's own capability method if possible, or utility directly
-		// Ideally Sniffer struct should hold this info to avoid re-parsing every time?
-		// For now, let's call the utility directly or delegate to Sniffer.
-		// Let's delegate to Sniffer as it holds the config.
+// GetInterfaceDetails returns detailed capability and metrics info for all interfaces.
+func (m *SnifferManager) GetInterfaceDetails(_ context.Context) ([]domain.InterfaceInfo, error) {
+	var infos []domain.InterfaceInfo
+	for _, s := range m.sniffers {
 		infos = append(infos, s.GetInterfaceDetails()...)
 	}
 	return infos, nil
 }
 
-// Lock delegates to the RadioManager.
+// ───────────────────────── Active scan ─────────────────────────
+
+// Scan broadcasts probe requests on all managed interfaces.
+func (m *SnifferManager) Scan(ctx context.Context, target string) error {
+	for iface, inj := range m.injectors {
+		if inj == nil {
+			continue
+		}
+		log.Printf("Broadcasting Probe Request for target: '%s' on %s", target, iface)
+		if err := inj.BroadcastProbe(target); err != nil {
+			log.Printf("sniffer: active scan failed on %s: %v", iface, err)
+		}
+	}
+	return nil
+}
+
+// ───────────────────────── Radio / lock delegation ─────────────────────────
+
+// Lock delegates to RadioManager to stop hopping and fix a channel.
 func (m *SnifferManager) Lock(ctx context.Context, iface string, channel int) error {
 	if m.RadioManager != nil {
 		return m.RadioManager.Lock(ctx, iface, channel)
 	}
-	return fmt.Errorf("RadioManager not initialized")
+	return fmt.Errorf("sniffer: RadioManager not initialised")
 }
 
-// Unlock delegates to the RadioManager.
+// Unlock delegates to RadioManager to resume hopping.
 func (m *SnifferManager) Unlock(ctx context.Context, iface string) error {
 	if m.RadioManager != nil {
 		return m.RadioManager.Unlock(ctx, iface)
@@ -426,15 +314,15 @@ func (m *SnifferManager) Unlock(ctx context.Context, iface string) error {
 	return nil
 }
 
-// ExecuteWithLock delegates to the RadioManager.
+// ExecuteWithLock runs action while holding a channel lock via RadioManager.
 func (m *SnifferManager) ExecuteWithLock(ctx context.Context, iface string, channel int, action func() error) error {
 	if m.RadioManager != nil {
 		return m.RadioManager.ExecuteWithLock(ctx, iface, channel, action)
 	}
-	return fmt.Errorf("RadioManager not initialized")
+	return fmt.Errorf("sniffer: RadioManager not initialised")
 }
 
-// IsLocked checks if the interface is locked via RadioManager.
+// IsLocked reports whether the given interface is currently channel-locked.
 func (m *SnifferManager) IsLocked(ctx context.Context, iface string) bool {
 	if m.RadioManager != nil {
 		return m.RadioManager.IsLocked(ctx, iface)
@@ -442,28 +330,40 @@ func (m *SnifferManager) IsLocked(ctx context.Context, iface string) bool {
 	return false
 }
 
-// GetInjector returns the injector for a specific interface if managed.
+// GetInjector returns the packet injector for a specific interface.
 func (m *SnifferManager) GetInjector(iface string) *injection.Injector {
-	for _, s := range m.Sniffers {
-		if s.Config.Interface == iface {
-			return s.Injector
-		}
-	}
-	return nil
+	return m.injectors[iface]
 }
 
-// Close releases all resources managed by the manager.
+// ───────────────────────── Lifecycle ─────────────────────────
+
+// Close stops all sniffers and the HandshakeManager, then closes the shared
+// output channels so downstream consumers exit their range loops cleanly.
+// Call Close only after the context passed to Start has been cancelled and
+// Start has returned.
 func (m *SnifferManager) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Close HandshakeManager
 	if m.HandshakeManager != nil {
 		m.HandshakeManager.Close()
 	}
 
-	for _, s := range m.Sniffers {
+	for _, s := range m.sniffers {
 		s.Close()
 	}
+
+	for _, inj := range m.injectors {
+		if inj != nil {
+			inj.Close()
+		}
+	}
+
+	// Safe to close channels now – all goroutines have finished
+	// (Start's wg.Wait() completed before the caller reached Close).
+	close(m.Output)
+	close(m.Alerts)
+	close(m.Events)
+
 	return nil
 }

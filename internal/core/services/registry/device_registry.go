@@ -2,13 +2,11 @@ package registry
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
 	"github.com/lcalzada-xor/wmap/internal/core/ports"
-	"github.com/lcalzada-xor/wmap/internal/core/services/security"
 )
 
 const numShards = 16
@@ -16,19 +14,15 @@ const numShards = 16
 type deviceShard struct {
 	mu       sync.RWMutex
 	devices  map[string]domain.Device
-	profiles map[string]domain.BehavioralProfile
 }
 
 // DeviceRegistry implements ports.DeviceRegistry.
 type DeviceRegistry struct {
 	shards      []*deviceShard
 	ssidManager *SSIDManager
-	merger      *DeviceMerger
 	subject     *RegistrySubject
 	discoCache  map[string]string
 
-	// Services
-	BehaviorEngine *security.BehaviorEngine
 	// MAC -> Last processed Signature
 	discoCacheMu sync.RWMutex
 	sigMatcher   ports.SignatureMatcher
@@ -39,17 +33,14 @@ func NewDeviceRegistry(sigMatcher ports.SignatureMatcher) *DeviceRegistry {
 	r := &DeviceRegistry{
 		shards:         make([]*deviceShard, numShards),
 		ssidManager:    NewSSIDManager(),
-		merger:         NewDeviceMerger(),
 		subject:        NewRegistrySubject(),
 		discoCache:     make(map[string]string),
-		BehaviorEngine: security.NewBehaviorEngine(),
 		sigMatcher:     sigMatcher,
 	}
 
 	for i := 0; i < numShards; i++ {
 		r.shards[i] = &deviceShard{
 			devices:  make(map[string]domain.Device),
-			profiles: make(map[string]domain.BehavioralProfile),
 		}
 	}
 	return r
@@ -81,35 +72,7 @@ func (r *DeviceRegistry) ProcessDevice(ctx context.Context, newDevice domain.Dev
 			newDevice.LastSeen = newDevice.LastPacketTime
 		}
 
-		r.updateBehavioralProfile(shard, newDevice)
 		r.performDiscovery(ctx, &newDevice)
-
-		// Move correlation outside of the primary shard lock to avoid deadlock
-		shard.mu.Unlock()
-		correlatedMAC, confidence := r.correlateMAC(newDevice)
-		shard.mu.Lock()
-
-		// Race Condition Fix: Check if another thread created the device while we were unlocked
-		if raceExisting, raceOk := shard.devices[newDevice.MAC]; raceOk {
-			// Another thread beat us to it. Merge our data into the existing one.
-			r.merger.Merge(&raceExisting, newDevice)
-			shard.devices[newDevice.MAC] = raceExisting
-			// Strictly speaking, it's not "new" to the registry anymore, but we might want to return true/false based on discovery?
-			// Let's return false as it's an update now.
-			return raceExisting, false
-		}
-
-		if confidence >= 0.8 {
-			fmt.Printf("[CORRELATION] Device %s looks like %s (conf=%.2f)\n", newDevice.MAC, correlatedMAC, confidence)
-			if p, ok := shard.profiles[newDevice.MAC]; ok {
-				p.LinkedMAC = correlatedMAC
-				shard.profiles[newDevice.MAC] = p
-			}
-		}
-
-		if p, ok := shard.profiles[newDevice.MAC]; ok {
-			newDevice.Behavioral = &p
-		}
 
 		shard.devices[newDevice.MAC] = newDevice
 		r.ssidManager.Update(ctx, newDevice.SSID, newDevice.Security)
@@ -133,18 +96,13 @@ func (r *DeviceRegistry) ProcessDevice(ctx context.Context, newDevice domain.Dev
 	shouldPerformDiscovery := r.checkDiscoveryNeeded(existing, newDevice)
 
 	// Merge Logic
-	r.merger.Merge(&existing, newDevice)
+	existing.UpdateFrom(newDevice)
 
 	if shouldPerformDiscovery {
 		r.performDiscovery(ctx, &existing)
 		r.discoCacheMu.Lock()
 		r.discoCache[existing.MAC] = existing.Signature
 		r.discoCacheMu.Unlock()
-	}
-
-	r.updateBehavioralProfile(shard, newDevice)
-	if p, ok := shard.profiles[existing.MAC]; ok {
-		existing.Behavioral = &p
 	}
 
 	shard.devices[newDevice.MAC] = existing
@@ -166,11 +124,6 @@ func (r *DeviceRegistry) LoadDevice(ctx context.Context, device domain.Device) {
 
 	// 1. Restore Device
 	shard.devices[device.MAC] = device
-
-	// 2. Restore Profile if present
-	if device.Behavioral != nil {
-		shard.profiles[device.MAC] = *device.Behavioral
-	}
 
 	// 3. Update Lookup Maps
 	r.ssidManager.Update(ctx, device.SSID, device.Security)
@@ -207,23 +160,8 @@ func (r *DeviceRegistry) GetAllDevices(ctx context.Context) []domain.Device {
 	for _, shard := range r.shards {
 		shard.mu.RLock()
 		for _, d := range shard.devices {
-			// Deep copy maps to prevent race conditions
-			// ProbedSSIDs is read by GraphBuilder while potentially being written by mergeDeviceData
-			dCopy := d
-			if d.ProbedSSIDs != nil {
-				dCopy.ProbedSSIDs = make(map[string]time.Time, len(d.ProbedSSIDs))
-				for k, v := range d.ProbedSSIDs {
-					dCopy.ProbedSSIDs[k] = v
-				}
-			}
-			// IETags is a slice, might need copy if modified (append creates new slice usually, but modifying elements?)
-			// Typically IETags are just replaced, but safer to copy if we want true snapshot.
-			if d.IETags != nil {
-				dCopy.IETags = make([]int, len(d.IETags))
-				copy(dCopy.IETags, d.IETags)
-			}
-
-			all = append(all, dCopy)
+			// Use domain-level deep copy to prevent race conditions
+			all = append(all, d.Clone())
 		}
 		shard.mu.RUnlock()
 	}
@@ -232,7 +170,6 @@ func (r *DeviceRegistry) GetAllDevices(ctx context.Context) []domain.Device {
 
 func (r *DeviceRegistry) PruneOldDevices(ctx context.Context, ttl time.Duration) int {
 	threshold := time.Now().Add(-ttl)
-	profileThreshold := time.Now().Add(-24 * time.Hour) // Profiles last 24h by default
 	deletedCount := 0
 	for _, shard := range r.shards {
 		shard.mu.Lock()
@@ -240,12 +177,6 @@ func (r *DeviceRegistry) PruneOldDevices(ctx context.Context, ttl time.Duration)
 			if d.LastSeen.Before(threshold) {
 				delete(shard.devices, mac)
 				deletedCount++
-			}
-		}
-		// Also prune profiles that are very old
-		for mac, p := range shard.profiles {
-			if p.LastUpdated.Before(profileThreshold) {
-				delete(shard.profiles, mac)
 			}
 		}
 		shard.mu.Unlock()
@@ -290,7 +221,6 @@ func (r *DeviceRegistry) Clear(ctx context.Context) {
 	for _, shard := range r.shards {
 		shard.mu.Lock()
 		shard.devices = make(map[string]domain.Device)
-		shard.profiles = make(map[string]domain.BehavioralProfile)
 		shard.mu.Unlock()
 	}
 
@@ -323,47 +253,12 @@ func (r *DeviceRegistry) GetSSIDSecurity(ctx context.Context, ssid string) (stri
 	return r.ssidManager.GetSecurity(ctx, ssid)
 }
 
-func (r *DeviceRegistry) updateBehavioralProfile(shard *deviceShard, device domain.Device) {
-	profile, ok := shard.profiles[device.MAC]
-	if !ok {
-		profile = domain.BehavioralProfile{
-			MAC:         device.MAC,
-			ActiveHours: make([]int, 0),
-			LastUpdated: time.Now(),
-		}
-	}
-
-	// Delegate logic to BehaviorEngine
-	updatedProfile := r.BehaviorEngine.UpdateProfile(profile, device)
-	shard.profiles[device.MAC] = updatedProfile
+// AddObserver registers a new observer to receive device updates.
+func (r *DeviceRegistry) AddObserver(observer ports.DeviceObserver) {
+	r.subject.AddObserver(observer)
 }
 
-func (r *DeviceRegistry) correlateMAC(newDevice domain.Device) (string, float64) {
-	// Only correlate randomized MACs
-	if !r.BehaviorEngine.IsRandomizedMAC(newDevice.MAC) {
-		// Not a randomized MAC
-		return "", 0
-	}
 
-	bestMAC := ""
-	maxScore := 0.0
-
-	for _, shard := range r.shards {
-		shard.mu.RLock()
-		for mac, p := range shard.profiles {
-			// Skip correlation with itself? (though MACs are different)
-
-			score := r.BehaviorEngine.CalculateMatchScore(p, newDevice)
-			if score > maxScore {
-				maxScore = score
-				bestMAC = mac
-			}
-		}
-		shard.mu.RUnlock()
-	}
-
-	return bestMAC, maxScore
-}
 
 func (r *DeviceRegistry) performDiscovery(ctx context.Context, device *domain.Device) {
 	if r.sigMatcher == nil {

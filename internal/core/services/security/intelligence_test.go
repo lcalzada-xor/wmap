@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
+	"github.com/lcalzada-xor/wmap/internal/core/ports"
 	"github.com/lcalzada-xor/wmap/internal/core/services/security"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -36,6 +37,8 @@ func (m *MockRegistry) Clear(ctx context.Context) {}
 func (m *MockRegistry) CleanupStaleConnections(ctx context.Context, timeout time.Duration) int {
 	return 0
 }
+func (m *MockRegistry) AddObserver(observer ports.DeviceObserver) {}
+
 
 func TestSecurity_AdvancedKarmaDetection(t *testing.T) {
 	mockRegistry := new(MockRegistry)
@@ -76,7 +79,7 @@ func TestSecurity_AdvancedKarmaDetection(t *testing.T) {
 		for _, a := range alerts {
 			if a.DeviceMAC == device.MAC && a.Subtype == "KARMA_AP_DETECTED" {
 				found = true
-				assert.Equal(t, domain.SeverityCritical, a.Severity)
+				assert.Equal(t, "Critical", a.Severity)
 			}
 		}
 		assert.True(t, found)

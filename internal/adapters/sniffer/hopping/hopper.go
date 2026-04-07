@@ -1,6 +1,7 @@
 package hopping
 
 import (
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -16,9 +17,11 @@ type ChannelHopper struct {
 	stopChan     chan struct{}
 	stopOnce     sync.Once
 	resetChan    chan time.Duration
-	currentIndex int // For Round Robin
-	errorCount   int
-	state        AtomicState
+	currentIndex  int // For Round Robin
+	errorCount    int
+	state         AtomicState
+	lockCount     int
+	lockedChannel int
 }
 
 // NewHopper creates a new ChannelHopper.
@@ -59,6 +62,13 @@ func (h *ChannelHopper) GetChannels() []int {
 // GetState returns the current state of the hopper.
 func (h *ChannelHopper) GetState() HopperState {
 	return h.state.Get()
+}
+
+// GetLockInfo returns the current lock count and locked channel.
+func (h *ChannelHopper) GetLockInfo() (int, int) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.lockCount, h.lockedChannel
 }
 
 // Stop signals the hopper to shut down.
@@ -136,11 +146,23 @@ func (h *ChannelHopper) Lock(channel int) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
+	if h.state.Get() == StateLocked {
+		if h.lockedChannel == channel {
+			h.lockCount++
+			return nil
+		}
+		return fmt.Errorf("hopper locked on different channel %d", h.lockedChannel)
+	}
+
 	// Update state
 	h.state.Set(StateLocked)
+	h.lockedChannel = channel
+	h.lockCount = 1
 
 	// Force switch
 	if err := h.switcher.SetChannel(h.Interface, channel); err != nil {
+		h.state.Set(StateHopping) // revert on error
+		h.lockCount = 0
 		return err
 	}
 	log.Printf("Hopper LOCKED on channel %d", channel)
@@ -154,6 +176,10 @@ func (h *ChannelHopper) Unlock() {
 
 	// Only unlock if Locked
 	if h.state.Get() == StateLocked {
+		h.lockCount--
+		if h.lockCount > 0 {
+			return
+		}
 		h.state.Set(StateHopping)
 		log.Printf("Hopper UNLOCKED, resuming...")
 		// The ticker in Start() will pick up regular hopping

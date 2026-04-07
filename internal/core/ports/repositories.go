@@ -22,6 +22,7 @@ type ProbeRepository interface {
 // ConnectionHistoryRepository handles persistence for device connection events.
 type ConnectionHistoryRepository interface {
 	SaveConnectionEvent(ctx context.Context, event domain.ConnectionEvent) error
+	SaveConnectionEventsBatch(ctx context.Context, events []domain.ConnectionEvent) error
 	GetConnectionHistory(ctx context.Context, mac string, limit int) ([]domain.ConnectionEvent, error)
 }
 

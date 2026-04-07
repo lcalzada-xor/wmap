@@ -1,4 +1,4 @@
-package web
+package ws
 
 import (
 	"context"
@@ -47,24 +47,24 @@ type WSMessage struct {
 	Payload interface{} `json:"payload"`
 }
 
-type WSManager struct {
+type Manager struct {
 	Service ports.NetworkService
 	Clients map[*websocket.Conn]bool
 	mu      sync.Mutex
 }
 
-func NewWSManager(service ports.NetworkService) *WSManager {
-	return &WSManager{
+func NewManager(service ports.NetworkService) *Manager {
+	return &Manager{
 		Service: service,
 		Clients: make(map[*websocket.Conn]bool),
 	}
 }
 
-func (m *WSManager) Start(ctx context.Context) {
+func (m *Manager) Start(ctx context.Context) {
 	go m.processAndBroadcast(ctx)
 }
 
-func (m *WSManager) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
+func (m *Manager) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println("Upgrade error:", err)
@@ -95,7 +95,7 @@ func (m *WSManager) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}()
 }
 
-func (m *WSManager) processAndBroadcast(ctx context.Context) {
+func (m *Manager) processAndBroadcast(ctx context.Context) {
 	ticker := time.NewTicker(2 * time.Second) // "Sweep" every 2 seconds
 	defer ticker.Stop()
 
@@ -109,7 +109,7 @@ func (m *WSManager) processAndBroadcast(ctx context.Context) {
 	}
 }
 
-func (m *WSManager) broadcastGraph() {
+func (m *Manager) broadcastGraph() {
 	graphData, err := m.Service.GetGraph(context.Background())
 	if err != nil {
 		log.Println("Error getting graph:", err)
@@ -124,7 +124,7 @@ func (m *WSManager) broadcastGraph() {
 }
 
 // BroadcastLog sends a log message to all connected clients
-func (m *WSManager) BroadcastLog(message string, level string) {
+func (m *Manager) BroadcastLog(message string, level string) {
 	payload := map[string]string{
 		"message": message,
 		"level":   level,
@@ -138,7 +138,7 @@ func (m *WSManager) BroadcastLog(message string, level string) {
 }
 
 // BroadcastAlert sends an alert object to all connected clients
-func (m *WSManager) BroadcastAlert(alert domain.Alert) {
+func (m *Manager) BroadcastAlert(alert domain.Alert) {
 	msg := WSMessage{
 		Type:    "alert",
 		Payload: alert,
@@ -146,7 +146,7 @@ func (m *WSManager) BroadcastAlert(alert domain.Alert) {
 	m.broadcastMessage(msg)
 }
 
-func (m *WSManager) broadcastMessage(msg WSMessage) {
+func (m *Manager) broadcastMessage(msg WSMessage) {
 	data, err := json.Marshal(msg)
 	if err != nil {
 		log.Println("JSON marshal error:", err)

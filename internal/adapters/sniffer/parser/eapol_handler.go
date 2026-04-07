@@ -12,100 +12,99 @@ import (
 
 // handleHandshakeCapture checks for Handshakes, PMKID, and M1 anomalies
 func (h *PacketHandler) handleHandshakeCapture(packet gopacket.Packet) (bool, *domain.Alert) {
-	if h.HandshakeManager != nil {
-		// Aggressive Pause: If we see EAPOL or Auth/Assoc, pause IMMEDIATELY
-		// to maximize chances of capturing the full 4-way handshake
-		if isEAPOLKey(packet) || isRelevantMgmt(packet) {
-			if h.PauseCallback != nil {
-				h.PauseCallback(5 * time.Second)
-			}
+	if h.HandshakeManager == nil {
+		return false, nil
+	}
+
+	dot11Layer := packet.Layer(layers.LayerTypeDot11)
+	if dot11Layer == nil {
+		return false, nil
+	}
+	dot11, ok := dot11Layer.(*layers.Dot11)
+	if !ok {
+		return false, nil
+	}
+
+	eapolLayer := packet.Layer(layers.LayerTypeEAPOL)
+	var eapol *layers.EAPOL
+	isEAPOLKey := false
+	if eapolLayer != nil {
+		e, ok := eapolLayer.(*layers.EAPOL)
+		if ok && e.Type == layers.EAPOLTypeKey {
+			eapol = e
+			isEAPOLKey = true
+		}
+	}
+
+	isMgmt := isRelevantMgmt(dot11)
+
+	if !isEAPOLKey && !isMgmt {
+		return false, nil
+	}
+
+	// Aggressive Pause: If we see EAPOL or Auth/Assoc, pause IMMEDIATELY
+	// to maximize chances of capturing the full 4-way handshake
+	if h.PauseCallback != nil {
+		h.PauseCallback(1500 * time.Millisecond)
+	}
+
+	saved := h.HandshakeManager.ProcessFrame(packet)
+	if saved {
+		// Trigger Reactive Hopping: Pause to capture more frames
+		if h.PauseCallback != nil {
+			h.PauseCallback(1500 * time.Millisecond)
 		}
 
-		saved := h.HandshakeManager.ProcessFrame(packet)
-		if saved {
-			// Trigger Reactive Hopping: Pause to capture more frames
-			if h.PauseCallback != nil {
-				h.PauseCallback(5 * time.Second)
-			}
+		bssid := dot11.Address3.String()
 
-			dot11 := packet.Layer(layers.LayerTypeDot11).(*layers.Dot11)
-			bssid := dot11.Address3.String()
+		alert := &domain.Alert{
+			Type:      "HANDSHAKE_CAPTURED",
+			Subtype:   "WPA_HANDSHAKE",
+			DeviceMAC: dot11.Address2.String(), // Source (likely Station or AP)
+			TargetMAC: dot11.Address1.String(), // Dest
+			Timestamp: time.Now(),
+			Message:   "WPA Handshake Captured",
+			Details:   fmt.Sprintf("BSSID: %s", bssid),
+		}
+		return true, alert
+	}
 
+	if isEAPOLKey && eapol != nil {
+		// Passive PMKID Detection
+		if detected := h.detectPMKID(packet, dot11, eapol); detected {
 			alert := &domain.Alert{
-				Type:      "HANDSHAKE_CAPTURED",
-				Subtype:   "WPA_HANDSHAKE",
-				DeviceMAC: dot11.Address2.String(), // Source (likely Station or AP)
-				TargetMAC: dot11.Address1.String(), // Dest
+				Type:      "ANOMALY",
+				Subtype:   "VULNERABILITY_DETECTED",
+				DeviceMAC: dot11.Address3.String(), // BSSID is the vulnerable entity
 				Timestamp: time.Now(),
-				Message:   "WPA Handshake Captured",
-				Details:   fmt.Sprintf("BSSID: %s", bssid),
+				Message:   "Vulnerability Detected: PMKID Exposure",
+				Details:   "Device is broadcasting PMKID in EAPOL M1. Evidence: PMKID IE present",
+				Severity:  "High", // Using string severity for Alert
 			}
 			return true, alert
 		}
 
-		// Passive PMKID Detection
-		if isEAPOLKey(packet) {
-			if detected := h.detectPMKID(packet); detected {
-				dot11 := packet.Layer(layers.LayerTypeDot11).(*layers.Dot11)
-				alert := &domain.Alert{
-					Type:      "ANOMALY",
-					Subtype:   "VULNERABILITY_DETECTED",
-					DeviceMAC: dot11.Address3.String(), // BSSID is the vulnerable entity
-					Timestamp: time.Now(),
-					Message:   "Vulnerability Detected: PMKID Exposure",
-					Details:   "Device is broadcasting PMKID in EAPOL M1. Evidence: PMKID IE present",
-					Severity:  "High", // Using string severity for Alert
-				}
-				return true, alert
-			}
-		}
-
 		// Passive M1 Analysis (Nonce Randomness)
-		if isEAPOLKey(packet) {
-			if alert := h.analyzeM1(packet); alert != nil {
-				return true, alert
-			}
+		if alert := h.analyzeM1(dot11, eapol); alert != nil {
+			return true, alert
 		}
 	}
+
 	return false, nil
 }
 
-func isEAPOLKey(packet gopacket.Packet) bool {
-	if eapolLayer := packet.Layer(layers.LayerTypeEAPOL); eapolLayer != nil {
-		if eapol, ok := eapolLayer.(*layers.EAPOL); ok {
-			return eapol.Type == layers.EAPOLTypeKey
-		}
-	}
-	return false
-}
-
-func isRelevantMgmt(packet gopacket.Packet) bool {
-	dot11Layer := packet.Layer(layers.LayerTypeDot11)
-	if dot11Layer == nil {
-		return false
-	}
-	dot11, ok := dot11Layer.(*layers.Dot11)
-	if !ok {
-		return false
-	}
+func isRelevantMgmt(dot11 *layers.Dot11) bool {
 	return dot11.Type == layers.Dot11TypeMgmtAuthentication ||
 		dot11.Type == layers.Dot11TypeMgmtAssociationReq ||
 		dot11.Type == layers.Dot11TypeMgmtReassociationReq
 }
 
-func (h *PacketHandler) detectPMKID(packet gopacket.Packet) bool {
-	eapolLayer := packet.Layer(layers.LayerTypeEAPOL)
-	if eapolLayer == nil {
-		return false
-	}
-
-	eapol, ok := eapolLayer.(*layers.EAPOL)
-	if !ok || eapol.Type != layers.EAPOLTypeKey {
-		return false
-	}
-
-	// Parse EAPOL Key frame
+func (h *PacketHandler) detectPMKID(packet gopacket.Packet, dot11 *layers.Dot11, eapol *layers.EAPOL) bool {
 	payload := eapol.LayerPayload()
+	// EAPOL Key Frame header minimum size (to reach Key Data Length) is 95 bytes.
+	// 1 (Descriptor Type) + 2 (Key Info) + 2 (Key Len) + 8 (Replay Counter) +
+	// 32 (Nonce) + 16 (IV) + 8 (RSC) + 8 (ID) + 16 (MIC) = 93 bytes basic header.
+	// Key Data Length (2 bytes) follows at offset 93.
 	if len(payload) < 95 {
 		return false
 	}
@@ -119,35 +118,19 @@ func (h *PacketHandler) detectPMKID(packet gopacket.Packet) bool {
 	keyData := payload[95 : 95+keyDataLen]
 
 	if ie.ParsePMKID(keyData) {
-		dot11Layer := packet.Layer(layers.LayerTypeDot11)
-		if dot11Layer == nil {
-			return false
-		}
-		dot11 := dot11Layer.(*layers.Dot11)
-
 		// Save PMKID Packet
 		if h.HandshakeManager != nil {
 			h.HandshakeManager.SavePMKID(packet, dot11.Address3.String(), "")
 		}
-
 		return true
 	}
 
 	return false
 }
 
-func (h *PacketHandler) analyzeM1(packet gopacket.Packet) *domain.Alert {
-	eapolLayer := packet.Layer(layers.LayerTypeEAPOL)
-	if eapolLayer == nil {
-		return nil
-	}
-
-	eapol, ok := eapolLayer.(*layers.EAPOL)
-	if !ok || eapol.Type != layers.EAPOLTypeKey {
-		return nil
-	}
-
+func (h *PacketHandler) analyzeM1(dot11 *layers.Dot11, eapol *layers.EAPOL) *domain.Alert {
 	payload := eapol.LayerPayload()
+	
 	// EAPOL Key Frame Check
 	// Descriptor Type (1 byte) | Key Info (2) | Key Len (2) | Replay Counter (8) | Key Nonce (32)
 	// Offset for Nonce: 1 + 2 + 2 + 8 = 13
@@ -155,21 +138,23 @@ func (h *PacketHandler) analyzeM1(packet gopacket.Packet) *domain.Alert {
 		return nil
 	}
 
-	// Verify it's M1 (Key Ack set, Key MIC NOT set)
-	// Key Info is at offset 1 (2 bytes). Big Endian.
-	// Bit 7: Key Ack (check if set). Bit 8: Key MIC (check if NOT set).
-	// 0x0080 = Key Ack. 0x0100 = Key MIC. (Depends on endianness in packet vs parsing)
-	// Actually G1/G2 bits differ. Assuming 802.11 endianness.
-	// Let's rely on FromDS check for AP direction + having Nonce.
+	// Verify it's an M1 message
+	// Key Info is at offset 1 (2 bytes). It is big-endian typically in the frame for these bits.
+	// Key Ack is bit 7 (in the 16 bit field), Key MIC is bit 8.
+	// payload[1] contains bits 8-15, payload[2] contains bits 0-7.
+	// Key Ack (bit 7) is in payload[2] (0x80)
+	// Key MIC (bit 8) is in payload[1] (0x01)
+	keyAckSet := (payload[2] & 0x80) != 0
+	keyMICSet := (payload[1] & 0x01) != 0
 
-	dot11Layer := packet.Layer(layers.LayerTypeDot11)
-	if dot11Layer == nil {
-		return nil
-	}
-	dot11 := dot11Layer.(*layers.Dot11)
-
+	// Also it MUST come from AP
 	if !dot11.Flags.FromDS() {
 		return nil // Client -> AP
+	}
+
+	// For M1: Key Ack IS set, Key MIC is NOT set
+	if !keyAckSet || keyMICSet {
+		return nil
 	}
 
 	nonce := payload[13 : 13+32]
@@ -217,4 +202,13 @@ func (h *PacketHandler) analyzeM1(packet gopacket.Packet) *domain.Alert {
 	}
 
 	return nil
+}
+
+func isEAPOLKey(packet gopacket.Packet) bool {
+	if eapolLayer := packet.Layer(layers.LayerTypeEAPOL); eapolLayer != nil {
+		if eapol, ok := eapolLayer.(*layers.EAPOL); ok {
+			return eapol.Type == layers.EAPOLTypeKey
+		}
+	}
+	return false
 }

@@ -42,9 +42,41 @@ func TestExportCSV(t *testing.T) {
 	assert.NoError(t, err)
 
 	content := buf.String()
-	assert.Contains(t, content, "MAC,Type,Vendor,SSID")
+	assert.Contains(t, content, "MAC,Type,Vendor,VendorConfidence,SSID,Security,Crypto,Standard")
 	assert.Contains(t, content, "00:11:22:33:44:55")
 	assert.Contains(t, content, "TestNet")
+}
+
+func TestStreamExportJSON(t *testing.T) {
+	devicesChan := make(chan domain.Device, 1)
+	devicesChan <- domain.Device{MAC: "aa:bb:cc:dd:ee:ff", SSID: "StreamNet"}
+	close(devicesChan)
+
+	var buf bytes.Buffer
+	err := StreamExportJSON(&buf, devicesChan)
+	assert.NoError(t, err)
+
+	assert.Contains(t, buf.String(), "aa:bb:cc:dd:ee:ff")
+	assert.Contains(t, buf.String(), "StreamNet")
+}
+
+func TestStreamExportCSV(t *testing.T) {
+	devicesChan := make(chan domain.Device, 1)
+	devicesChan <- domain.Device{
+		MAC:       "11:22:33:44:55:66",
+		SSID:      "StreamCSV",
+		FirstSeen: time.Now(),
+		LastSeen:  time.Now(),
+	}
+	close(devicesChan)
+
+	var buf bytes.Buffer
+	err := StreamExportCSV(&buf, devicesChan)
+	assert.NoError(t, err)
+
+	content := buf.String()
+	assert.Contains(t, content, "11:22:33:44:55:66")
+	assert.Contains(t, content, "StreamCSV")
 }
 
 func TestExportAlertsJSON(t *testing.T) {
@@ -77,4 +109,31 @@ func TestExportAlertsCSV(t *testing.T) {
 	content := buf.String()
 	assert.Contains(t, content, "ID,Type,Subtype")
 	assert.Contains(t, content, "alert-1")
+}
+
+func TestStreamExportAlertsJSON(t *testing.T) {
+	alertsChan := make(chan domain.Alert, 1)
+	alertsChan <- domain.Alert{ID: "stream-alert-1", Message: "Streaming JSON alert"}
+	close(alertsChan)
+
+	var buf bytes.Buffer
+	err := StreamExportAlertsJSON(&buf, alertsChan)
+	assert.NoError(t, err)
+
+	assert.Contains(t, buf.String(), "stream-alert-1")
+}
+
+func TestStreamExportAlertsCSV(t *testing.T) {
+	alertsChan := make(chan domain.Alert, 1)
+	alertsChan <- domain.Alert{
+		ID:        "stream-alert-csv",
+		Timestamp: time.Now(),
+	}
+	close(alertsChan)
+
+	var buf bytes.Buffer
+	err := StreamExportAlertsCSV(&buf, alertsChan)
+	assert.NoError(t, err)
+
+	assert.Contains(t, buf.String(), "stream-alert-csv")
 }

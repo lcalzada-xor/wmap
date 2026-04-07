@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
+	"github.com/lcalzada-xor/wmap/internal/core/ports"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -40,6 +41,8 @@ func (m *MockRegistry) Clear(ctx context.Context)                               
 func (m *MockRegistry) CleanupStaleConnections(ctx context.Context, timeout time.Duration) int {
 	return 0
 }
+func (m *MockRegistry) AddObserver(observer ports.DeviceObserver) {}
+
 
 // TestIntelligenceFeatures verifies the new detection logic
 func TestSecurityEngine_Intelligence(t *testing.T) {
@@ -63,7 +66,7 @@ func TestSecurityEngine_Intelligence(t *testing.T) {
 		for _, alert := range alerts {
 			if alert.Subtype == "HIGH_RETRY_RATE" && alert.DeviceMAC == "00:11:22:33:44:55" {
 				found = true
-				assert.Equal(t, domain.SeverityMedium, alert.Severity)
+				assert.Equal(t, "Medium", alert.Severity)
 				break
 			}
 		}
@@ -87,7 +90,7 @@ func TestSecurityEngine_Intelligence(t *testing.T) {
 		for _, alert := range alerts {
 			if alert.Subtype == "KARMA_DETECTION" && alert.DeviceMAC == "AA:BB:CC:DD:EE:FF" {
 				found = true
-				assert.Equal(t, domain.SeverityHigh, alert.Severity)
+				assert.Equal(t, "High", alert.Severity)
 				break
 			}
 		}
@@ -108,7 +111,7 @@ func TestSecurityEngine_Intelligence(t *testing.T) {
 		for _, alert := range alerts {
 			if alert.Subtype == "KARMA_AP_DETECTED" && alert.DeviceMAC == "11:22:33:44:55:66" {
 				found = true
-				assert.Equal(t, domain.SeverityCritical, alert.Severity)
+				assert.Equal(t, "Critical", alert.Severity)
 				assert.Contains(t, alert.Details, "broadcasting 2 distinct SSIDs")
 				break
 			}
@@ -134,7 +137,7 @@ func TestSecurityEngine_Intelligence(t *testing.T) {
 		for _, alert := range alerts {
 			if alert.Subtype == "EVIL_TWIN_DETECTED" && alert.DeviceMAC == "EVIL_MAC" {
 				found = true
-				assert.Equal(t, domain.SeverityCritical, alert.Severity)
+				assert.Equal(t, "Critical", alert.Severity)
 				break
 			}
 		}

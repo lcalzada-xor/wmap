@@ -2,7 +2,6 @@ package registry
 
 import (
 	"context"
-	"time"
 
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
 	"github.com/lcalzada-xor/wmap/internal/core/ports"
@@ -24,50 +23,49 @@ func NewGraphBuilder(registry ports.DeviceRegistry) *GraphBuilder {
 
 // BuildGraph generates the graph projection from the current registry state.
 func (b *GraphBuilder) BuildGraph(ctx context.Context) domain.GraphData {
-	nodes := []domain.GraphNode{}
-	edges := []domain.GraphEdge{}
-
-	// Devices - First pass to collect SSID info from APs
 	devices := b.registry.GetAllDevices(ctx)
+	ssids := b.registry.GetSSIDs(ctx)
 
-	// properties for O(1) lookup
-	deviceMap := make(map[string]*domain.Device)
+	// Pre-allocate with a sensible heuristic:
+	// Nodes: len(devices) + len(ssids) + possible stub nodes
+	// Edges: at least len(devices) (probing/connecting)
+	nodes := make([]domain.GraphNode, 0, len(devices)+len(ssids))
+	edges := make([]domain.GraphEdge, 0, len(devices)*2)
+
+	deviceMap := make(map[string]*domain.Device, len(devices))
+	ssidInfo := make(map[string]*domain.GraphNode, len(ssids))
+
+	// First pass: Build device map and collect representative AP data for SSID nodes
 	for i := range devices {
-		deviceMap[devices[i].MAC] = &devices[i]
-	}
+		d := &devices[i]
+		deviceMap[d.MAC] = d
 
-	ssidInfo := make(map[string]*domain.GraphNode)
-
-	for _, device := range devices {
-		if device.Type == "ap" && device.SSID != "" {
-			// Use the most recently seen AP for this SSID
-			if existing, ok := ssidInfo[device.SSID]; !ok || device.LastSeen.After(existing.LastSeen) {
-				ssidInfo[device.SSID] = &domain.GraphNode{
+		if d.Type == domain.DeviceTypeAP && d.SSID != "" {
+			if existing, ok := ssidInfo[d.SSID]; !ok || d.LastSeen.After(existing.LastSeen) {
+				ssidInfo[d.SSID] = &domain.GraphNode{
 					NodeIdentity: domain.NodeIdentity{
-						ID:        "ssid_" + device.SSID,
-						Label:     device.SSID,
+						ID:        "ssid_" + d.SSID,
+						Label:     d.SSID,
 						Group:     domain.GroupNetwork,
-						FirstSeen: device.FirstSeen,
-						LastSeen:  device.LastSeen,
+						FirstSeen: d.FirstSeen,
+						LastSeen:  d.LastSeen,
 					},
 					RadioDetails: domain.RadioDetails{
-						SSID:      device.SSID,
-						Security:  device.Security,
-						Channel:   device.Channel,
-						Frequency: device.Frequency,
+						SSID:      d.SSID,
+						Security:  d.Security,
+						Channel:   d.Channel,
+						Frequency: d.Frequency,
 					},
 				}
 			}
 		}
 	}
 
-	// SSIDs - Add all SSIDs (including those without APs)
-	ssids := b.registry.GetSSIDs(ctx)
+	// Add SSID nodes
 	for ssid := range ssids {
 		if info, ok := ssidInfo[ssid]; ok {
 			nodes = append(nodes, *info)
 		} else {
-			// SSID without AP (only probed by stations)
 			nodes = append(nodes, domain.GraphNode{
 				NodeIdentity: domain.NodeIdentity{
 					ID:    "ssid_" + ssid,
@@ -81,94 +79,20 @@ func (b *GraphBuilder) BuildGraph(ctx context.Context) domain.GraphData {
 		}
 	}
 
-	// Devices - Second pass for device nodes
+	// Second pass: Create device nodes and build edges
 	for _, device := range devices {
-		group := domain.GraphGroup(device.Type)
-		if group == "" {
-			group = domain.GroupStation
-		}
+		nodes = append(nodes, device.ToGraphNode())
 
-		// Behavioral Details
-		var probeFreqStr string
-		var anomalyScore float64
-		var activeHours []int
-		if device.Behavioral != nil {
-			if device.Behavioral.ProbeFrequency > 0 {
-				probeFreqStr = device.Behavioral.ProbeFrequency.Round(time.Second).String()
-			}
-			anomalyScore = device.Behavioral.AnomalyScore
-			activeHours = device.Behavioral.ActiveHours
-		}
+		// --- Edge Logic ---
 
-		label := device.MAC + "\n(" + device.Vendor + ")"
-		if device.Frequency > 3000 {
-			label += "\n[5GHz]"
-		}
-
-		nodes = append(nodes, domain.GraphNode{
-			NodeIdentity: domain.NodeIdentity{
-				ID:        "dev_" + device.MAC,
-				Label:     label,
-				Group:     group,
-				MAC:       device.MAC,
-				Vendor:    device.Vendor,
-				LastSeen:  device.LastSeen,
-				FirstSeen: device.FirstSeen,
-			},
-			RadioDetails: domain.RadioDetails{
-				RSSI:           device.RSSI,
-				Capabilities:   device.Capabilities,
-				IsRandomized:   device.IsRandomized,
-				HasHandshake:   device.HasHandshake,
-				SSID:           device.SSID,
-				Channel:        device.Channel,
-				Security:       device.Security,
-				Standard:       device.Standard,
-				Frequency:      device.Frequency,
-				IsWiFi6:        device.IsWiFi6,
-				IsWiFi7:        device.IsWiFi7,
-				WPSInfo:        device.WPSInfo,
-				IETags:         device.IETags,
-				HandshakeFile:  device.HandshakeFile,
-				RSNInfo:        device.RSNInfo,
-				WPSDetails:     device.WPSDetails,
-				MobilityDomain: device.MobilityDomain,
-				ProbedSSIDs:    getProbedSSIDsList(device.ProbedSSIDs),
-			},
-			TrafficStats: domain.TrafficStats{
-				DataTransmitted: device.DataTransmitted,
-				DataReceived:    device.DataReceived,
-				PacketsCount:    device.PacketsCount,
-				RetryCount:      device.RetryCount,
-			},
-			NodeBehavioralData: domain.NodeBehavioralData{
-				ProbeFrequency: probeFreqStr,
-				AnomalyScore:   anomalyScore,
-				ActiveHours:    activeHours,
-				Signature:      device.Signature,
-				Model:          device.Model,
-				OS:             device.OS,
-			},
-			ConnectionDetails: domain.ConnectionDetails{
-				ConnectionState:  device.ConnectionState,
-				ConnectionTarget: device.ConnectionTarget,
-				ConnectionError:  device.ConnectionError,
-			},
-		})
-
-		// SSID Edges (Logical Relation)
+		// 1. Probing Edge (to SSID node)
 		if device.SSID != "" {
-			// Skip direct SSID link if we're already connected to an AP that provides this SSID
-			// to keep the graph cleaner.
 			skipSSIDLink := false
 			if device.ConnectedSSID != "" {
-				if ap, ok := deviceMap[device.ConnectedSSID]; ok {
-					if ap.SSID == device.SSID {
-						skipSSIDLink = true
-					}
+				if ap, ok := deviceMap[device.ConnectedSSID]; ok && ap.SSID == device.SSID {
+					skipSSIDLink = true
 				}
 			}
-
 			if !skipSSIDLink {
 				edges = append(edges, domain.GraphEdge{
 					From: "dev_" + device.MAC,
@@ -178,6 +102,7 @@ func (b *GraphBuilder) BuildGraph(ctx context.Context) domain.GraphData {
 			}
 		}
 
+		// 2. Extra Probed SSIDs
 		for ssid := range device.ProbedSSIDs {
 			if ssid != device.SSID {
 				edges = append(edges, domain.GraphEdge{
@@ -189,112 +114,79 @@ func (b *GraphBuilder) BuildGraph(ctx context.Context) domain.GraphData {
 			}
 		}
 
-		// AP Connection Edges (Physical/Link Layer Connection)
+		// 3. Connection Edges
 		if device.ConnectionTarget != "" && device.ConnectionState != domain.StateDisconnected {
-			edgeType := domain.TypeConnection
 			isDashed := false
 			edgeLabel := ""
-
-			if device.ConnectionState == domain.StateAuthenticating {
+			switch device.ConnectionState {
+			case domain.StateAuthenticating, domain.StateAssociating:
 				isDashed = true
-				edgeLabel = "authenticating"
-			} else if device.ConnectionState == domain.StateAssociating {
-				isDashed = true
-				edgeLabel = "associating"
-			} else if device.ConnectionState == domain.StateHandshake {
+				edgeLabel = string(device.ConnectionState)
+			case domain.StateHandshake:
 				edgeLabel = "handshake"
 			}
 
-			// Auth Failure Override
 			if device.ConnectionError == "auth_failed" {
 				isDashed = true
 				edgeLabel = "auth failed"
-				// Red color will be handled by setting Color explicitly
 			}
 
 			var edgeColor string
-			// Dynamic RSSI Coloring for active connections
 			if device.ConnectionState == domain.StateConnected || device.ConnectionState == domain.StateHandshake {
 				if device.RSSI > b.config.RSSIThresholds.Good {
-					edgeColor = b.config.Colors.Good // Green (Excellent)
+					edgeColor = b.config.Colors.Good
 				} else if device.RSSI > b.config.RSSIThresholds.Fair {
-					edgeColor = b.config.Colors.Fair // Yellow (Fair)
+					edgeColor = b.config.Colors.Fair
 				} else {
-					edgeColor = b.config.Colors.Poor // Red (Poor)
+					edgeColor = b.config.Colors.Poor
 				}
 			}
 
-			// Auth Failure Red Override
 			if device.ConnectionError == "auth_failed" {
-				edgeColor = b.config.Colors.AuthFailed // Red
+				edgeColor = b.config.Colors.AuthFailed
 			}
 
 			edges = append(edges, domain.GraphEdge{
 				From:   "dev_" + device.MAC,
 				To:     "dev_" + device.ConnectionTarget,
-				Type:   edgeType,
+				Type:   domain.TypeConnection,
 				Dashed: isDashed,
 				Label:  edgeLabel,
 				Color:  edgeColor,
 			})
 		} else if device.ConnectedSSID != "" {
-			// Legacy/Fallback for devices without precise state yet
 			edges = append(edges, domain.GraphEdge{
 				From: "dev_" + device.MAC,
 				To:   "dev_" + device.ConnectedSSID,
 				Type: domain.TypeConnection,
 			})
-		} else if device.Behavioral != nil && device.Behavioral.LinkedMAC != "" {
-			// INFERRED CONNECTION: Check if the linked device has a connection
-			if linked, ok := deviceMap[device.Behavioral.LinkedMAC]; ok {
-				if linked.ConnectedSSID != "" {
-					edges = append(edges, domain.GraphEdge{
-						From:   "dev_" + device.MAC,
-						To:     "dev_" + linked.ConnectedSSID,
-						Type:   domain.TypeConnection,
-						Dashed: true,
-						Label:  "inferred assoc",
-					})
-				}
-			}
 		}
 
-		// Correlation Edges (Randomization linkage)
-		if device.Behavioral != nil && device.Behavioral.LinkedMAC != "" {
-			edges = append(edges, domain.GraphEdge{
-				From:   "dev_" + device.MAC,
-				To:     "dev_" + device.Behavioral.LinkedMAC,
-				Dashed: true,
-				Type:   domain.TypeCorrelation,
-				Label:  "correlated",
-			})
-		}
 	}
 
-	// STUB NODES: Check for referenced edges to missing nodes
-	referenced := make(map[string]bool)
-	for _, e := range edges {
-		// We only care about connection targets (dev_ to dev_)
-		if len(e.To) > 4 && e.To[:4] == "dev_" {
-			mac := e.To[4:]
-			referenced[mac] = true
+	// STUB NODES: Add nodes that are targets of edges but not in the registry
+	referenced := make(map[string]struct{})
+	for i := range edges {
+		to := edges[i].To
+		if len(to) > 4 && to[:4] == "dev_" {
+			mac := to[4:]
+			if _, exists := deviceMap[mac]; !exists {
+				referenced[mac] = struct{}{}
+			}
 		}
 	}
 
 	for mac := range referenced {
-		if _, exists := deviceMap[mac]; !exists {
-			// Create Stub Node
-			nodes = append(nodes, domain.GraphNode{
-				NodeIdentity: domain.NodeIdentity{
-					ID:     "dev_" + mac,
-					Label:  "Unknown AP\n" + mac,
-					Group:  domain.GroupAP, // Assume AP if it's a target
-					MAC:    mac,
-					Vendor: "Unknown",
-				},
-				IsStale: true, // Visual cue
-			})
-		}
+		nodes = append(nodes, domain.GraphNode{
+			NodeIdentity: domain.NodeIdentity{
+				ID:     "dev_" + mac,
+				Label:  "Unknown AP\n" + mac,
+				Group:  domain.GroupAP,
+				MAC:    mac,
+				Vendor: "Unknown",
+			},
+			IsStale: true,
+		})
 	}
 
 	return domain.GraphData{
@@ -302,13 +194,4 @@ func (b *GraphBuilder) BuildGraph(ctx context.Context) domain.GraphData {
 		Edges:  edges,
 		Config: b.config,
 	}
-}
-
-// getProbedSSIDsList extracts keys from the map
-func getProbedSSIDsList(probes map[string]time.Time) []string {
-	list := make([]string, 0, len(probes))
-	for ssid := range probes {
-		list = append(list, ssid)
-	}
-	return list
 }

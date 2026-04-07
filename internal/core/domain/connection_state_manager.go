@@ -17,6 +17,11 @@ const (
 	EventDisassoc     ConnectionEventType = "disassoc"
 )
 
+const (
+	shardCount      = 16
+	dataDebounceTTL = 500 * time.Millisecond
+)
+
 // ConnectionEvent represents an event that triggers a state transition.
 type ConnectionEvent struct {
 	Type      ConnectionEventType
@@ -28,9 +33,12 @@ type ConnectionEvent struct {
 
 // ConnectionStateManager manages the state transitions for device connections.
 // It ensures valid transitions and filters out transient noise.
+// It uses sharding to minimize mutex contention in high-traffic environments.
 type ConnectionStateManager struct {
-	// In-memory state tracking to support debouncing and validation
-	// Key: DeviceMAC
+	shards [shardCount]*stateShard
+}
+
+type stateShard struct {
 	states map[string]*deviceConnectionState
 	mu     sync.RWMutex
 }
@@ -39,36 +47,47 @@ type deviceConnectionState struct {
 	CurrentState    ConnectionState
 	LastStateChange time.Time
 	TargetBSSID     string
-	PendingState    ConnectionState
-	PendingTime     time.Time
 }
 
 // NewConnectionStateManager creates a new state manager.
 func NewConnectionStateManager() *ConnectionStateManager {
-	return &ConnectionStateManager{
-		states: make(map[string]*deviceConnectionState),
+	sm := &ConnectionStateManager{}
+	for i := 0; i < shardCount; i++ {
+		sm.shards[i] = &stateShard{
+			states: make(map[string]*deviceConnectionState),
+		}
 	}
+	return sm
+}
+
+func (sm *ConnectionStateManager) getShard(mac string) *stateShard {
+	// Simple additive hash for the MAC string to select a shard
+	var hash uint32
+	for i := 0; i < len(mac); i++ {
+		hash = 31*hash + uint32(mac[i])
+	}
+	return sm.shards[hash%shardCount]
 }
 
 // UpdateState determines the new state based on an incoming event.
 // It returns the new state and target BSSID.
 func (sm *ConnectionStateManager) UpdateState(deviceMAC string, event ConnectionEvent) (ConnectionState, string) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
+	shard := sm.getShard(deviceMAC)
+	shard.mu.Lock()
+	defer shard.mu.Unlock()
 
-	state, exists := sm.states[deviceMAC]
+	state, exists := shard.states[deviceMAC]
 	if !exists {
 		state = &deviceConnectionState{
 			CurrentState:    StateDisconnected,
 			LastStateChange: time.Time{}, // Time zero
 		}
-		sm.states[deviceMAC] = state
+		shard.states[deviceMAC] = state
 	}
 
 	// 1. Ordering Validation
 	// If the event is older than the last state change, it's likely an out-of-order packet.
 	// We ignore it to prevent state regression.
-	// Exception: If LastStateChange is zero (initial), process it.
 	if !state.LastStateChange.IsZero() && event.Timestamp.Before(state.LastStateChange) {
 		return state.CurrentState, state.TargetBSSID
 	}
@@ -85,17 +104,19 @@ func (sm *ConnectionStateManager) UpdateState(deviceMAC string, event Connection
 		newState = StateAssociating
 		newTarget = event.TargetMAC
 	case EventEAPOL:
+		// Transition to Handshake if we are in expected preliminary states
+		// Or if we see EAPOL frames, we strongly suspect a handshake is in progress.
 		newState = StateHandshake
-		if newTarget == "" {
+		if newTarget == "" || newTarget != event.TargetMAC {
 			newTarget = event.TargetMAC
 		}
 	case EventDataTransfer:
-		// Debounce: If we recently disconnected (e.g. within 500ms), ignore isolated data frames
+		// Debounce: If we recently disconnected, ignore isolated data frames
 		// This prevents "ghost" reconnections from buffered frames arriving after a Deauth.
-		// We use event timestamps to be robust against processing delays.
-		if state.CurrentState == StateDisconnected && event.Timestamp.Sub(state.LastStateChange) < 500*time.Millisecond {
-			// Ignore data frame during cool-down
-			return state.CurrentState, state.TargetBSSID
+		if state.CurrentState == StateDisconnected && !state.LastStateChange.IsZero() {
+			if event.Timestamp.Sub(state.LastStateChange) < dataDebounceTTL {
+				return state.CurrentState, state.TargetBSSID
+			}
 		}
 
 		// Transition to Connected
@@ -120,10 +141,32 @@ func (sm *ConnectionStateManager) UpdateState(deviceMAC string, event Connection
 
 // GetState returns the current known state for a device
 func (sm *ConnectionStateManager) GetState(deviceMAC string) ConnectionState {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-	if state, ok := sm.states[deviceMAC]; ok {
+	shard := sm.getShard(deviceMAC)
+	shard.mu.RLock()
+	defer shard.mu.RUnlock()
+	if state, ok := shard.states[deviceMAC]; ok {
 		return state.CurrentState
 	}
 	return StateDisconnected
+}
+
+// Cleanup removes device states that haven't changed for longer than the provided TTL.
+// Returns the number of evicted entries.
+func (sm *ConnectionStateManager) Cleanup(ttl time.Duration) int {
+	evicted := 0
+	now := time.Now()
+
+	for i := 0; i < shardCount; i++ {
+		shard := sm.shards[i]
+		shard.mu.Lock()
+		for mac, state := range shard.states {
+			if now.Sub(state.LastStateChange) > ttl {
+				delete(shard.states, mac)
+				evicted++
+			}
+		}
+		shard.mu.Unlock()
+	}
+
+	return evicted
 }

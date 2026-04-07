@@ -14,7 +14,7 @@ import (
 func TestConnectionStateFlow_Integration(t *testing.T) {
 	// 1. Create registry and graph builder
 	ctx := context.Background()
-	reg := registry.NewDeviceRegistry(nil, nil)
+	reg := registry.NewDeviceRegistry(nil)
 	builder := registry.NewGraphBuilder(reg)
 
 	// 2. Create AP device
@@ -122,7 +122,7 @@ func TestConnectionStateFlow_AllStates(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
-			reg := registry.NewDeviceRegistry(nil, nil)
+			reg := registry.NewDeviceRegistry(nil)
 			builder := registry.NewGraphBuilder(reg)
 
 			// Create AP
@@ -170,7 +170,7 @@ func TestConnectionStateFlow_AllStates(t *testing.T) {
 // TestConnectionStateFlow_Disconnected verifies disconnected state does NOT create edge
 func TestConnectionStateFlow_Disconnected(t *testing.T) {
 	ctx := context.Background()
-	reg := registry.NewDeviceRegistry(nil, nil)
+	reg := registry.NewDeviceRegistry(nil)
 	builder := registry.NewGraphBuilder(reg)
 
 	// Create AP
