@@ -1,10 +1,12 @@
 package web
 
 import (
+	"io/fs"
 	"net/http"
+	"strings"
 	"time"
 
-	"github.com/lcalzada-xor/wmap/internal/adapters/web/middleware"
+	"github.com/lcalzada-xor/wmap/web"
 )
 
 func SetupRoutes(s *Server) http.Handler {
@@ -22,7 +24,26 @@ func SetupRoutes(s *Server) http.Handler {
 	mux.HandleFunc("POST /api/channels", s.API.HandleUpdateChannels)
 	mux.HandleFunc("GET /api/interfaces", s.API.HandleListInterfaces)
 
+	// Serve static files from embedded FS
+	staticFS, err := fs.Sub(webassets.DistFS, "dist")
+	if err != nil {
+		panic(err) // This should never happen if build is correct
+	}
+	fileServer := http.FileServer(http.FS(staticFS))
+
+	// Catch-all handler for SPA
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// If the path has a file extension, it's likely a static asset
+		if strings.Contains(r.URL.Path, ".") {
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+		// Otherwise, serve index.html for SPA routing
+		r.URL.Path = "/"
+		fileServer.ServeHTTP(w, r)
+	})
+
 	// Apply Rate Limiting Middleware
-	limiter := middleware.NewRateLimiter(100, 1*time.Minute)
-	return middleware.RateLimitMiddleware(limiter)(mux)
+	limiter := NewRateLimiter(100, 1*time.Minute)
+	return RateLimitMiddleware(limiter)(mux)
 }

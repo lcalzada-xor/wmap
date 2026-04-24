@@ -317,8 +317,8 @@ func (app *Application) RestoreNetwork() {
 	if app.Config.MockMode {
 		return
 	}
-	driver.RestoreNetworkServices()
 	for _, iface := range app.monitorInterfaces {
 		driver.DisableMonitorMode(iface)
 	}
+	driver.RestoreNetworkServices()
 }
