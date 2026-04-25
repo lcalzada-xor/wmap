@@ -73,13 +73,21 @@ func New(config SnifferConfig, out chan<- domain.Device, alerts chan<- domain.Al
 	// Create handler with pause callback
 	s.handler = parser.NewPacketHandler(config.Debug, hm, repo, s.PauseHopper)
 
-	// Initialize Hopper if channels are provided
-	if len(config.Channels) > 0 {
+	// Initialize Hopper
+	targetChans := config.Channels
+	if len(targetChans) == 0 {
+		// If no channels provided, try to get all supported from hardware
+		if caps := s.monitor.GetCapabilities(); caps != nil && len(caps.SupportedChannels) > 0 {
+			targetChans = caps.SupportedChannels
+		}
+	}
+
+	if len(targetChans) > 0 {
 		dwell := time.Duration(config.DwellTime) * time.Millisecond
 		if dwell == 0 {
 			dwell = 300 * time.Millisecond
 		}
-		s.Hopper = hopping.NewHopper(config.Interface, config.Channels, dwell, nil)
+		s.Hopper = hopping.NewHopper(config.Interface, targetChans, dwell, nil)
 	}
 
 	return s
@@ -106,7 +114,7 @@ func (s *Sniffer) Start(ctx context.Context) (err error) {
 		}
 	}()
 
-	engine := pcapcapture.NewEngine(s.Config.Interface, "type mgt or type data", s.Config.PcapPath)
+	engine := pcapcapture.NewEngine(s.Config.Interface, "", s.Config.PcapPath) // Relaxed BPF for debugging
 	packetChan, handle, err := engine.Start(ctx)
 	if err != nil {
 		return err
@@ -118,6 +126,19 @@ func (s *Sniffer) Start(ctx context.Context) (err error) {
 
 	// Start metrics collection ticker
 	go s.Metrics.Start(ctx)
+
+	// Start channel hopper AFTER pcap handle is ready to avoid a race where
+	// 'iw set channel' commands interfere with the monitor-mode transition.
+	// A short settle delay lets the kernel stabilise the interface state.
+	if s.Hopper != nil {
+		go func() {
+			select {
+			case <-time.After(500 * time.Millisecond):
+				s.Hopper.Start()
+			case <-ctx.Done():
+			}
+		}()
+	}
 
 	// Worker Pool setup
 	numWorkers := runtime.NumCPU()
@@ -144,7 +165,12 @@ func (s *Sniffer) Start(ctx context.Context) (err error) {
 // worker processes packets from the channel.
 func (s *Sniffer) worker(ctx context.Context, wg *sync.WaitGroup, packets <-chan gopacket.Packet) {
 	defer wg.Done()
+	var packetCount uint64
 	for p := range packets {
+		packetCount++
+		if packetCount%100 == 0 {
+			log.Printf("[DEBUG] Sniffer %s: Received %d packets so far...", s.Config.Interface, packetCount)
+		}
 		// Quick check before processing heavy layers
 		select {
 		case <-ctx.Done():

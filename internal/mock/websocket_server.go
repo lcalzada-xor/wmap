@@ -48,28 +48,54 @@ func (s *MockWebSocketServer) HandleWebSocket(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// Ping/Pong Heartbeat
+	const pongWait = 60 * time.Second
+	const pingInterval = 25 * time.Second
+	conn.SetReadDeadline(time.Now().Add(pongWait))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
 	s.mu.Lock()
 	s.clients[conn] = true
 	s.mu.Unlock()
 
 	log.Printf("Mock WebSocket client connected (total: %d)", len(s.clients))
 
-	// Send initial graph data immediately
-	s.sendGraphUpdate(conn)
+	// Write pump for ping and updates
+	go func() {
+		ticker := time.NewTicker(pingInterval)
+		defer ticker.Stop()
+		defer conn.Close()
+		defer func() {
+			s.mu.Lock()
+			delete(s.clients, conn)
+			s.mu.Unlock()
+			log.Printf("Mock WebSocket client disconnected (remaining: %d)", len(s.clients))
+		}()
 
-	// Handle incoming messages (commands from frontend)
-	go s.handleClientMessages(conn)
+		// Periodic graph updates to this specific client
+		updateTicker := time.NewTicker(3 * time.Second)
+		defer updateTicker.Stop()
 
-	// Keep connection alive
-	defer func() {
-		s.mu.Lock()
-		delete(s.clients, conn)
-		s.mu.Unlock()
-		conn.Close()
-		log.Printf("Mock WebSocket client disconnected (remaining: %d)", len(s.clients))
+		for {
+			select {
+			case <-ticker.C:
+				conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+				if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+					return
+				}
+			case <-updateTicker.C:
+				s.sendGraphUpdate(conn)
+			}
+		}
 	}()
 
-	// Wait for connection to close
+	// Initial graph update
+	s.sendGraphUpdate(conn)
+
+	// Read pump to maintain connection
 	for {
 		_, _, err := conn.ReadMessage()
 		if err != nil {
@@ -425,5 +451,5 @@ var NodeGroups = struct {
 	STA string
 }{
 	AP:  "ap",
-	STA: "sta",
+	STA: "station",
 }

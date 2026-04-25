@@ -44,22 +44,16 @@ func randomMAC() net.HardwareAddr {
 
 // NewInjector creates a new Injector.
 func NewInjector(iface string) (*Injector, error) {
-	// 1. Monitor Handle (PCAP) - Always needed for watching packets
-	handle, err := pcap.OpenLive(iface, 65536, true, pcap.BlockForever)
-	if err != nil {
-		return nil, fmt.Errorf("monitor handle: %w", err)
-	}
-
-	// 2. Injection Mechanism (Raw Socket preference)
+	// 1. Injection Mechanism (Raw Socket preference)
 	// Try Raw first (Linux)
 	var mech PacketInjector
+	var err error
 	mech, err = NewRawInjector(iface)
 	if err != nil {
 		log.Printf("Raw injection unavailable (%v), falling back to PCAP", err)
 		// Fallback to PCAP Injector
 		mech, err = NewPcapInjector(iface)
 		if err != nil {
-			handle.Close()
 			return nil, fmt.Errorf("injection init failed: %w", err)
 		}
 	} else {
@@ -67,7 +61,6 @@ func NewInjector(iface string) (*Injector, error) {
 	}
 
 	return &Injector{
-		Handle:    handle,
 		mechanism: mech,
 		Interface: iface,
 		seq:       uint16(rand.Intn(4096)),

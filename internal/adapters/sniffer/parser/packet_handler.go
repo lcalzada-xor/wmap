@@ -85,6 +85,9 @@ func (h *PacketHandler) HandlePacket(packet gopacket.Packet) (dev *domain.Device
 
 	dot11Layer := packet.Layer(layers.LayerTypeDot11)
 	if dot11Layer == nil {
+		if h.Debug {
+			log.Printf("[DEBUG] PacketHandler: Failed to find Dot11 layer in packet (LinkType: %v)", packet.Metadata().AncillaryData)
+		}
 		return nil, nil, nil
 	}
 	dot11, ok := dot11Layer.(*layers.Dot11)

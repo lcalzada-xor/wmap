@@ -24,11 +24,15 @@ var upgrader = websocket.Upgrader{
 			return true
 		}
 
-		// Allowed origins
+		// Allowed origins — includes Vite dev server
 		allowedOrigins := []string{
 			"http://localhost:8080",
 			"http://127.0.0.1:8080",
 			"http://[::1]:8080",
+			"http://localhost:5173",
+			"http://127.0.0.1:5173",
+			"http://localhost:3000",
+			"http://127.0.0.1:3000",
 		}
 
 		for _, allowed := range allowedOrigins {
@@ -71,14 +75,27 @@ func (m *Manager) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Configure pong handler — resets the read deadline each time a pong arrives
+	const pongWait = 60 * time.Second
+	conn.SetReadDeadline(time.Now().Add(pongWait))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
 	m.mu.Lock()
 	m.Clients[conn] = true
 	m.mu.Unlock()
 
 	log.Printf("WebSocket connected")
 
-	// Clean up on disconnect
+	// Ping ticker — keeps the connection alive
+	const pingInterval = 25 * time.Second
+	pingTicker := time.NewTicker(pingInterval)
+
+	// Read pump — runs in its own goroutine, drives ping ticker and cleanup
 	go func() {
+		defer pingTicker.Stop()
 		defer conn.Close()
 		defer func() {
 			m.mu.Lock()
@@ -86,6 +103,16 @@ func (m *Manager) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			m.mu.Unlock()
 			log.Printf("WebSocket disconnected")
 		}()
+
+		go func() {
+			for range pingTicker.C {
+				conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+				if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+					return
+				}
+			}
+		}()
+
 		for {
 			_, _, err := conn.ReadMessage()
 			if err != nil {
@@ -153,13 +180,19 @@ func (m *Manager) broadcastMessage(msg WSMessage) {
 		return
 	}
 
+	var deadClients []*websocket.Conn
+
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	for conn := range m.Clients {
 		conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 		if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
-			conn.Close()
-			delete(m.Clients, conn)
+			// Mark for removal — do not close/delete inside the range loop
+			deadClients = append(deadClients, conn)
 		}
 	}
+	for _, conn := range deadClients {
+		delete(m.Clients, conn)
+		conn.Close()
+	}
+	m.mu.Unlock()
 }

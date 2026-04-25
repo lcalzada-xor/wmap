@@ -16,8 +16,9 @@ type Server struct {
 	Service   ports.NetworkService
 	WSManager *Manager
 
-	API *API
-	srv *http.Server
+	API           *API
+	MockWSHandler http.HandlerFunc // Set in mock mode to override /ws handler
+	srv           *http.Server
 }
 
 // NewServer creates a new web server.
@@ -29,6 +30,11 @@ func NewServer(addr string, service ports.NetworkService) *Server {
 		WSManager: NewManager(service),
 		API:       NewAPI(service, service),
 	}
+}
+
+// SetMockWSHandler replaces the /ws WebSocket handler with a mock implementation.
+func (s *Server) SetMockWSHandler(h http.HandlerFunc) {
+	s.MockWSHandler = h
 }
 
 // Run starts the server and the broadcaster.

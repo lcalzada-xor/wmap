@@ -13,7 +13,11 @@ func SetupRoutes(s *Server) http.Handler {
 	mux := http.NewServeMux()
 
 	// WebSocket endpoint
-	mux.HandleFunc("GET /ws", s.WSManager.HandleWebSocket)
+	wsHandler := s.WSManager.HandleWebSocket
+	if s.MockWSHandler != nil {
+		wsHandler = s.MockWSHandler
+	}
+	mux.HandleFunc("GET /ws", wsHandler)
 
 	// Core API
 	mux.HandleFunc("POST /api/scan", s.API.HandleScan)

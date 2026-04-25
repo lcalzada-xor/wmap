@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">
+  <!-- Laptop screen -->
+  <rect x="13" y="14" width="38" height="26" rx="3" stroke="white" stroke-width="2.5" fill="none"/>
+  <!-- Screen inner content (simple lines suggesting display) -->
+  <line x1="19" y1="22" x2="37" y2="22" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+  <line x1="19" y1="27" x2="33" y2="27" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+  <line x1="19" y1="32" x2="40" y2="32" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.4"/>
+  <!-- Hinge/base connection -->
+  <line x1="13" y1="40" x2="51" y2="40" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- Laptop base/keyboard -->
+  <path d="M8 40 L11 47 H53 L56 40" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <!-- Touchpad -->
+  <rect x="26" y="43" width="12" height="2" rx="1" fill="white" opacity="0.6"/>
+</svg>

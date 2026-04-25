@@ -15,7 +15,7 @@ import (
 	"github.com/lcalzada-xor/wmap/internal/adapters/radio"
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer"
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/driver"
-	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/mock"
+	sniffermock "github.com/lcalzada-xor/wmap/internal/adapters/sniffer/mock"
 	"github.com/lcalzada-xor/wmap/internal/adapters/storage"
 	webserver "github.com/lcalzada-xor/wmap/internal/adapters/web"
 	"github.com/lcalzada-xor/wmap/internal/config"
@@ -25,6 +25,7 @@ import (
 	"github.com/lcalzada-xor/wmap/internal/core/services/persistence"
 	"github.com/lcalzada-xor/wmap/internal/core/services/registry"
 	"github.com/lcalzada-xor/wmap/internal/core/services/security"
+	wsmock "github.com/lcalzada-xor/wmap/internal/mock"
 )
 
 // Application is the main entry point for the WMAP application.
@@ -81,7 +82,10 @@ func (app *Application) bootstrap() error {
 	app.initServers(devRegistry)
 
 	if app.Config.MockMode {
-		app.MockIntegration = "mock_enabled"
+		// Wire the rich mock WebSocket server so the frontend gets realistic data
+		mockWS := wsmock.NewMockWebSocketServer("basic")
+		mockWS.Start()
+		app.WebServer.SetMockWSHandler(mockWS.HandleWebSocket)
 		slog.Info("Mock Mode Active: Virtualizing network environment")
 	}
 
@@ -146,9 +150,9 @@ func (app *Application) loadSignatures() *fingerprint.SignatureStore {
 
 func (app *Application) initNetworking(reg *registry.DeviceRegistry, sec *security.SecurityEngine) error {
 	if app.Config.MockMode {
-		deviceChan := make(chan domain.Device, 1000) // Increased buffer size
+		deviceChan := make(chan domain.Device, 1000)
 		alertChan := make(chan domain.Alert, 100)
-		mockSniffer := mock.NewMock(deviceChan)
+		mockSniffer := sniffermock.NewMock(deviceChan)
 		app.SnifferRunner = mockSniffer
 		app.sourceDeviceChan = deviceChan
 		app.sourceAlertChan = alertChan

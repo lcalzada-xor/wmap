@@ -1,0 +1,129 @@
+// Package capabilities queries a wireless NIC's supported channels and bands
+// by parsing "iw phy <phy> info" output.
+package capabilities
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/driver/executor"
+)
+
+// Frequency band boundary constants (MHz).
+const (
+	FreqBoundary24GHz   = 4000
+	FreqBoundary5GHzMin = 4900
+	FreqBoundary5GHzMax = 5900
+)
+
+var reFreqChan = regexp.MustCompile(`\*\s+([0-9]+)(\.[0-9]+)?\s+MHz\s+\[([0-9]+)\]`)
+
+// Result holds the capabilities discovered for a given PHY.
+type Result struct {
+	// Bands is a set of band labels present: "2.4GHz", "5GHz", "6GHz".
+	Bands map[string]bool
+	// Channels is the ordered list of supported channel numbers.
+	Channels []int
+}
+
+// Get returns the bands and channel list supported by iface's underlying PHY.
+func Get(exec executor.CommandExecutor, iface string) (Result, error) {
+	phy, err := phyForInterface(exec, iface)
+	if err != nil {
+		return Result{}, fmt.Errorf("resolving phy for %s: %w", iface, err)
+	}
+	return phyCapabilities(exec, phy)
+}
+
+// phyForInterface maps an interface name to its "phyN" radio identifier by
+// parsing "iw dev" output.
+func phyForInterface(exec executor.CommandExecutor, iface string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	out, err := exec.Execute(ctx, "iw", "dev")
+	if err != nil {
+		return "", fmt.Errorf("iw dev: %w", err)
+	}
+
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	currentPhy := ""
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "phy#") {
+			currentPhy = line
+		} else if strings.HasPrefix(line, "Interface "+iface) {
+			return strings.Replace(currentPhy, "#", "", 1), nil
+		}
+	}
+	return "", fmt.Errorf("interface %s not found in iw dev output", iface)
+}
+
+// phyCapabilities parses "iw phy <phy> info" to extract bands and channels.
+func phyCapabilities(exec executor.CommandExecutor, phy string) (Result, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	out, err := exec.Execute(ctx, "iw", "phy", phy, "info")
+	if err != nil {
+		return Result{}, fmt.Errorf("iw phy %s info: %w", phy, err)
+	}
+
+	res := Result{
+		Bands:    make(map[string]bool),
+		Channels: []int{},
+	}
+
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	inFrequencies := false
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+
+		if line == "Frequencies:" {
+			inFrequencies = true
+			continue
+		}
+
+		if !inFrequencies {
+			continue
+		}
+
+		if !strings.HasPrefix(line, "*") {
+			inFrequencies = false
+			continue
+		}
+
+		// Skip disabled channels; keep channels marked "(no IR)" — they can
+		// still receive.
+		if strings.Contains(line, "(disabled)") {
+			continue
+		}
+
+		matches := reFreqChan.FindStringSubmatch(line)
+		if len(matches) <= 3 {
+			continue
+		}
+
+		freq, _ := strconv.Atoi(matches[1])
+		ch, _ := strconv.Atoi(matches[3])
+		res.Channels = append(res.Channels, ch)
+
+		switch {
+		case freq < FreqBoundary24GHz:
+			res.Bands["2.4GHz"] = true
+		case freq >= FreqBoundary5GHzMin && freq < FreqBoundary5GHzMax:
+			res.Bands["5GHz"] = true
+		case freq >= FreqBoundary5GHzMax:
+			res.Bands["6GHz"] = true
+		}
+	}
+
+	return res, nil
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 	"sync"
 
 	"github.com/lcalzada-xor/wmap/internal/adapters/fingerprint"
@@ -120,19 +121,34 @@ func (m *SnifferManager) Start(ctx context.Context) error {
 		saved = channelstore.ChannelConfig{}
 	}
 
-	// Query hardware capabilities for every interface.
+	// Query hardware capabilities for every interface and build a combined pool.
 	capabilities := make(map[string][]int, len(m.Interfaces))
+	combinedSupport := make(map[int]bool)
 	for _, iface := range m.Interfaces {
 		chans, err := m.capabilityProvider.GetCapabilities(iface)
 		if err != nil {
 			log.Printf("sniffer: warning: failed to get capabilities for %s: %v – assuming full support", iface, err)
 		} else {
 			capabilities[iface] = chans
+			for _, ch := range chans {
+				combinedSupport[ch] = true
+			}
 		}
 	}
 
-	// Partition the default channel pool respecting capabilities.
-	partitioned := channelplan.Partition(channelplan.DefaultChannels, m.Interfaces, capabilities)
+	// Use the union of all supported channels as the target for partitioning.
+	// If the hardware reports nothing, we fallback to our curated DefaultChannels.
+	targetPool := channelplan.DefaultChannels
+	if len(combinedSupport) > 0 {
+		targetPool = make([]int, 0, len(combinedSupport))
+		for ch := range combinedSupport {
+			targetPool = append(targetPool, ch)
+		}
+		sort.Ints(targetPool)
+	}
+
+	// Partition the pool respecting capabilities.
+	partitioned := channelplan.Partition(targetPool, m.Interfaces, capabilities)
 
 	for i, iface := range m.Interfaces {
 		channels, ok := saved[iface]
@@ -190,10 +206,6 @@ func (m *SnifferManager) runSniffer(ctx context.Context, s *Sniffer, iface strin
 	m.mu.Lock()
 	m.statuses[iface] = &SnifferStatus{Interface: iface, Status: "starting"}
 	m.mu.Unlock()
-
-	if s.Hopper != nil {
-		go s.Hopper.Start()
-	}
 
 	if err := s.Start(ctx); err != nil {
 		m.mu.Lock()

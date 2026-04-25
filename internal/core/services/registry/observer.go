@@ -28,7 +28,6 @@ func (s *RegistrySubject) AddObserver(observer ports.DeviceObserver) {
 	s.observers = append(s.observers, observer)
 }
 
-
 // NotifyUpdated notifies all observers of a device update.
 func (s *RegistrySubject) NotifyUpdated(ctx context.Context, device domain.Device) {
 	s.mu.RLock()
