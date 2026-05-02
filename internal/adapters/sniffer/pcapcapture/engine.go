@@ -1,9 +1,13 @@
 package pcapcapture
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"log"
+	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/google/gopacket"
@@ -39,11 +43,23 @@ func (e *Engine) Start(ctx context.Context) (<-chan gopacket.Packet, *pcap.Handl
 	if err := inactive.SetSnapLen(2500); err != nil {
 		return nil, nil, fmt.Errorf("failed to set snaplen: %w", err)
 	}
+	// 16 MB kernel ring buffer. The default (~2 MB) is enough for PCIe NICs but
+	// USB adapters (mt7921u, rt2800usb) serialize all frames through a single
+	// bulk endpoint: any burst that arrives while the CPU is processing a
+	// previous URB will overflow the default buffer and be counted as
+	// PacketsIfDropped. 16 MB gives ~6000 max-size 802.11 frames of headroom.
+	if err := inactive.SetBufferSize(16 * 1024 * 1024); err != nil {
+		log.Printf("Warning: failed to set pcap buffer size on %s: %v", e.iface, err)
+	}
 	// SetRFMon enables 802.11 raw capture with RadioTap headers.
-	// This is required for monitor-mode sniffing; SetPromisc alone is not
-	// sufficient on drivers like iwlmvm (Intel AX series).
-	if err := inactive.SetRFMon(true); err != nil {
-		log.Printf("Warning: failed to set RF monitor mode on %s: %v (capture may not work)", e.iface, err)
+	// Only call it when the interface is NOT already in monitor mode: on many
+	// drivers (rtl8xxx, ath9k_htc) calling SetRFMon on a handle that was opened
+	// after the interface is already in monitor mode returns EOPNOTSUPP/EINVAL
+	// because the driver manages rfmon at the interface level, not per-socket.
+	if !ifaceIsMonitor(e.iface) {
+		if err := inactive.SetRFMon(true); err != nil {
+			log.Printf("Warning: failed to set RF monitor mode on %s: %v (capture may not work)", e.iface, err)
+		}
 	}
 	if err := inactive.SetPromisc(true); err != nil {
 		return nil, nil, fmt.Errorf("failed to set promisc: %w", err)
@@ -79,10 +95,11 @@ func (e *Engine) Start(ctx context.Context) (<-chan gopacket.Packet, *pcap.Handl
 		}
 	}
 
-	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
+	linkType := handle.LinkType()
+	packetSource := gopacket.NewPacketSource(handle, linkType)
 	outChan := make(chan gopacket.Packet, 5000)
 
-	log.Printf("Starting Enterprise Capture Engine hardware stream on %s (LinkType: %v)...", e.iface, handle.LinkType())
+	log.Printf("Starting Enterprise Capture Engine hardware stream on %s (LinkType: %v)...", e.iface, linkType)
 
 	go func() {
 		defer handle.Close()
@@ -132,4 +149,21 @@ func (e *Engine) Start(ctx context.Context) (<-chan gopacket.Packet, *pcap.Handl
 	}()
 
 	return outChan, handle, nil
+}
+
+// ifaceIsMonitor reports whether iface is currently in monitor mode by parsing
+// "iw dev <iface> info". Returns false on any error so the caller falls back to
+// the SetRFMon path.
+func ifaceIsMonitor(iface string) bool {
+	out, err := exec.Command("iw", "dev", iface, "info").Output()
+	if err != nil {
+		return false
+	}
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	for scanner.Scan() {
+		if strings.TrimSpace(scanner.Text()) == "type monitor" {
+			return true
+		}
+	}
+	return false
 }

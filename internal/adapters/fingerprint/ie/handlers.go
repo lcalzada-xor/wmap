@@ -7,12 +7,29 @@ import (
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
 )
 
+// FrameContext describes the 802.11 frame type being parsed, so handlers can
+// apply frame-specific semantics (e.g. empty SSID means different things in a
+// Probe Request vs a Beacon).
+type FrameContext int
+
+const (
+	FrameContextBeacon FrameContext = iota
+	FrameContextProbeReq
+)
+
 // Handler defines the interface for parsing a specific 802.11 Information Element.
 type Handler interface {
 	// Tag returns the IE tag ID this handler is responsible for.
 	Tag() int
 	// Handle parses the IE value and updates the device model.
 	Handle(val []byte, device *domain.Device) error
+}
+
+// ContextAwareHandler is an optional extension of Handler for IEs whose
+// semantics depend on the frame type.
+type ContextAwareHandler interface {
+	Handler
+	HandleWithContext(val []byte, device *domain.Device, ctx FrameContext) error
 }
 
 // HandlerRegistry manages the collection of IE handlers.
@@ -66,10 +83,23 @@ func (r *HandlerRegistry) Get(tag int) (Handler, bool) {
 type SSIDHandler struct{}
 
 func (h *SSIDHandler) Tag() int { return snifferIE.TagSSID }
+
 func (h *SSIDHandler) Handle(val []byte, device *domain.Device) error {
-	isHidden := len(val) == 0 || val[0] == 0x00
-	if isHidden {
-		device.SSID = "<HIDDEN>"
+	return h.HandleWithContext(val, device, FrameContextBeacon)
+}
+
+// HandleWithContext applies frame-specific SSID semantics:
+// - Beacon/ProbeResp: empty SSID means the network is hiding its name → "<HIDDEN>"
+// - ProbeReq: empty SSID is a wildcard broadcast probe → leave SSID unset so it
+//   is not recorded as a probed network.
+func (h *SSIDHandler) HandleWithContext(val []byte, device *domain.Device, ctx FrameContext) error {
+	isBlank := len(val) == 0 || (len(val) == 1 && val[0] == 0x00)
+	if isBlank {
+		if ctx == FrameContextProbeReq {
+			device.SSID = ""
+		} else {
+			device.SSID = "<HIDDEN>"
+		}
 	} else {
 		device.SSID = string(val)
 	}

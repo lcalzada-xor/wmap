@@ -20,6 +20,14 @@ const (
 	FreqBoundary24GHz   = 4000
 	FreqBoundary5GHzMin = 4900
 	FreqBoundary5GHzMax = 5900
+
+	// 6 GHz (Wi-Fi 6E) starts at 5925 MHz. The 802.11ax channel numbering for
+	// 6 GHz reuses the same small integers as 2.4 GHz (ch 1 = 5955 MHz, ch 5 =
+	// 5975 MHz, etc.), which makes plain channel numbers ambiguous. The channel
+	// switcher uses "iw set channel N" which cannot distinguish the two bands, so
+	// 6 GHz channels are excluded here until the hopper is extended to use
+	// frequency-based switching ("iw set freq <MHz>") for that band.
+	FreqBoundary6GHzMin = 5925
 )
 
 var reFreqChan = regexp.MustCompile(`\*\s+([0-9]+)(\.[0-9]+)?\s+MHz\s+\[([0-9]+)\]`)
@@ -30,6 +38,10 @@ type Result struct {
 	Bands map[string]bool
 	// Channels is the ordered list of supported channel numbers.
 	Channels []int
+	// ChannelFreq maps channel number → center frequency in MHz.
+	// Used by the hopper to switch via "iw set freq" instead of "iw set channel"
+	// for 5 GHz channels where the channel-number command ignores bandwidth context.
+	ChannelFreq map[int]int
 }
 
 // Get returns the bands and channel list supported by iface's underlying PHY.
@@ -76,10 +88,12 @@ func phyCapabilities(exec executor.CommandExecutor, phy string) (Result, error) 
 	}
 
 	res := Result{
-		Bands:    make(map[string]bool),
-		Channels: []int{},
+		Bands:       make(map[string]bool),
+		Channels:    []int{},
+		ChannelFreq: make(map[int]int),
 	}
 
+	seen := make(map[int]bool)
 	scanner := bufio.NewScanner(bytes.NewReader(out))
 	inFrequencies := false
 
@@ -113,15 +127,28 @@ func phyCapabilities(exec executor.CommandExecutor, phy string) (Result, error) 
 
 		freq, _ := strconv.Atoi(matches[1])
 		ch, _ := strconv.Atoi(matches[3])
+
+		// 6 GHz channels are excluded: their channel numbers overlap with 2.4 GHz
+		// (e.g. 5955 MHz → ch 1, same as 2412 MHz → ch 1). The hopper uses
+		// "iw set channel N" which cannot resolve the ambiguity. Skip until
+		// frequency-based switching is implemented.
+		if freq >= FreqBoundary6GHzMin {
+			res.Bands["6GHz"] = true
+			continue
+		}
+
+		if seen[ch] {
+			continue
+		}
+		seen[ch] = true
 		res.Channels = append(res.Channels, ch)
+		res.ChannelFreq[ch] = freq
 
 		switch {
 		case freq < FreqBoundary24GHz:
 			res.Bands["2.4GHz"] = true
 		case freq >= FreqBoundary5GHzMin && freq < FreqBoundary5GHzMax:
 			res.Bands["5GHz"] = true
-		case freq >= FreqBoundary5GHzMax:
-			res.Bands["6GHz"] = true
 		}
 	}
 

@@ -66,10 +66,11 @@ func TestSecurity_AdvancedKarmaDetection(t *testing.T) {
 	})
 
 	t.Run("APKarmaDetector_AlertForMultipleSSIDs", func(t *testing.T) {
+		// Need >=4 distinct SSIDs to cross the new threshold
 		device := domain.Device{
 			MAC:           "00:00:00:22:22:22",
 			Type:          "ap",
-			ObservedSSIDs: []string{"FreeWiFi", "Office", "Starbucks"},
+			ObservedSSIDs: []string{"FreeWiFi", "Office", "Starbucks", "Hidden"},
 		}
 
 		engine.Analyze(ctx, device)
@@ -92,10 +93,13 @@ func TestSecurity_AdvancedKarmaDetection(t *testing.T) {
 			ProbedSSIDs: make(map[string]time.Time),
 		}
 
-		// Add 6 probes (Threshold is 5)
-		ssids := []string{"A", "B", "C", "D", "E", "F"}
-		for _, s := range ssids {
-			device.ProbedSSIDs[s] = time.Now()
+		// Need >=20 total and >=5 recent to trigger the new thresholds
+		old := time.Now().Add(-10 * time.Minute)
+		for i := 0; i < 15; i++ {
+			device.ProbedSSIDs[string(rune('A'+i))] = old
+		}
+		for i := 0; i < 5; i++ {
+			device.ProbedSSIDs[string(rune('P'+i))] = time.Now()
 		}
 
 		engine.Analyze(ctx, device)

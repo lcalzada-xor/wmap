@@ -74,7 +74,11 @@ func (h *MgmtHandler) Process(packet gopacket.Packet, dot11 *layers.Dot11, devic
 		log.Printf("DEBUG Handler: MAC=%s Type=%s PayloadLen=%d", device.MAC, device.Type, len(ieData))
 	}
 
-	ie.ParseIEs(ieData, device)
+	frameCtx := ie.FrameContextBeacon
+	if isProbe {
+		frameCtx = ie.FrameContextProbeReq
+	}
+	ie.ParseIEs(ieData, device, frameCtx)
 
 	// Randomized MAC Check & Fingerprinting
 	if h.FingerprintEngine != nil {
@@ -90,7 +94,7 @@ func (h *MgmtHandler) Process(packet gopacket.Packet, dot11 *layers.Dot11, devic
 
 	// Capture AP SSID variations (Advanced Karma Detection)
 	if isBeacon && device.SSID != "" && device.Type == "ap" {
-		device.ObservedSSIDs = []string{device.SSID}
+		device.ObservedSSIDs = append(device.ObservedSSIDs, device.SSID)
 	}
 
 	// Only return if we actually classified it
@@ -150,6 +154,7 @@ func (h *MgmtHandler) handleAssocReq(dot11 *layers.Dot11, device *domain.Device)
 	newState, newTarget := h.StateManager.UpdateState(device.MAC, event)
 	device.ConnectionState = newState
 	device.ConnectionTarget = newTarget
+	log.Printf("[MGMT] AssocReq: sta=%s → ap=%s state=%s", device.MAC, target, newState)
 
 	return device, &event
 }
@@ -176,6 +181,7 @@ func (h *MgmtHandler) handleAuth(packet gopacket.Packet, dot11 *layers.Dot11, de
 	newState, newTarget := h.StateManager.UpdateState(device.MAC, event)
 	device.ConnectionState = newState
 	device.ConnectionTarget = newTarget
+	log.Printf("[MGMT] Auth: sta=%s → ap=%s state=%s error=%q", device.MAC, target, newState, device.ConnectionError)
 
 	return device, &event
 }
@@ -227,6 +233,8 @@ func (h *MgmtHandler) handleDeauth(dot11 *layers.Dot11, device *domain.Device) (
 		Timestamp: time.Now(),
 	}
 	newState, newTarget := h.StateManager.UpdateState(targetMAC, event)
+	log.Printf("[MGMT] %s: src=%s dst=%s targetMAC=%s newState=%s apKicking=%v",
+		event.Type, dot11.Address2, dot11.Address1, targetMAC, newState, isAPKicking)
 
 	if targetMAC == device.MAC {
 		device.ConnectionState = newState

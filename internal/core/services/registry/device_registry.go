@@ -198,13 +198,6 @@ func (r *DeviceRegistry) CleanupStaleConnections(ctx context.Context, timeout ti
 					// Downgrade state
 					d.ConnectionState = domain.StateDisconnected
 					d.ConnectionTarget = ""
-					// We keep ConnectedSSID as "last known" or clear it?
-					// Ideally we keep it for implicit history until they move.
-					// But for graph cleanliness, maybe valid to keep it but state=disconnected prevents line drawing?
-					// GraphBuilder checks: if ConnectionState != Disconnected -> draw line.
-					// So clearing ConnectedSSID isn't strictly necessary if strict state check is used,
-					// but let's clear it to be consistent with "Clean" disconnection.
-					d.ConnectedSSID = ""
 
 					shard.devices[mac] = d
 					count++

@@ -43,17 +43,21 @@ type RadioDetails struct {
 	// Strings and Slices (16-24 bytes)
 	SSID          string   `json:"ssid,omitempty"`
 	Security      string   `json:"security,omitempty"`
+	Crypto        string   `json:"crypto,omitempty"`        // Raw cipher suite (WEP/TKIP/CCMP/…)
 	Standard      string   `json:"standard,omitempty"`
 	WPSInfo       string   `json:"wps_info,omitempty"` // "Configured", "Unconfigured" or empty
 	HandshakeFile string   `json:"handshake_file,omitempty"`
+	LastANonce    string   `json:"last_anonce,omitempty"`   // AP-only: last nonce seen in EAPOL
 	Capabilities  []string `json:"capabilities,omitempty"`
 	ProbedSSIDs   []string `json:"probedSSIDs,omitempty"`
+	ObservedSSIDs []string `json:"observed_ssids,omitempty"` // AP-only: SSIDs broadcast historically
 	IETags        []int    `json:"ieTags,omitempty"`
 
 	// Pointers (8 bytes)
 	RSNInfo        *RSNInfo        `json:"rsn_info,omitempty"`
 	WPSDetails     *WPSDetails     `json:"wps_details,omitempty"`
 	MobilityDomain *MobilityDomain `json:"mobility_domain,omitempty"`
+	BSSLoad        *BSSLoad        `json:"bss_load,omitempty"` // AP-only: channel utilization
 
 	// Numerics (8 bytes)
 	Channel      int `json:"channel,omitempty"`
@@ -66,6 +70,9 @@ type RadioDetails struct {
 	IsWiFi7      bool `json:"is_wifi7,omitempty"`
 	IsRandomized bool `json:"is_randomized,omitempty"`
 	HasHandshake bool `json:"has_handshake,omitempty"`
+	Has11k       bool `json:"has11k,omitempty"` // Station/AP: 802.11k neighbor reports
+	Has11v       bool `json:"has11v,omitempty"` // Station/AP: 802.11v BSS transition
+	Has11r       bool `json:"has11r,omitempty"` // Station/AP: 802.11r fast roaming
 }
 
 // TrafficStats captures data transmission metrics.
@@ -95,6 +102,7 @@ const (
 
 // GraphEdge represents a connection between two nodes.
 type GraphEdge struct {
+	ID     string   `json:"id,omitempty"`
 	From   string   `json:"from"`
 	To     string   `json:"to"`
 	Dashed bool     `json:"dashed,omitempty"`

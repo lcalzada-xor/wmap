@@ -19,16 +19,18 @@ type Server struct {
 	API           *API
 	MockWSHandler http.HandlerFunc // Set in mock mode to override /ws handler
 	srv           *http.Server
+	NoFrontend    bool
 }
 
 // NewServer creates a new web server.
-func NewServer(addr string, service ports.NetworkService) *Server {
+func NewServer(addr string, service ports.NetworkService, noFrontend bool) *Server {
 	return &Server{
 		Addr:    addr,
 		Service: service,
 
-		WSManager: NewManager(service),
-		API:       NewAPI(service, service),
+		WSManager:  NewManager(service),
+		API:        NewAPI(service, service),
+		NoFrontend: noFrontend,
 	}
 }
 

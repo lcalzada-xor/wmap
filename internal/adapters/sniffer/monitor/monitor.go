@@ -42,7 +42,7 @@ func (m *DeviceMonitor) GetCapabilities() *domain.InterfaceCapabilities {
 	}
 	m.capsCacheMu.RUnlock()
 
-	bandsMap, supportedChans, err := driver.GetInterfaceCapabilities(m.iface)
+	bandsMap, supportedChans, chanFreq, err := driver.GetInterfaceCapabilities(m.iface)
 	if err != nil {
 		log.Printf("Error getting capabilities for %s: %v", m.iface, err)
 		return nil
@@ -59,6 +59,7 @@ func (m *DeviceMonitor) GetCapabilities() *domain.InterfaceCapabilities {
 	caps := &domain.InterfaceCapabilities{
 		SupportedBands:    bands,
 		SupportedChannels: supportedChans,
+		ChannelFreq:       chanFreq,
 		DriverName:        driverName,
 		OperationMode:     domain.OperationMode(mode),
 		TxPower:           txPower,

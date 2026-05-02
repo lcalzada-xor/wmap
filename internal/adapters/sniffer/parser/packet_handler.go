@@ -15,6 +15,7 @@ import (
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
 )
 
+
 // HandshakeManager defines the interface required by parser to interact with handshakes.
 type HandshakeManager interface {
 	ProcessFrame(packet gopacket.Packet) bool
@@ -120,7 +121,7 @@ func (h *PacketHandler) HandlePacket(packet gopacket.Packet) (dev *domain.Device
 	mainType := dot11.Type.MainType()
 	if mainType == layers.Dot11TypeMgmt {
 		d, e := h.MgmtHandler.Process(packet, dot11, device)
-		
+
 		// Post-processing for APs and Handshakes
 		if d != nil && d.Type == "ap" && h.HandshakeManager != nil {
 			d.HasHandshake = h.HandshakeManager.HasHandshake(d.MAC)

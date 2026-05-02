@@ -37,9 +37,10 @@ var (
 type InterfaceCapabilities struct {
 	SupportedBands    []WiFiBand    `json:"supported_bands"`
 	SupportedChannels []int         `json:"supported_channels"`
-	DriverName        string        `json:"driver_name,omitempty"`    // e.g., "iwlwifi"
-	TxPower           int           `json:"tx_power,omitempty"`       // dBm
-	OperationMode     OperationMode `json:"operation_mode,omitempty"` // e.g., "managed", "monitor"
+	ChannelFreq       map[int]int   `json:"channel_freq,omitempty"` // channel → center frequency MHz
+	DriverName        string        `json:"driver_name,omitempty"`
+	TxPower           int           `json:"tx_power,omitempty"`
+	OperationMode     OperationMode `json:"operation_mode,omitempty"`
 }
 
 // InterfaceInfo represents a network interface and its state.
@@ -50,6 +51,7 @@ type InterfaceInfo struct {
 	MAC             string                `json:"mac"`
 	Capabilities    InterfaceCapabilities `json:"capabilities"`
 	CurrentChannels []int                 `json:"current_channels"`
+	CurrentChannel  int                   `json:"current_channel"`
 	Metrics         InterfaceMetrics      `json:"metrics"`
 }
 

@@ -269,6 +269,9 @@ func (d *Device) UpdateFrom(newDevice Device) {
 	}
 	if newDevice.HasHandshake {
 		d.HasHandshake = true
+		if newDevice.HandshakeFile != "" {
+			d.HandshakeFile = newDevice.HandshakeFile
+		}
 	}
 	if newDevice.MobilityDomain != nil {
 		d.MobilityDomain = newDevice.MobilityDomain
@@ -334,7 +337,11 @@ func (d *Device) UpdateFrom(newDevice Device) {
 
 	if newDevice.ConnectionState != "" {
 		d.ConnectionState = newDevice.ConnectionState
-		d.ConnectionTarget = newDevice.ConnectionTarget
+		if newDevice.ConnectionTarget != "" {
+			d.ConnectionTarget = newDevice.ConnectionTarget
+		} else if newDevice.ConnectionState == StateDisconnected {
+			d.ConnectionTarget = ""
+		}
 		d.ConnectionError = newDevice.ConnectionError
 	}
 }
@@ -401,15 +408,19 @@ func (d *Device) ToGraphNode() GraphNode {
 		RadioDetails: RadioDetails{
 			SSID:           d.SSID,
 			Security:       d.Security,
+			Crypto:         d.Crypto,
 			Standard:       d.Standard,
 			WPSInfo:        d.WPSInfo,
 			HandshakeFile:  d.HandshakeFile,
+			LastANonce:     d.LastANonce,
 			Capabilities:   d.Capabilities,
 			ProbedSSIDs:    probedSSIDs,
+			ObservedSSIDs:  d.ObservedSSIDs,
 			IETags:         d.IETags,
 			RSNInfo:        d.RSNInfo,
 			WPSDetails:     d.WPSDetails,
 			MobilityDomain: d.MobilityDomain,
+			BSSLoad:        d.BSSLoad,
 			Channel:        d.Channel,
 			ChannelWidth:   d.ChannelWidth,
 			Frequency:      d.Frequency,
@@ -418,6 +429,9 @@ func (d *Device) ToGraphNode() GraphNode {
 			IsWiFi7:        d.IsWiFi7,
 			IsRandomized:   d.IsRandomized,
 			HasHandshake:   d.HasHandshake,
+			Has11k:         d.Has11k,
+			Has11v:         d.Has11v,
+			Has11r:         d.Has11r,
 		},
 		TrafficStats: TrafficStats{
 			DataTransmitted: d.DataTransmitted,

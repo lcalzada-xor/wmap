@@ -18,24 +18,29 @@ func TestSecurityIntelligenceAlerts(t *testing.T) {
 	}
 	svc := NewSecurityEngine(mockReg)
 
-	// 1. High Retry Rate Detection
+	// 1. High Retry Rate Detection — >=200 packets, >40% rate, good signal
 	macRetry := "AA:AA:AA:AA:AA:AA"
 	svc.Analyze(context.Background(), domain.Device{
 		MAC:            macRetry,
-		PacketsCount:   100,
-		RetryCount:     30, // 30% > 20%
+		PacketsCount:   200,
+		RetryCount:     90, // 45% > 40%
+		RSSI:           -50,
 		LastPacketTime: time.Now(),
 	})
 
-	// 2. Karma / Honeypot Detection
+	// 2. Karma / Honeypot Detection — >=20 total probes, >=5 recent
 	apMAC := "BB:BB:BB:BB:BB:BB"
 	probes := make(map[string]time.Time)
-	for i := 0; i < 7; i++ {
-		probes[string(rune('A'+i))] = time.Now()
+	old := time.Now().Add(-10 * time.Minute)
+	for i := 0; i < 15; i++ {
+		probes[string(rune('A'+i))] = old
+	}
+	for i := 0; i < 5; i++ {
+		probes[string(rune('P'+i))] = time.Now()
 	}
 	svc.Analyze(context.Background(), domain.Device{
 		MAC:            apMAC,
-		Type:           "ap",
+		Type:           "station",
 		ProbedSSIDs:    probes,
 		LastPacketTime: time.Now(),
 	})

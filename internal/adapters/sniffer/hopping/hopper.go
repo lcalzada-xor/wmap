@@ -13,11 +13,11 @@ type ChannelHopper struct {
 	Channels     []int
 	Delay        time.Duration
 	switcher     ChannelSwitcher
-	mu           sync.RWMutex // Protects Channels and ensures atomicity of Lock/Hop operations
+	mu           sync.RWMutex
 	stopChan     chan struct{}
 	stopOnce     sync.Once
-	resetChan    chan time.Duration
-	currentIndex  int // For Round Robin
+	pauseChan    chan time.Duration
+	currentIndex  int
 	errorCount    int
 	state         AtomicState
 	lockCount     int
@@ -35,7 +35,7 @@ func NewHopper(iface string, channels []int, delay time.Duration, switcher Chann
 		Delay:     delay,
 		switcher:  switcher,
 		stopChan:  make(chan struct{}),
-		resetChan: make(chan time.Duration, 1),
+		pauseChan: make(chan time.Duration, 1),
 	}
 	h.state.Set(StateIdle)
 	return h
@@ -57,6 +57,27 @@ func (h *ChannelHopper) GetChannels() []int {
 	result := make([]int, len(h.Channels))
 	copy(result, h.Channels)
 	return result
+}
+
+// GetCurrentChannel returns the channel the hopper is currently on (0 if unknown).
+func (h *ChannelHopper) GetCurrentChannel() int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	state := h.state.Get()
+	if state == StateLocked {
+		return h.lockedChannel
+	}
+	if len(h.Channels) == 0 {
+		return 0
+	}
+	// currentIndex was incremented after the last hop, so the active channel
+	// is at currentIndex-1 (wrapping around).
+	idx := h.currentIndex - 1
+	if idx < 0 {
+		idx = len(h.Channels) - 1
+	}
+	return h.Channels[idx]
 }
 
 // GetState returns the current state of the hopper.
@@ -106,22 +127,17 @@ func (h *ChannelHopper) Start() {
 		case <-h.stopChan:
 			log.Printf("Stopping channel hopper on %s", h.Interface)
 			return
-		case d := <-h.resetChan:
-			// Pause logic
-			if h.state.CompareAndSwap(StateHopping, StatePaused) {
-				log.Printf("Hopper on %s PAUSED for %v", h.Interface, d)
-				ticker.Stop()
-				select {
-				case <-time.After(d):
-					log.Printf("Hopper on %s RESUMING", h.Interface)
-					h.state.Set(StateHopping)
-					ticker.Reset(h.Delay)
-				case <-h.stopChan:
-					return
-				}
+		case d := <-h.pauseChan:
+			h.state.Set(StatePaused)
+			ticker.Stop()
+			select {
+			case <-time.After(d):
+				h.state.Set(StateHopping)
+				ticker.Reset(h.Delay)
+			case <-h.stopChan:
+				return
 			}
 		case <-ticker.C:
-			// Only hop if we are in Hopping state
 			if h.state.Get() == StateHopping {
 				h.hop()
 			}
@@ -129,13 +145,11 @@ func (h *ChannelHopper) Start() {
 	}
 }
 
-// Pause temporarily stops the hopper for the given duration.
-func (h *ChannelHopper) Pause(duration time.Duration) {
-	// Only pause if currently hopping or locked? Usually only if hopping.
-	// If Locked, implicit pause already.
+// Pause temporarily stops hopping for d. Non-blocking; dropped if a pause is already pending.
+func (h *ChannelHopper) Pause(d time.Duration) {
 	if h.state.Get() == StateHopping {
 		select {
-		case h.resetChan <- duration:
+		case h.pauseChan <- d:
 		default:
 		}
 	}

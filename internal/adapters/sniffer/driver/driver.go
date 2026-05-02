@@ -6,6 +6,9 @@
 package driver
 
 import (
+	"context"
+	"time"
+
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/driver/capabilities"
 	"github.com/lcalzada-xor/wmap/internal/adapters/sniffer/driver/channel"
 	driverexec "github.com/lcalzada-xor/wmap/internal/adapters/sniffer/driver/executor"
@@ -34,14 +37,14 @@ func SetExecutor(e CommandExecutor) {
 
 // ── Capabilities ──────────────────────────────────────────────────────────────
 
-// GetInterfaceCapabilities returns the set of supported bands and the list of
-// supported channel numbers for iface's underlying PHY.
-func GetInterfaceCapabilities(iface string) (map[string]bool, []int, error) {
+// GetInterfaceCapabilities returns the set of supported bands, the list of
+// supported channel numbers, and a channel→frequency map for iface's underlying PHY.
+func GetInterfaceCapabilities(iface string) (map[string]bool, []int, map[int]int, error) {
 	res, err := capabilities.Get(defaultExec, iface)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return res.Bands, res.Channels, nil
+	return res.Bands, res.Channels, res.ChannelFreq, nil
 }
 
 // ── Interface state ───────────────────────────────────────────────────────────
@@ -71,6 +74,22 @@ func SetInterfaceChannel(ifaceName string, ch int) error {
 // SetInterfaceChannelWithRetry tries to set the channel up to maxRetries times.
 func SetInterfaceChannelWithRetry(ifaceName string, ch, maxRetries int) error {
 	return channel.SetWithRetry(defaultExec, ifaceName, ch, maxRetries)
+}
+
+// SetInterfaceDown brings iface down (ip link set <iface> down).
+func SetInterfaceDown(ifaceName string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := defaultExec.Execute(ctx, "ip", "link", "set", ifaceName, "down")
+	return err
+}
+
+// SetInterfaceUp brings iface up (ip link set <iface> up).
+func SetInterfaceUp(ifaceName string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := defaultExec.Execute(ctx, "ip", "link", "set", ifaceName, "up")
+	return err
 }
 
 // ── Monitor mode ──────────────────────────────────────────────────────────────

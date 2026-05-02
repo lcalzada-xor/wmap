@@ -8,7 +8,7 @@ type HopperState int32
 const (
 	StateIdle    HopperState = iota // Initial state, created but not running
 	StateHopping                    // Actively switching channels
-	StatePaused                     // Temporarily paused (timer stopped)
+	StatePaused                     // Temporarily paused for EAPOL/Auth capture
 	StateLocked                     // Locked on a specific channel (hopping disabled)
 	StateStopped                    // Permanently stopped
 )

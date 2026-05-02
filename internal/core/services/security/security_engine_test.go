@@ -2,6 +2,7 @@ package security
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -53,8 +54,9 @@ func TestSecurityEngine_Intelligence(t *testing.T) {
 	t.Run("High Retry Rate Detection", func(t *testing.T) {
 		device := domain.Device{
 			MAC:          "00:11:22:33:44:55",
-			PacketsCount: 100,
-			RetryCount:   30, // 30% > 20% Threshold
+			PacketsCount: 200,
+			RetryCount:   90, // 45% > 40% threshold, meets >=200 packet minimum
+			RSSI:         -50, // Good signal — not a weak-signal FP
 		}
 
 		engine.Analyze(context.Background(), device)
@@ -73,14 +75,37 @@ func TestSecurityEngine_Intelligence(t *testing.T) {
 		assert.True(t, found, "Expected HIGH_RETRY_RATE alert")
 	})
 
-	t.Run("Karma Detection", func(t *testing.T) {
+	t.Run("High Retry Rate suppressed for weak signal", func(t *testing.T) {
 		device := domain.Device{
-			MAC:  "AA:BB:CC:DD:EE:FF",
-			Type: "station", // Existing detector logic checks for ProbedSSIDs (Client behavior)
-			ProbedSSIDs: map[string]time.Time{
-				"Home": time.Now(), "Guest": time.Now(), "Starbucks": time.Now(),
-				"FreeWifi": time.Now(), "Airport": time.Now(), "Hotel": time.Now(), // > 5
-			},
+			MAC:          "00:11:22:33:44:AA",
+			PacketsCount: 200,
+			RetryCount:   90, // 45% — would fire, but RSSI is weak
+			RSSI:         -80,
+		}
+		engine.Analyze(context.Background(), device)
+		alerts := engine.GetAlerts(context.Background())
+		for _, alert := range alerts {
+			if alert.Subtype == "HIGH_RETRY_RATE" && alert.DeviceMAC == "00:11:22:33:44:AA" {
+				t.Error("Should NOT alert for high retries at weak signal")
+			}
+		}
+	})
+
+	t.Run("Karma Detection", func(t *testing.T) {
+		// 20 total probes with 5 recent ones — meets both thresholds
+		now := time.Now()
+		old := now.Add(-10 * time.Minute)
+		probes := make(map[string]time.Time)
+		for i := 0; i < 15; i++ {
+			probes[fmt.Sprintf("OldNet%d", i)] = old
+		}
+		for i := 0; i < 5; i++ {
+			probes[fmt.Sprintf("RecentNet%d", i)] = now
+		}
+		device := domain.Device{
+			MAC:         "AA:BB:CC:DD:EE:FF",
+			Type:        "station",
+			ProbedSSIDs: probes,
 		}
 
 		engine.Analyze(context.Background(), device)
@@ -97,11 +122,32 @@ func TestSecurityEngine_Intelligence(t *testing.T) {
 		assert.True(t, found, "Expected KARMA_DETECTION alert")
 	})
 
+	t.Run("Karma Detection suppressed for stale history only", func(t *testing.T) {
+		old := time.Now().Add(-10 * time.Minute)
+		probes := make(map[string]time.Time)
+		for i := 0; i < 20; i++ {
+			probes[fmt.Sprintf("OldNet%d", i)] = old
+		}
+		device := domain.Device{
+			MAC:         "AA:BB:CC:DD:EE:00",
+			Type:        "station",
+			ProbedSSIDs: probes,
+		}
+		engine.Analyze(context.Background(), device)
+		alerts := engine.GetAlerts(context.Background())
+		for _, alert := range alerts {
+			if alert.Subtype == "KARMA_DETECTION" && alert.DeviceMAC == "AA:BB:CC:DD:EE:00" {
+				t.Error("Should NOT alert when all probes are stale")
+			}
+		}
+	})
+
 	t.Run("AP Karma Detection (Mana)", func(t *testing.T) {
+		// 4 distinct SSIDs meets the new threshold (2 was too low — normal for home routers)
 		device := domain.Device{
 			MAC:           "11:22:33:44:55:66",
 			Type:          "ap",
-			ObservedSSIDs: []string{"FreeWiFi", "Corporate"},
+			ObservedSSIDs: []string{"FreeWiFi", "Corporate", "Guest", "Hidden"},
 		}
 
 		engine.Analyze(context.Background(), device)
@@ -112,11 +158,27 @@ func TestSecurityEngine_Intelligence(t *testing.T) {
 			if alert.Subtype == "KARMA_AP_DETECTED" && alert.DeviceMAC == "11:22:33:44:55:66" {
 				found = true
 				assert.Equal(t, "Critical", alert.Severity)
-				assert.Contains(t, alert.Details, "broadcasting 2 distinct SSIDs")
+				assert.Contains(t, alert.Details, "4 distinct SSIDs")
 				break
 			}
 		}
 		assert.True(t, found, "Expected KARMA_AP_DETECTED alert")
+	})
+
+	t.Run("AP Karma Detection suppressed below threshold", func(t *testing.T) {
+		// 2 SSIDs is normal for any AP with a guest network — should NOT fire
+		device := domain.Device{
+			MAC:           "11:22:33:44:55:77",
+			Type:          "ap",
+			ObservedSSIDs: []string{"Home", "HomeGuest"},
+		}
+		engine.Analyze(context.Background(), device)
+		alerts := engine.GetAlerts(context.Background())
+		for _, alert := range alerts {
+			if alert.Subtype == "KARMA_AP_DETECTED" && alert.DeviceMAC == "11:22:33:44:55:77" {
+				t.Error("Should NOT alert for AP with only 2 SSIDs (normal VAP setup)")
+			}
+		}
 	})
 
 	t.Run("Evil Twin Detection", func(t *testing.T) {

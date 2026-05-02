@@ -20,7 +20,8 @@ type Alert struct {
 	Subtype   string    `json:"subtype,omitempty"`
 	TargetMAC string    `json:"target_mac,omitempty"`
 	Details   string    `json:"details,omitempty"`
-	RuleID    string    `json:"rule_id,omitempty"`
+	RuleID        string    `json:"rule_id,omitempty"`
+	HandshakeFile string    `json:"handshake_file,omitempty"`
 }
 
 type AlertRule struct {

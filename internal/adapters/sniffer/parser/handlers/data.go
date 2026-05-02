@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log"
 	"time"
 
 	"github.com/google/gopacket"
@@ -21,7 +22,6 @@ func (h *DataHandler) Process(packet gopacket.Packet, dot11 *layers.Dot11, devic
 	isToDS := dot11.Flags.ToDS()
 	isFromDS := dot11.Flags.FromDS()
 	payloadLen := int64(len(packet.Data()))
-
 	retryVal := 0
 	if dot11.Flags.Retry() {
 		retryVal = 1
@@ -53,6 +53,7 @@ func (h *DataHandler) Process(packet gopacket.Packet, dot11 *layers.Dot11, devic
 		newState, newTarget := h.StateManager.UpdateState(device.MAC, event)
 		device.ConnectionState = newState
 		device.ConnectionTarget = newTarget
+		log.Printf("[DATA] STA→AP upload: sta=%s bssid=%s state=%s target=%s", device.MAC, target, newState, newTarget)
 
 		device.DataTransmitted = payloadLen
 		device.PacketsCount = 1
@@ -66,6 +67,7 @@ func (h *DataHandler) Process(packet gopacket.Packet, dot11 *layers.Dot11, devic
 		// Download: AP -> STA
 		// Avoid multicast/broadcast destinations
 		if len(dot11.Address1) > 0 && (dot11.Address1[0]&0x01) == 1 {
+			log.Printf("[DATA] SKIP multicast/broadcast AP→STA: dst=%s bssid=%s", dot11.Address1, dot11.Address2)
 			return nil, nil
 		}
 
@@ -93,6 +95,7 @@ func (h *DataHandler) Process(packet gopacket.Packet, dot11 *layers.Dot11, devic
 		newState, newTarget := h.StateManager.UpdateState(device.MAC, event)
 		device.ConnectionState = newState
 		device.ConnectionTarget = newTarget
+		log.Printf("[DATA] AP→STA download: sta=%s bssid=%s state=%s target=%s", device.MAC, target, newState, newTarget)
 
 		device.DataReceived = payloadLen
 		device.PacketsCount = 1
@@ -103,5 +106,8 @@ func (h *DataHandler) Process(packet gopacket.Packet, dot11 *layers.Dot11, devic
 		return device, &event
 	}
 
+	// ToDS=0, FromDS=0: IBSS/Ad-hoc or management-in-data; ToDS=1, FromDS=1: WDS bridge
+	log.Printf("[DATA] SKIP unhandled frame flags: toDS=%v fromDS=%v addr1=%s addr2=%s addr3=%s type=%s",
+		isToDS, isFromDS, dot11.Address1, dot11.Address2, dot11.Address3, dot11.Type)
 	return nil, nil
 }

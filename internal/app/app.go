@@ -173,6 +173,7 @@ func (app *Application) initServers(devRegistry *registry.DeviceRegistry) {
 	app.WebServer = webserver.NewServer(
 		app.Config.Addr,
 		app.NetworkService,
+		app.Config.NoFrontend,
 	)
 }
 

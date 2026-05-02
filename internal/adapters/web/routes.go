@@ -28,24 +28,31 @@ func SetupRoutes(s *Server) http.Handler {
 	mux.HandleFunc("POST /api/channels", s.API.HandleUpdateChannels)
 	mux.HandleFunc("GET /api/interfaces", s.API.HandleListInterfaces)
 
-	// Serve static files from embedded FS
-	staticFS, err := fs.Sub(webassets.DistFS, "dist")
-	if err != nil {
-		panic(err) // This should never happen if build is correct
-	}
-	fileServer := http.FileServer(http.FS(staticFS))
-
-	// Catch-all handler for SPA
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// If the path has a file extension, it's likely a static asset
-		if strings.Contains(r.URL.Path, ".") {
-			fileServer.ServeHTTP(w, r)
-			return
+	// Serve static files from embedded FS if frontend is enabled
+	if !s.NoFrontend {
+		staticFS, err := fs.Sub(webassets.DistFS, "dist")
+		if err != nil {
+			panic(err) // This should never happen if build is correct
 		}
-		// Otherwise, serve index.html for SPA routing
-		r.URL.Path = "/"
-		fileServer.ServeHTTP(w, r)
-	})
+		fileServer := http.FileServer(http.FS(staticFS))
+
+		// Catch-all handler for SPA
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			// If the path has a file extension, it's likely a static asset
+			if strings.Contains(r.URL.Path, ".") {
+				fileServer.ServeHTTP(w, r)
+				return
+			}
+			// Otherwise, serve index.html for SPA routing
+			r.URL.Path = "/"
+			fileServer.ServeHTTP(w, r)
+		})
+	} else {
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte("Frontend is disabled"))
+		})
+	}
 
 	// Apply Rate Limiting Middleware
 	limiter := NewRateLimiter(100, 1*time.Minute)

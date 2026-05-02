@@ -25,7 +25,7 @@ func getRegistry() *HandlerRegistry {
 }
 
 // ParseIEs extracts information from 802.11 Information Elements and populates the Device model.
-func ParseIEs(data []byte, device *domain.Device) {
+func ParseIEs(data []byte, device *domain.Device, ctx FrameContext) {
 	device.Security = "OPEN"
 	device.Standard = "802.11g/a" // baseline
 
@@ -35,7 +35,13 @@ func ParseIEs(data []byte, device *domain.Device) {
 		device.IETags = append(device.IETags, id)
 
 		if handler, found := reg.Get(id); found {
-			if err := handler.Handle(val, device); err != nil {
+			var err error
+			if ca, ok := handler.(ContextAwareHandler); ok {
+				err = ca.HandleWithContext(val, device, ctx)
+			} else {
+				err = handler.Handle(val, device)
+			}
+			if err != nil {
 				log.Printf("Warning: Failed to parse IE %d (len=%d): %v", id, len(val), err)
 			}
 		}

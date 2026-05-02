@@ -1,0 +1,115 @@
+.node-context-menu {
+  position: fixed;
+  z-index: 1100;
+  width: 210px;
+  background: rgba(7, 11, 22, 0.97);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  box-shadow:
+    0 16px 48px rgba(0, 0, 0, 0.75),
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 0 20px color-mix(in srgb, var(--type-color) 12%, transparent);
+  overflow: hidden;
+  animation: ncmEnter 0.12s cubic-bezier(0.34, 1.3, 0.64, 1);
+  user-select: none;
+}
+
+@keyframes ncmEnter {
+  from { opacity: 0; transform: scale(0.93) translateY(-6px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* ── Header ── */
+.ncm-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px 8px;
+}
+
+.ncm-header-label {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ncm-header-type {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--type-color);
+  background: var(--type-color-alpha);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--type-color) 30%, transparent);
+  flex-shrink: 0;
+}
+
+/* ── Divider ── */
+.ncm-divider {
+  height: 1px;
+  background: var(--glass-border-subtle);
+  margin: 0;
+}
+
+/* ── Actions ── */
+.ncm-actions {
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ncm-action {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 8px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-family: var(--font-family);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s ease, color 0.1s ease;
+}
+
+.ncm-action:hover {
+  background: rgba(6, 182, 212, 0.09);
+  color: var(--text-primary);
+}
+
+.ncm-action.danger {
+  color: var(--text-muted);
+}
+
+.ncm-action.danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--accent-red);
+}
+
+.ncm-action-icon {
+  font-size: 13px;
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+  opacity: 0.75;
+  line-height: 1;
+}
+
+.ncm-action:hover .ncm-action-icon {
+  opacity: 1;
+}
+
+.ncm-action-label {
+  flex: 1;
+  line-height: 1.3;
+}

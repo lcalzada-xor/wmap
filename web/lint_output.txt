@@ -1,0 +1,341 @@
+
+> web@0.0.0 lint
+> eslint .
+
+
+/home/llvch/Desktop/proyectos/wmap/web/src/App.tsx
+   66:7   error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/llvch/Desktop/proyectos/wmap/web/src/App.tsx:66:7
+  64 |   const graphData = useMemo<GraphData | null>(() => {
+  65 |     if (isWSGraphMessage(lastMessage)) {
+> 66 |       lastValidGraphDataRef.current = lastMessage.payload
+     |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Cannot update ref during render
+  67 |       return lastValidGraphDataRef.current
+  68 |     }
+  69 |     // Return the last known valid snapshot while WS is reconnecting                                                                                                                                                     react-hooks/refs
+   67:14  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/llvch/Desktop/proyectos/wmap/web/src/App.tsx:67:14
+  65 |     if (isWSGraphMessage(lastMessage)) {
+  66 |       lastValidGraphDataRef.current = lastMessage.payload
+> 67 |       return lastValidGraphDataRef.current
+     |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  68 |     }
+  69 |     // Return the last known valid snapshot while WS is reconnecting
+  70 |     return lastValidGraphDataRef.current                                                                                                                                                    react-hooks/refs
+   74:24  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/llvch/Desktop/proyectos/wmap/web/src/App.tsx:74:24
+  72 |
+  73 |   // Derive live counts from graph data
+> 74 |   const apCount      = graphData?.nodes.filter(n => n.group === 'ap').length      ?? 0
+     |                        ^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  75 |   const stationCount = graphData?.nodes.filter(n => n.group === 'station').length ?? 0
+  76 |   const networkCount = graphData?.nodes.filter(n => n.group === 'network').length ?? 0
+  77 |                                                                                                            react-hooks/refs
+   74:24  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/llvch/Desktop/proyectos/wmap/web/src/App.tsx:74:24
+  72 |
+  73 |   // Derive live counts from graph data
+> 74 |   const apCount      = graphData?.nodes.filter(n => n.group === 'ap').length      ?? 0
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  75 |   const stationCount = graphData?.nodes.filter(n => n.group === 'station').length ?? 0
+  76 |   const networkCount = graphData?.nodes.filter(n => n.group === 'network').length ?? 0
+  77 |                                                                                                     react-hooks/refs
+   74:24  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/llvch/Desktop/proyectos/wmap/web/src/App.tsx:74:24
+  72 |
+  73 |   // Derive live counts from graph data
+> 74 |   const apCount      = graphData?.nodes.filter(n => n.group === 'ap').length      ?? 0
+     |                        ^^^^^^^^^^^^^^^^ Passing a ref to a function may read its value during render
+  75 |   const stationCount = graphData?.nodes.filter(n => n.group === 'station').length ?? 0
+  76 |   const networkCount = graphData?.nodes.filter(n => n.group === 'network').length ?? 0
+  77 |                                                                                     react-hooks/refs
+   74:24  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/llvch/Desktop/proyectos/wmap/web/src/App.tsx:74:24
+  72 |
+  73 |   // Derive live counts from graph data
+> 74 |   const apCount      = graphData?.nodes.filter(n => n.group === 'ap').length      ?? 0
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^ Passing a ref to a function may read its value during render
+  75 |   const stationCount = graphData?.nodes.filter(n => n.group === 'station').length ?? 0
+  76 |   const networkCount = graphData?.nodes.filter(n => n.group === 'network').length ?? 0
+  77 |                                                                              react-hooks/refs
+   75:24  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/llvch/Desktop/proyectos/wmap/web/src/App.tsx:75:24
+  73 |   // Derive live counts from graph data
+  74 |   const apCount      = graphData?.nodes.filter(n => n.group === 'ap').length      ?? 0
+> 75 |   const stationCount = graphData?.nodes.filter(n => n.group === 'station').length ?? 0
+     |                        ^^^^^^^^^ Cannot access ref value during render
+  76 |   const networkCount = graphData?.nodes.filter(n => n.group === 'network').length ?? 0
+  77 |
+  78 |   // Status dot class reflects all three possible non-open states                                                 react-hooks/refs
+   75:24  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/llvch/Desktop/proyectos/wmap/web/src/App.tsx:75:24
+  73 |   // Derive live counts from graph data
+  74 |   const apCount      = graphData?.nodes.filter(n => n.group === 'ap').length      ?? 0
+> 75 |   const stationCount = graphData?.nodes.filter(n => n.group === 'station').length ?? 0
+     |                        ^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  76 |   const networkCount = graphData?.nodes.filter(n => n.group === 'network').length ?? 0
+  77 |
+  78 |   // Status dot class reflects all three possible non-open states                                          react-hooks/refs
+   75:24  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/llvch/Desktop/proyectos/wmap/web/src/App.tsx:75:24
+  73 |   // Derive live counts from graph data
+  74 |   const apCount      = graphData?.nodes.filter(n => n.group === 'ap').length      ?? 0
+> 75 |   const stationCount = graphData?.nodes.filter(n => n.group === 'station').length ?? 0
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  76 |   const networkCount = graphData?.nodes.filter(n => n.group === 'network').length ?? 0
+  77 |
+  78 |   // Status dot class reflects all three possible non-open states                                   react-hooks/refs
+   75:24  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/llvch/Desktop/proyectos/wmap/web/src/App.tsx:75:24
+  73 |   // Derive live counts from graph data
+  74 |   const apCount      = graphData?.nodes.filter(n => n.group === 'ap').length      ?? 0
+> 75 |   const stationCount = graphData?.nodes.filter(n => n.group === 'station').length ?? 0
+     |                        ^^^^^^^^^^^^^^^^ Passing a ref to a function may read its value during render
+  76 |   const networkCount = graphData?.nodes.filter(n => n.group === 'network').length ?? 0
+  77 |
+  78 |   // Status dot class reflects all three possible non-open states                   react-hooks/refs
+   75:24  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/llvch/Desktop/proyectos/wmap/web/src/App.tsx:75:24
+  73 |   // Derive live counts from graph data
+  74 |   const apCount      = graphData?.nodes.filter(n => n.group === 'ap').length      ?? 0
+> 75 |   const stationCount = graphData?.nodes.filter(n => n.group === 'station').length ?? 0
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^ Passing a ref to a function may read its value during render
+  76 |   const networkCount = graphData?.nodes.filter(n => n.group === 'network').length ?? 0
+  77 |
+  78 |   // Status dot class reflects all three possible non-open states            react-hooks/refs
+   76:24  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/llvch/Desktop/proyectos/wmap/web/src/App.tsx:76:24
+  74 |   const apCount      = graphData?.nodes.filter(n => n.group === 'ap').length      ?? 0
+  75 |   const stationCount = graphData?.nodes.filter(n => n.group === 'station').length ?? 0
+> 76 |   const networkCount = graphData?.nodes.filter(n => n.group === 'network').length ?? 0
+     |                        ^^^^^^^^^ Cannot access ref value during render
+  77 |
+  78 |   // Status dot class reflects all three possible non-open states
+  79 |   const statusDotClass = status === WSStatus.OPEN                                       react-hooks/refs
+   76:24  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/llvch/Desktop/proyectos/wmap/web/src/App.tsx:76:24
+  74 |   const apCount      = graphData?.nodes.filter(n => n.group === 'ap').length      ?? 0
+  75 |   const stationCount = graphData?.nodes.filter(n => n.group === 'station').length ?? 0
+> 76 |   const networkCount = graphData?.nodes.filter(n => n.group === 'network').length ?? 0
+     |                        ^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  77 |
+  78 |   // Status dot class reflects all three possible non-open states
+  79 |   const statusDotClass = status === WSStatus.OPEN                                react-hooks/refs
+   76:24  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/llvch/Desktop/proyectos/wmap/web/src/App.tsx:76:24
+  74 |   const apCount      = graphData?.nodes.filter(n => n.group === 'ap').length      ?? 0
+  75 |   const stationCount = graphData?.nodes.filter(n => n.group === 'station').length ?? 0
+> 76 |   const networkCount = graphData?.nodes.filter(n => n.group === 'network').length ?? 0
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  77 |
+  78 |   // Status dot class reflects all three possible non-open states
+  79 |   const statusDotClass = status === WSStatus.OPEN                         react-hooks/refs
+   76:24  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/llvch/Desktop/proyectos/wmap/web/src/App.tsx:76:24
+  74 |   const apCount      = graphData?.nodes.filter(n => n.group === 'ap').length      ?? 0
+  75 |   const stationCount = graphData?.nodes.filter(n => n.group === 'station').length ?? 0
+> 76 |   const networkCount = graphData?.nodes.filter(n => n.group === 'network').length ?? 0
+     |                        ^^^^^^^^^^^^^^^^ Passing a ref to a function may read its value during render
+  77 |
+  78 |   // Status dot class reflects all three possible non-open states
+  79 |   const statusDotClass = status === WSStatus.OPEN         react-hooks/refs
+   76:24  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/llvch/Desktop/proyectos/wmap/web/src/App.tsx:76:24
+  74 |   const apCount      = graphData?.nodes.filter(n => n.group === 'ap').length      ?? 0
+  75 |   const stationCount = graphData?.nodes.filter(n => n.group === 'station').length ?? 0
+> 76 |   const networkCount = graphData?.nodes.filter(n => n.group === 'network').length ?? 0
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^ Passing a ref to a function may read its value during render
+  77 |
+  78 |   // Status dot class reflects all three possible non-open states
+  79 |   const statusDotClass = status === WSStatus.OPEN  react-hooks/refs
+   90:33  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/llvch/Desktop/proyectos/wmap/web/src/App.tsx:90:33
+  88 |       {/* 1. Underlying Graph Layer */}
+  89 |       <div className="graph-layer">
+> 90 |         <DeviceGraph graphData={graphData} />
+     |                                 ^^^^^^^^^ Cannot access ref value during render
+  91 |       </div>
+  92 |
+  93 |       {/* 2. Floating HUD Overlay Layer */}                                                                                                                                                                                                                                    react-hooks/refs
+  161:53  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/llvch/Desktop/proyectos/wmap/web/src/App.tsx:161:53
+  159 |                 <div className="stat-card">
+  160 |                   <div className="stat-card-label">Edges</div>
+> 161 |                   <div className="stat-card-value">{graphData?.edges.length ?? 0}</div>
+      |                                                     ^^^^^^^^^ Cannot access ref value during render
+  162 |                 </div>
+  163 |               </Tilt>
+  164 |             </div>                                                                                                                        react-hooks/refs
+  161:53  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/llvch/Desktop/proyectos/wmap/web/src/App.tsx:161:53
+  159 |                 <div className="stat-card">
+  160 |                   <div className="stat-card-label">Edges</div>
+> 161 |                   <div className="stat-card-value">{graphData?.edges.length ?? 0}</div>
+      |                                                     ^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  162 |                 </div>
+  163 |               </Tilt>
+  164 |             </div>                                                                                                                 react-hooks/refs
+  161:53  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/llvch/Desktop/proyectos/wmap/web/src/App.tsx:161:53
+  159 |                 <div className="stat-card">
+  160 |                   <div className="stat-card-label">Edges</div>
+> 161 |                   <div className="stat-card-value">{graphData?.edges.length ?? 0}</div>
+      |                                                     ^^^^^^^^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  162 |                 </div>
+  163 |               </Tilt>
+  164 |             </div>                                                                                                          react-hooks/refs
+  161:53  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/llvch/Desktop/proyectos/wmap/web/src/App.tsx:161:53
+  159 |                 <div className="stat-card">
+  160 |                   <div className="stat-card-label">Edges</div>
+> 161 |                   <div className="stat-card-value">{graphData?.edges.length ?? 0}</div>
+      |                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  162 |                 </div>
+  163 |               </Tilt>
+  164 |             </div>                                                                                                     react-hooks/refs
+  171:20  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/llvch/Desktop/proyectos/wmap/web/src/App.tsx:171:20
+  169 |                 <p className="data-panel-title">Latest Frame</p>
+  170 |                 <pre>
+> 171 |                   {graphData
+      |                    ^^^^^^^^^ Cannot access ref value during render
+  172 |                     ? `Nodes: ${graphData.nodes.length}\nEdges: ${graphData.edges.length}\nAPs:   ${apCount}\nSTAs:  ${stationCount}`
+  173 |                     : 'Awaiting data...'}
+  174 |                 </pre>                                                                                                 react-hooks/refs
+  172:33  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/llvch/Desktop/proyectos/wmap/web/src/App.tsx:172:33
+  170 |                 <pre>
+  171 |                   {graphData
+> 172 |                     ? `Nodes: ${graphData.nodes.length}\nEdges: ${graphData.edges.length}\nAPs:   ${apCount}\nSTAs:  ${stationCount}`
+      |                                 ^^^^^^^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  173 |                     : 'Awaiting data...'}
+  174 |                 </pre>
+  175 |               </div>                                                                                                                   react-hooks/refs
+  172:67  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/llvch/Desktop/proyectos/wmap/web/src/App.tsx:172:67
+  170 |                 <pre>
+  171 |                   {graphData
+> 172 |                     ? `Nodes: ${graphData.nodes.length}\nEdges: ${graphData.edges.length}\nAPs:   ${apCount}\nSTAs:  ${stationCount}`
+      |                                                                   ^^^^^^^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  173 |                     : 'Awaiting data...'}
+  174 |                 </pre>
+  175 |               </div>                                                                                 react-hooks/refs
+
+/home/llvch/Desktop/proyectos/wmap/web/src/components/graph/DeviceGraph.tsx
+  83:30  error  'e' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/llvch/Desktop/proyectos/wmap/web/src/components/graph/GraphDataBridge.tsx
+  139:20  error  'e' is defined but never used  @typescript-eslint/no-unused-vars
+  147:20  error  'e' is defined but never used  @typescript-eslint/no-unused-vars
+  147:23  error  Empty block statement          no-empty
+  159:16  error  'e' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/llvch/Desktop/proyectos/wmap/web/src/hooks/useWebSocket.ts
+  56:18  error    'e' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              @typescript-eslint/no-unused-vars
+  67:13  error    Error: Cannot access variable before it is declared
+
+`connect` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+/home/llvch/Desktop/proyectos/wmap/web/src/hooks/useWebSocket.ts:67:13
+  65 |         if (shouldReconnect) {
+  66 |           reconnectTimerRef.current = window.setTimeout(() => {
+> 67 |             connect();
+     |             ^^^^^^^ `connect` accessed before it is declared
+  68 |           }, interval);
+  69 |         }
+  70 |       };
+
+/home/llvch/Desktop/proyectos/wmap/web/src/hooks/useWebSocket.ts:38:3
+  36 |   }, [url, reconnect, reconnectInterval]);
+  37 |
+> 38 |   const connect = useCallback(() => {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 39 |     if (wsRef.current?.readyState === WebSocket.OPEN) return;
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 40 |
+     …
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 84 |   // eslint-disable-next-line react-hooks/exhaustive-deps
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 85 |   }, []);
+     | ^^^^^^^^^^ `connect` is declared here
+  86 |
+  87 |   const sendMessage = useCallback((msg: unknown) => {
+  88 |     if (wsRef.current?.readyState === WebSocket.OPEN) {  react-hooks/immutability
+  84:3   warning  Unused eslint-disable directive (no problems were reported from 'react-hooks/exhaustive-deps')
+
+✖ 32 problems (31 errors, 1 warning)
+  0 errors and 1 warning potentially fixable with the `--fix` option.
+

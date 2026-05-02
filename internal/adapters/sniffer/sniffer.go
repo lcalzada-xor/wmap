@@ -54,6 +54,12 @@ type Sniffer struct {
 
 	monitor    *monitor.DeviceMonitor
 	Metrics    *metrics.Collector
+	chanFreq   map[int]int // channel → MHz, kept for hopper recreation
+
+	// Ready is closed once the pcap engine has successfully opened the handle.
+	// The manager uses this to delay injector socket creation until after
+	// rfmon is active (opening AF_PACKET before SetRFMon breaks several drivers).
+	Ready chan struct{}
 
 	appPacketsDropped atomic.Int64 // Lock-free metrics counter
 }
@@ -61,6 +67,7 @@ type Sniffer struct {
 // New creates a new Sniffer instance.
 func New(config SnifferConfig, out chan<- domain.Device, alerts chan<- domain.Alert, events chan<- domain.ConnectionEvent, hm *handshake.HandshakeManager, repo fingerprint.VendorRepository) *Sniffer {
 	s := &Sniffer{
+		Ready:      make(chan struct{}),
 		Config:     config,
 		Output:     out,
 		Alerts:     alerts,
@@ -70,27 +77,34 @@ func New(config SnifferConfig, out chan<- domain.Device, alerts chan<- domain.Al
 	}
 	s.Metrics = metrics.NewCollector(&s.appPacketsDropped)
 
-	// Create handler with pause callback
 	s.handler = parser.NewPacketHandler(config.Debug, hm, repo, s.PauseHopper)
 
 	// Initialize Hopper
 	targetChans := config.Channels
-	if len(targetChans) == 0 {
-		// If no channels provided, try to get all supported from hardware
-		if caps := s.monitor.GetCapabilities(); caps != nil && len(caps.SupportedChannels) > 0 {
+	if caps := s.monitor.GetCapabilities(); caps != nil {
+		if len(targetChans) == 0 && len(caps.SupportedChannels) > 0 {
 			targetChans = caps.SupportedChannels
 		}
+		s.chanFreq = caps.ChannelFreq
 	}
 
 	if len(targetChans) > 0 {
-		dwell := time.Duration(config.DwellTime) * time.Millisecond
-		if dwell == 0 {
-			dwell = 300 * time.Millisecond
-		}
-		s.Hopper = hopping.NewHopper(config.Interface, targetChans, dwell, nil)
+		s.Hopper = s.newHopper(config.Interface, targetChans)
 	}
 
 	return s
+}
+
+// newHopper creates a ChannelHopper with the correct switcher for iface,
+// including the channel→frequency map needed for DFS channels.
+func (s *Sniffer) newHopper(iface string, channels []int) *hopping.ChannelHopper {
+	dwell := time.Duration(s.Config.DwellTime) * time.Millisecond
+	if dwell == 0 {
+		dwell = 300 * time.Millisecond
+	}
+	sw := hopping.NewLinuxChannelSwitcher()
+	sw.ChannelFreq = s.chanFreq
+	return hopping.NewHopper(iface, channels, dwell, sw)
 }
 
 // Close stops the sniffer and releases resources.
@@ -114,11 +128,15 @@ func (s *Sniffer) Start(ctx context.Context) (err error) {
 		}
 	}()
 
-	engine := pcapcapture.NewEngine(s.Config.Interface, "", s.Config.PcapPath) // Relaxed BPF for debugging
+	engine := pcapcapture.NewEngine(s.Config.Interface, "", s.Config.PcapPath)
 	packetChan, handle, err := engine.Start(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("capture engine failed on %s: %w", s.Config.Interface, err)
 	}
+
+	// Signal that the pcap handle is open. Consumers waiting on Ready (e.g.
+	// the injector) can now open their own sockets without racing SetRFMon.
+	close(s.Ready)
 
 	// Store handle for metrics collection
 	s.handle = handle
@@ -134,10 +152,19 @@ func (s *Sniffer) Start(ctx context.Context) (err error) {
 		go func() {
 			select {
 			case <-time.After(500 * time.Millisecond):
+				mode, _, err := driver.GetInterfaceCurrentConfig(s.Config.Interface)
+				if err == nil {
+					log.Printf("[HOPPER] Starting on %s — current mode=%s channels=%v dwell=%dms",
+						s.Config.Interface, mode, s.Hopper.GetChannels(), s.Config.DwellTime)
+				} else {
+					log.Printf("[HOPPER] Starting on %s — could not read current mode: %v", s.Config.Interface, err)
+				}
 				s.Hopper.Start()
 			case <-ctx.Done():
 			}
 		}()
+	} else {
+		log.Printf("[HOPPER] No hopper configured for %s — interface will stay on its current channel", s.Config.Interface)
 	}
 
 	// Worker Pool setup
@@ -294,12 +321,7 @@ func (s *Sniffer) SetInterfaceChannels(iface string, channels []int) {
 
 	// Case 3: Hopper doesn't exist but channels provided -> Start new Hopper
 	log.Printf("Starting new hopper on %s with channels: %v", iface, channels)
-	dwell := time.Duration(s.Config.DwellTime) * time.Millisecond
-	if dwell == 0 {
-		dwell = 300 * time.Millisecond
-	}
-	s.Hopper = hopping.NewHopper(iface, channels, dwell, nil)
-	// Start in goroutine
+	s.Hopper = s.newHopper(iface, channels)
 	go s.Hopper.Start()
 }
 
@@ -319,11 +341,17 @@ func (s *Sniffer) GetInterfaceDetails() []domain.InterfaceInfo {
 		m = s.Metrics.GetMetrics()
 	}
 
+	currentCh := 0
+	if s.Hopper != nil {
+		currentCh = s.Hopper.GetCurrentChannel()
+	}
+
 	return []domain.InterfaceInfo{{
 		Name:            s.Config.Interface,
 		MAC:             mac,
 		Capabilities:    caps,
 		CurrentChannels: s.GetChannels(),
+		CurrentChannel:  currentCh,
 		Metrics:         m,
 	}}
 }
@@ -365,8 +393,6 @@ func (s *Sniffer) ExecuteWithLock(ctx context.Context, iface string, channel int
 
 	return action()
 }
-
-
 
 // PauseHopper pauses the channel hopper for a duration.
 func (s *Sniffer) PauseHopper(duration time.Duration) {

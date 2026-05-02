@@ -59,7 +59,7 @@ Wiphy phy0
 	// Inject Mock
 	driver.SetExecutor(mockExec)
 
-	bands, channels, err := driver.GetInterfaceCapabilities("wlan0")
+	bands, channels, _, err := driver.GetInterfaceCapabilities("wlan0")
 	assert.NoError(t, err)
 
 	// Verify Channels

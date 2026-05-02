@@ -28,7 +28,7 @@ type CapabilityProvider interface {
 type driverCapabilityProvider struct{}
 
 func (driverCapabilityProvider) GetCapabilities(iface string) ([]int, error) {
-	_, chans, err := driver.GetInterfaceCapabilities(iface)
+	_, chans, _, err := driver.GetInterfaceCapabilities(iface)
 	return chans, err
 }
 
@@ -173,13 +173,6 @@ func (m *SnifferManager) Start(ctx context.Context) error {
 			m.RadioManager.RegisterHandler(iface, sniff)
 		}
 
-		inj, err := injection.NewInjector(iface)
-		if err != nil {
-			log.Printf("sniffer: warning: failed to initialize injector for %s: %v", iface, err)
-		} else {
-			m.injectors[iface] = inj
-		}
-
 		m.wg.Add(1)
 		go m.runSniffer(ctx, sniff, iface)
 	}
@@ -206,6 +199,25 @@ func (m *SnifferManager) runSniffer(ctx context.Context, s *Sniffer, iface strin
 	m.mu.Lock()
 	m.statuses[iface] = &SnifferStatus{Interface: iface, Status: "starting"}
 	m.mu.Unlock()
+
+	// Create the injector only after pcap has opened the handle with rfmon.
+	// Opening an AF_PACKET raw socket before SetRFMon activates interferes
+	// with rfmon on several drivers (ath9k_htc, rt2800usb, mt76usb).
+	go func() {
+		select {
+		case <-s.Ready:
+		case <-ctx.Done():
+			return
+		}
+		inj, err := injection.NewInjector(iface)
+		if err != nil {
+			log.Printf("sniffer: warning: failed to initialize injector for %s: %v", iface, err)
+			return
+		}
+		m.mu.Lock()
+		m.injectors[iface] = inj
+		m.mu.Unlock()
+	}()
 
 	if err := s.Start(ctx); err != nil {
 		m.mu.Lock()

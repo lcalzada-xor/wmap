@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"log"
 
 	"github.com/lcalzada-xor/wmap/internal/core/domain"
 	"github.com/lcalzada-xor/wmap/internal/core/ports"
@@ -115,6 +116,13 @@ func (b *GraphBuilder) BuildGraph(ctx context.Context) domain.GraphData {
 		}
 
 		// 3. Connection Edges
+		if device.ConnectionTarget == "" {
+			if device.ConnectionState != "" && device.ConnectionState != domain.StateDisconnected {
+				log.Printf("[GRAPH] SKIP connection edge: mac=%s state=%s — ConnectionTarget is empty", device.MAC, device.ConnectionState)
+			}
+		} else if device.ConnectionState == domain.StateDisconnected {
+			log.Printf("[GRAPH] SKIP connection edge: mac=%s target=%s — state is disconnected", device.MAC, device.ConnectionTarget)
+		}
 		if device.ConnectionTarget != "" && device.ConnectionState != domain.StateDisconnected {
 			isDashed := false
 			edgeLabel := ""
@@ -146,6 +154,8 @@ func (b *GraphBuilder) BuildGraph(ctx context.Context) domain.GraphData {
 				edgeColor = b.config.Colors.AuthFailed
 			}
 
+			log.Printf("[GRAPH] EDGE connection: sta=%s → ap=%s state=%s dashed=%v label=%q",
+				device.MAC, device.ConnectionTarget, device.ConnectionState, isDashed, edgeLabel)
 			edges = append(edges, domain.GraphEdge{
 				From:   "dev_" + device.MAC,
 				To:     "dev_" + device.ConnectionTarget,

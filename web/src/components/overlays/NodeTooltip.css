@@ -1,0 +1,197 @@
+.node-tooltip {
+  position: absolute;
+  width: 240px;
+  background: rgba(6, 10, 22, 0.88);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--type-color-alpha, rgba(6, 182, 212, 0.27));
+  border-radius: 14px;
+  color: white;
+  pointer-events: none;
+  z-index: 1000;
+  overflow: hidden;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.6),
+              0 0 0 1px var(--type-color-alpha-low, rgba(6, 182, 212, 0.13)),
+              inset 0 1px 0 rgba(255,255,255,0.06);
+  animation: tooltipFadeIn 0.15s ease-out;
+}
+
+@keyframes tooltipFadeIn {
+  from { opacity: 0; transform: translate3d(var(--tx, 18px), calc(var(--ty, 18px) + 8px), 0); }
+  to   { opacity: 1; transform: translate3d(var(--tx, 18px), var(--ty, 18px), 0); }
+}
+
+.tooltip-accent-bar {
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--type-color), transparent);
+}
+
+.tooltip-header {
+  padding: 10px 12px 8px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.tooltip-icon-wrapper {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--type-color-alpha-bg, rgba(6, 182, 212, 0.09));
+  border: 1px solid var(--type-color-alpha, rgba(6, 182, 212, 0.27));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.tooltip-title-container { overflow: hidden; }
+
+.tooltip-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: white;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tooltip-subtitle {
+  font-size: 9px;
+  color: var(--type-color);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-top: 1px;
+}
+
+.tooltip-body {
+  padding: 9px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.tooltip-stat-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.tooltip-stat-label {
+  font-size: 10px;
+  color: #5a7090;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.tooltip-stat-value {
+  font-size: 11px;
+  color: #a0b4cc;
+}
+
+.tooltip-stat-value.monospace {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  letter-spacing: 0.02em;
+}
+
+/* Signal panel */
+.tooltip-signal-panel {
+  background: rgba(0,0,0,0.25);
+  border-radius: 10px;
+  padding: 7px 11px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid rgba(255,255,255,0.03);
+}
+
+.tooltip-signal-info { display: flex; flex-direction: column; }
+
+.tooltip-signal-label {
+  font-size: 9px;
+  color: #5a7090;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.tooltip-signal-value {
+  font-size: 15px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.tooltip-signal-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.signal-bars { display: flex; align-items: flex-end; gap: 2px; height: 14px; }
+
+.signal-bar {
+  width: 4px;
+  border-radius: 1px;
+  background: rgba(255,255,255,0.07);
+}
+
+.signal-status-text {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Info grid (channel + security) */
+.tooltip-info-grid { display: flex; gap: 6px; }
+
+.tooltip-info-box {
+  flex: 1;
+  background: rgba(0,0,0,0.2);
+  border-radius: 7px;
+  padding: 5px 9px;
+  border: 1px solid rgba(255,255,255,0.03);
+}
+
+.tooltip-info-label {
+  font-size: 8px;
+  color: #5a7090;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 2px;
+}
+
+.tooltip-info-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: white;
+}
+
+.tooltip-info-value.small { font-size: 11px; }
+
+/* Badges */
+.tooltip-badge-container { display: flex; flex-wrap: wrap; gap: 4px; }
+
+.badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+
+/* Hint */
+.tooltip-hint {
+  font-size: 9px;
+  color: #3a5070;
+  text-align: right;
+  letter-spacing: 0.04em;
+  margin-top: 1px;
+}

@@ -50,6 +50,28 @@ func GetCurrentConfig(exec executor.CommandExecutor, iface string) (Config, erro
 	return cfg, nil
 }
 
+// GetPhy returns the underlying PHY name (e.g. "phy0") for iface.
+func GetPhy(exec executor.CommandExecutor, iface string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	out, err := exec.Execute(ctx, "iw", "dev", iface, "info")
+	if err != nil {
+		return "", fmt.Errorf("iw dev %s info: %w", iface, err)
+	}
+
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "wiphy ") {
+			// "wiphy 0" → "phy0"
+			num := strings.TrimPrefix(line, "wiphy ")
+			return "phy" + strings.TrimSpace(num), nil
+		}
+	}
+	return "", fmt.Errorf("could not find wiphy for %s", iface)
+}
+
 // GetDriverName reads the kernel driver name for iface via ethtool.
 func GetDriverName(exec executor.CommandExecutor, iface string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

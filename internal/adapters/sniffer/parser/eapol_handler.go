@@ -42,29 +42,27 @@ func (h *PacketHandler) handleHandshakeCapture(packet gopacket.Packet) (bool, *d
 		return false, nil
 	}
 
-	// Aggressive Pause: If we see EAPOL or Auth/Assoc, pause IMMEDIATELY
-	// to maximize chances of capturing the full 4-way handshake
 	if h.PauseCallback != nil {
 		h.PauseCallback(1500 * time.Millisecond)
 	}
 
 	saved := h.HandshakeManager.ProcessFrame(packet)
 	if saved {
-		// Trigger Reactive Hopping: Pause to capture more frames
 		if h.PauseCallback != nil {
 			h.PauseCallback(1500 * time.Millisecond)
 		}
-
 		bssid := dot11.Address3.String()
 
 		alert := &domain.Alert{
-			Type:      "HANDSHAKE_CAPTURED",
-			Subtype:   "WPA_HANDSHAKE",
-			DeviceMAC: dot11.Address2.String(), // Source (likely Station or AP)
-			TargetMAC: dot11.Address1.String(), // Dest
-			Timestamp: time.Now(),
-			Message:   "WPA Handshake Captured",
-			Details:   fmt.Sprintf("BSSID: %s", bssid),
+			Type:          "HANDSHAKE_CAPTURED",
+			Subtype:       "WPA_HANDSHAKE",
+			Severity:      "Warning",
+			DeviceMAC:     dot11.Address2.String(),
+			TargetMAC:     dot11.Address1.String(),
+			Timestamp:     time.Now(),
+			Message:       "WPA Handshake Captured",
+			Details:       fmt.Sprintf("BSSID: %s", bssid),
+			HandshakeFile: h.HandshakeManager.GetHandshakeFile(bssid),
 		}
 		return true, alert
 	}

@@ -14,6 +14,7 @@ type Config struct {
 	Interfaces        []string
 	Addr              string
 	MockMode          bool
+	NoFrontend        bool
 	DBPath            string
 	PcapPath          string
 	GRPCPort          int
@@ -38,11 +39,13 @@ func Load() *Config {
 	ifaceStr := getEnv("WMAP_INTERFACE", "wlan0")
 	cfg.Addr = getEnv("WMAP_ADDR", ":8080")
 	cfg.MockMode = getEnvBool("WMAP_MOCK", false)
+	cfg.NoFrontend = getEnvBool("WMAP_NO_FRONTEND", false)
 	cfg.GRPCPort = int(getEnvFloat("WMAP_GRPC", 9000))
 
 	flag.StringVar(&ifaceStr, "i", ifaceStr, "Network interface(s) in monitor mode (comma separated)")
 	flag.StringVar(&cfg.Addr, "addr", cfg.Addr, "HTTP server address")
 	flag.BoolVar(&cfg.MockMode, "mock", cfg.MockMode, "Run in mock mode (simulation)")
+	flag.BoolVar(&cfg.NoFrontend, "nofrontend", cfg.NoFrontend, "Disable the web frontend server")
 	flag.IntVar(&cfg.GRPCPort, "grpc", cfg.GRPCPort, "gRPC Server Port")
 	flag.BoolVar(&cfg.Debug, "debug", false, "Enable verbose debug logging")
 	flag.IntVar(&cfg.DwellTime, "dwell", 300, "Channel dwell time in milliseconds")
